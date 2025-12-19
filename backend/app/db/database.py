@@ -54,7 +54,7 @@ async def init_db():
         
         if not default_user:
             print("Seeding default user for MVP...")
-            default_user = User(id=1, email="test@example.com", hashed_password="hashed_password") 
+            default_user = User(id=1, email="test@example.com", password="hashed_password") 
             session.add(default_user)
             await session.commit()
             await session.refresh(default_user)
