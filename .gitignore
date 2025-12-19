@@ -14,7 +14,7 @@ __pycache__/
 env/
 venv/
 *.log
-backend/app/db/life_gotchi.db
+backend/app/db/pet_trainer.db
 
 # Docker
 docker-compose.override.yml

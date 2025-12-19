@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import 'package:life_gotchi_frontend/config.dart';
+import 'package:pet_trainer_frontend/config.dart';
 
 class SocketClient {
   WebSocketChannel? _channel;

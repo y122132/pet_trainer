@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "life_gotchi_frontend" "\0"
+            VALUE "FileDescription", "pet_trainer_frontend" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "life_gotchi_frontend" "\0"
+            VALUE "InternalName", "pet_trainer_frontend" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "life_gotchi_frontend.exe" "\0"
-            VALUE "ProductName", "life_gotchi_frontend" "\0"
+            VALUE "OriginalFilename", "pet_trainer_frontend.exe" "\0"
+            VALUE "ProductName", "pet_trainer_frontend" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

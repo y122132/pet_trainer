@@ -27,7 +27,7 @@ async def reset_database():
         await session.commit()
         
         # Character
-        new_char = Character(user_id=1, name="LifeGotchi")
+        new_char = Character(user_id=1, name="PetTrainer")
         session.add(new_char)
         await session.commit()
         

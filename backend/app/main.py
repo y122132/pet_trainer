@@ -5,7 +5,7 @@ from app.sockets.analysis_socket import router as websocket_router
 from app.db.database import init_db
 from app.ai_core.vision import detector
 
-app = FastAPI(title="LifeGotchi API")
+app = FastAPI(title="PetTrainer API")
 
 # CORS Middleware
 app.add_middleware(
@@ -29,4 +29,4 @@ app.include_router(websocket_router)
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to LifeGotchi API"}
+    return {"message": "Welcome to PetTrainer API"}

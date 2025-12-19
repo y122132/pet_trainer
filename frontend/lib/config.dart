@@ -1,8 +1,10 @@
 class AppConfig {
   // [중요] AWS 탄력적 IP(Elastic IP) 또는 도메인을 여기에 입력하세요.
-  // 로컬 테스트 시: '192.168.0.x' 또는 'localhost'
-  // AWS 배포 시: '3.12.xxx.xxx' (할당받은 공인 IP)
-  static const String serverIp = '54.116.28.3'; 
+  /*  로컬 테스트 시: '192.168.0.x' 또는 'localhost'  */
+  static const String serverIp = 'localhost';
+  /*  AWS 배포 시: '3.12.xxx.xxx' (할당받은 공인 IP)  */
+  // static const String serverIp = '54.116.28.3'; 
+ 
   static const int serverPort = 8000;
 
   // HTTP 기본 URL

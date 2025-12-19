@@ -1,4 +1,4 @@
-# life_gotchi_frontend
+# pet_trainer_frontend
 
 A new Flutter project.
 

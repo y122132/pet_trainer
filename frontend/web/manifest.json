@@ -1,6 +1,6 @@
 {
-    "name": "life_gotchi_frontend",
-    "short_name": "life_gotchi_frontend",
+    "name": "pet_trainer_frontend",
+    "short_name": "pet_trainer_frontend",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

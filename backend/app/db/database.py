@@ -65,7 +65,7 @@ async def init_db():
         
         if not default_char:
             print("Seeding default character...")
-            default_char = Character(user_id=1, name="LifeGotchi", status="normal")
+            default_char = Character(user_id=1, name="PetTrainer", status="normal")
             session.add(default_char)
             await session.commit()
             await session.refresh(default_char)

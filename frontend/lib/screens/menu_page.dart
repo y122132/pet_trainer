@@ -21,7 +21,7 @@ class MenuPage extends StatelessWidget {
           children: [
             const SizedBox(height: 40),
             const Text(
-              "LifeGotchi",
+              "PetTrainer",
               style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.indigo),
             ),
             const SizedBox(height: 10),

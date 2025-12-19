@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.CAMERA"/>
 
     <application
-        android:label="life_gotchi_frontend"
+        android:label="pet_trainer_frontend"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

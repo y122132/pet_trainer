@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:life_gotchi_frontend/models/character.dart';
-import 'package:life_gotchi_frontend/models/pet_config.dart';
+import 'package:pet_trainer_frontend/models/character.dart';
+import 'package:pet_trainer_frontend/models/pet_config.dart';
 
-import 'package:life_gotchi_frontend/config.dart';
+import 'package:pet_trainer_frontend/config.dart';
 
 class CharProvider with ChangeNotifier {
   // 캐릭터 상태 데이터

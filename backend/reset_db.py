@@ -26,8 +26,8 @@ async def reset_database():
         session.add(new_user)
         
         # 2. Create Character
-        print("   - Creating Character 'LifeGotchi'...")
-        new_char = Character(user_id=1, name="LifeGotchi", status="normal")
+        print("   - Creating Character 'PetTrainer'...")
+        new_char = Character(user_id=1, name="PetTrainer", status="normal")
         session.add(new_char)
         await session.flush() # Ensure ID is generated
 
