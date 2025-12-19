@@ -1,0 +1,46 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_KEY }}
+          port: 22
+          script: |
+            # 1. 프로젝트 폴더로 이동 (경로는 사용자 환경에 맞게 수정 필요)
+            cd /home/ubuntu/life_gotchi
+            
+            # 2. 최신 코드 가져오기
+            git pull origin main
+            
+            # 3. 백엔드/프론트엔드 환경 파일 확인 (없으면 복사)
+            # cp .env_example .env (필요 시)
+            
+            # 4. Docker 서비스 재시작
+            # 기존 컨테이너 중지
+            sudo docker compose down
+            
+            # 이미지 재빌드 및 실행
+            sudo docker compose up -d --build --remove-orphans
+            
+            # 5. 불필요한 이미지 정리 (선택 사항)
+            sudo docker image prune -f
+
+            # 6. 상태 확인 (Health Check)
+            # 서버가 뜨는 시간을 고려해 5초 대기 후 상태 출력
+            sleep 5
+            sudo docker ps

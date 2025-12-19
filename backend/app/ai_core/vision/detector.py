@@ -1,0 +1,271 @@
+import cv2
+import numpy as np
+import base64
+from ultralytics import YOLO
+from app.core.pet_behavior_config import PET_BEHAVIORS, DEFAULT_BEHAVIOR
+
+# 전역 모델 변수 (최초 1회 로드)
+model_pose = None
+model_detect = None
+
+def load_models():
+    """
+    YOLO AI 모델을 로드합니다.
+    - model_pose: 교감 모드에서 사람의 위치/자세를 파악하기 위해 사용 (yolo11n-pose.pt)
+    - model_detect: 반려동물 및 사물 인식을 위해 사용 (yolo11n.pt)
+    """
+    global model_pose, model_detect
+    if model_pose is None:
+        print("Loading YOLO models... (AI 모델 로딩 중)")
+        model_pose = YOLO("yolo11n-pose.pt")
+        model_detect = YOLO("yolo11n.pt") 
+        print("YOLO models loaded. (로딩 완료)")
+    return model_pose, model_detect
+
+def calculate_iou(box1, box2):
+    """
+    두 박스 간의 IoU (Intersection over Union)를 계산합니다. (겹침 정도 파악)
+    box: [x1, y1, x2, y2] (정규화된 좌표)
+    """
+    xA = max(box1[0], box2[0])
+    yA = max(box1[1], box2[1])
+    xB = min(box1[2], box2[2])
+    yB = min(box1[3], box2[3])
+
+    # 교차 영역(Intersection)의 넓이
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    if interArea == 0: return 0.0
+
+    # 각 박스의 넓이
+    box1Area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    box2Area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+
+    # 합집합 영역(Union)
+    unionArea = box1Area + box2Area - interArea
+    if unionArea == 0: return 0.0
+
+    return interArea / unionArea
+
+def calculate_overlap_ratio(pet_box, obj_box):
+    """
+    물체가 반려동물 영역 안에 얼마나 들어와 있는지 계산 (포함 비율)
+    """
+    xA = max(pet_box[0], obj_box[0])
+    yA = max(pet_box[1], obj_box[1])
+    xB = min(pet_box[2], obj_box[2])
+    yB = min(pet_box[3], obj_box[3])
+    
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    objArea = (obj_box[2] - obj_box[0]) * (obj_box[3] - obj_box[1])
+    
+    if objArea == 0: return 0.0
+    return interArea / objArea # 물체 면적 대비 겹친 비율
+
+def process_frame(base64_image: str, mode: str = "playing", target_class_id: int = 16, difficulty: str = "easy") -> dict:
+    """
+    프론트엔드에서 전송된 프레임을 분석하여 반려동물의 행동을 판단합니다.
+    """
+    
+    # 1. Base64 이미지 디코딩
+    try:
+        decoded_data = base64.b64decode(base64_image)
+        np_data = np.frombuffer(decoded_data, np.uint8)
+        frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return {"success": False, "message": "이미지 디코딩 실패"}
+            
+    except Exception as e:
+        return {"success": False, "message": f"이미지 디코딩 에러: {str(e)}"}
+
+    height, width, _ = frame.shape
+
+    # ---------------------------------------------------------
+    # 2. 반려동물 & 사물 탐지 (YOLO Object Detection)
+    # ---------------------------------------------------------
+    
+    # 난이도 조절
+    det_conf = 0.5 if difficulty == "hard" else 0.4
+    
+    # 객체 탐지 수행
+    results_detect = model_detect(frame, conf=det_conf, verbose=False)
+    
+    found_pet = False
+    pet_box = [] # [x1, y1, x2, y2]
+    best_conf = 0.0
+    
+    props_detected = [] 
+    prop_boxes = {} # class_id -> [x1, y1, x2, y2]
+    
+    if results_detect and results_detect[0].boxes:
+        for box in results_detect[0].boxes:
+            cls_id = int(box.cls[0])
+            conf = float(box.conf[0])
+            
+            # 좌표 정규화 (0.0 ~ 1.0) 및 float 변환 (JSON 직렬화 오류 방지)
+            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+            nx1, ny1, nx2, ny2 = float(x1/width), float(y1/height), float(x2/width), float(y2/height)
+            current_box = [nx1, ny1, nx2, ny2]
+
+            # A. 반려동물 찾기
+            if cls_id == target_class_id:
+                if conf > best_conf:
+                    best_conf = conf
+                    found_pet = True
+                    pet_box = current_box
+            
+            # B. 관련 사물 찾기
+            if cls_id in [0, 29, 32, 39, 41, 45, 46, 47, 48, 49, 50, 51]:
+                props_detected.append(cls_id)
+                prop_boxes[cls_id] = current_box
+
+    # ---------------------------------------------------------
+    # 3. 로직 처리 (상호작용/Overlap 판단)
+    # ---------------------------------------------------------
+
+    if not found_pet:
+        return {
+            "success": False,
+            "message": "반려동물을 찾는 중... 🔍", 
+            "feedback_message": "pet_not_found",
+            "keypoints": [],
+            "width": width,
+            "height": height
+        }
+
+    # 행동 설정 가져오기
+    pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
+    mode_config = pet_config.get(mode, pet_config["playing"]) 
+    target_props = mode_config["targets"]
+    
+    # 타겟 물건 존재 여부 확인
+    has_target = any(p in props_detected for p in target_props)
+    
+    # 상호작용 여부 판단
+    is_interacting = False
+    distance_msg = ""
+    
+    if has_target:
+        # 가장 가까운(혹은 겹친) 타겟을 찾음
+        max_overlap = 0.0
+        min_distance = 9999.0
+        
+        pet_cx = (pet_box[0] + pet_box[2]) / 2
+        pet_cy = (pet_box[1] + pet_box[3]) / 2
+
+        for pid in target_props:
+            if pid in prop_boxes:
+                obj_box = prop_boxes[pid]
+                
+                # 1. 겹침 비율 계산 (식사 모드에서 중요)
+                overlap = calculate_overlap_ratio(pet_box, obj_box)
+                if overlap > max_overlap:
+                    max_overlap = overlap
+                    
+                # 2. 중심 거리 계산 (놀이 모드에서 중요)
+                obj_cx = (obj_box[0] + obj_box[2]) / 2
+                obj_cy = (obj_box[1] + obj_box[3]) / 2
+                dist = np.sqrt((pet_cx - obj_cx)**2 + (pet_cy - obj_cy)**2)
+                if dist < min_distance:
+                    min_distance = dist
+        
+        # 모드별 판단 기준 적용
+        if mode == "feeding":
+            # [식사] 겹침(Overlap)이 발생해야 함 (입이나 몸이 그릇을 가림)
+            # 기준: 물체가 10% 이상 반려동물 영역과 겹치거나, 거리가 매우 가까움
+            if max_overlap > 0.1 or min_distance < 0.15: 
+                is_interacting = True
+            else:
+                distance_msg = "그릇 가까이 가야 해요!"
+                
+        elif mode == "playing":
+            # [놀이] 거리가 가까우면 됨 
+            # 기준: 화면 너비의 25% 이내 접근
+            if min_distance < 0.25:
+                is_interacting = True
+            else:
+                distance_msg = "장난감과 너무 멀어요"
+                
+        elif mode == "interaction":
+            # [교감] 사람과 가까워야 함
+            if min_distance < 0.3:
+                is_interacting = True
+            else:
+                distance_msg = "주인님과 더 가까이!"
+    
+    # 난이도 'hard'일 경우 기준 강화
+    if difficulty == "hard" and is_interacting:
+        # 거리 기준을 더 좁힘 (이미 통과했어도 다시 검사)
+        if mode == "playing" and min_distance > 0.15:
+            is_interacting = False
+            distance_msg = "조금 더 가까이!"
+        elif mode == "feeding" and max_overlap < 0.3:
+            # 식사는 확실하게 겹쳐야 인정
+            is_interacting = False
+            distance_msg = "맛있게 먹는 모습 보여주세요!"
+
+    # --- 최종 결과 구성 ---
+    action_detected = None
+    base_reward = {}
+    bonus_points = 0
+    message = mode_config["fail_msg"]
+    feedback_message = mode_config["feedback_fail"]
+
+    # 시각화용 데이터
+    normalized_keypoints = []
+
+    if has_target:
+        if is_interacting:
+            # [성공]
+            message = mode_config["success_msg"]
+            feedback_message = mode_config["feedback_success"]
+            
+            if mode == "playing":
+                action_detected = "playing_fetch"
+                base_reward = {"stat_type": "strength", "value": 3}
+                bonus_points = 2
+            elif mode == "feeding":
+                action_detected = "feeding"
+                base_reward = {"stat_type": "health", "value": 3}
+                bonus_points = 1
+            elif mode == "interaction":
+                action_detected = "interaction_owner"
+                base_reward = {"stat_type": "happiness", "value": 4}
+                bonus_points = 3
+        else:
+            # [실패] 물건은 있으나 상호작용 안됨
+            message = distance_msg if distance_msg else "더 적극적으로 움직여보세요!"
+            feedback_message = "not_interacting"
+            
+        # [교감 모드] 사람 스켈레톤 추출
+        if mode == "interaction" and (0 in prop_boxes):
+            try:
+                results_pose = model_pose(frame, conf=0.45, classes=[0], verbose=False)
+                if results_pose and results_pose[0].keypoints is not None:
+                    if len(results_pose[0].keypoints.data) > 0:
+                         kps = results_pose[0].keypoints.data[0].cpu().numpy()
+                         for kp in kps:
+                             # kp: [x, y, conf]
+                             norm_x = float(kp[0]) / width
+                             norm_y = float(kp[1]) / height
+                             normalized_keypoints.append([norm_x, norm_y, float(kp[2])])
+            except: pass
+
+    else:
+        # [실패] 타겟 물건 없음
+        pass
+
+    return {
+        "success": (action_detected is not None),
+        "action_type": action_detected,
+        "message": message,
+        "feedback_message": feedback_message,
+        "keypoints": normalized_keypoints,
+        "skeleton_points": [],
+        "bbox": pet_box,
+        "width": width,
+        "height": height,
+        "conf_score": best_conf,
+        "base_reward": base_reward,
+        "bonus_points": bonus_points
+    }

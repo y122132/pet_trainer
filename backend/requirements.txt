@@ -1,0 +1,15 @@
+# Core
+fastapi
+uvicorn[standard]
+sqlalchemy
+asyncpg
+python-dotenv
+pydantic-settings
+python-multipart 
+opencv-python-headless
+
+# AI / LLM
+ultralytics
+langchain
+langgraph
+langchain_openai

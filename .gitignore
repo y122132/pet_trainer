@@ -1,0 +1,36 @@
+# System
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv
+env/
+venv/
+*.log
+backend/app/db/life_gotchi.db
+
+# Docker
+docker-compose.override.yml
+
+# Flutter / Frontend
+frontend/build/
+frontend/.dart_tool/
+frontend/.pub-cache/
+frontend/.packages
+frontend/pubspec.lock
+frontend/ios/.generated/
+frontend/android/.gradle
+frontend/android/local.properties
+frontend/ios/Flutter/Generated.xcconfig
+frontend/ios/Flutter/flutter_export_environment.sh
+
+# Keys and Secrets
+*.pem
+*.key
