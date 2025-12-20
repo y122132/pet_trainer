@@ -5,13 +5,14 @@ import 'package:pet_trainer_frontend/config.dart';
 
 class SocketClient {
   WebSocketChannel? _channel;
+  // 소켓 데이터를 UI로 중계하기 위한 Broadcast 스트림 컨트롤러
   final StreamController<dynamic> _streamController = StreamController<dynamic>.broadcast();
   
   // 현재 연결 상태
   bool _isConnected = false;
   bool get isConnected => _isConnected;
   
-  // 외부에서 구독할 스트림
+  // 외부(UI)에서 구독할 스트림
   Stream<dynamic> get stream => _streamController.stream;
 
   // 백엔드 주소 (Config에서 가져옴)
@@ -24,14 +25,14 @@ class SocketClient {
     if (_isConnected) return; // 이미 연결되어 있으면 무시
 
     try {
-      // URL 쿼리 파라미터 구성 (사용자 ID는 1로 고정)
+      // URL 쿼리 파라미터 구성 (사용자 ID는 1로 고정 - 추후 인증 연동 필요)
       final uri = Uri.parse('$_wsUrl/1?pet_type=$petType&difficulty=$difficulty');
       print("Socket Connecting to: $uri");
       
       _channel = WebSocketChannel.connect(uri);
       _isConnected = true;
 
-      // 채널로부터 메시지를 받아 컨트롤러로 전달
+      // 채널로부터 메시지를 받아 컨트롤러로 전달 (UI에서 listen 가능하도록)
       _channel!.stream.listen(
         (message) {
           _streamController.add(message);

@@ -10,7 +10,7 @@ class MenuPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Initial fetch
+    // 앱 시작 시 초기 데이터 로드 (캐릭터 정보)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<CharProvider>(context, listen: false).fetchCharacter(1);
     });
@@ -37,6 +37,7 @@ class MenuPage extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
+                    // 메인 메뉴 버튼들
                     _buildMenuButton(
                       context,
                       "🏠 마이룸",
@@ -69,6 +70,7 @@ class MenuPage extends StatelessWidget {
     );
   }
 
+  // 메뉴 버튼 위젯 생성 헬퍼
   Widget _buildMenuButton(BuildContext context, String title, String subtitle, Color color, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,

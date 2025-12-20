@@ -24,6 +24,7 @@ class ModeSelectPage extends StatelessWidget {
               const Text("훈련 모드를 선택하세요", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 40),
               
+              // 모드 선택 버튼들
               _buildModeCard(
                 context, 
                 "🎾 놀이", 
@@ -57,19 +58,22 @@ class ModeSelectPage extends StatelessWidget {
     );
   }
 
+  // 카메라 화면으로 이동하는 로직
   void _navigateToCamera(BuildContext context, String mode, String difficulty) async {
       try {
+        // 카메라 권한 및 사용 가능 여부 확인
         final cameras = await availableCameras();
         if (cameras.isEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("카메라 없음")));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("사용 가능한 카메라가 없습니다.")));
             return;
         }
+        // 카메라 화면으로 이동 (모드 및 난이도 전달)
         Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => CameraScreen(cameras: cameras, mode: mode, difficulty: difficulty)),
         );
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("카메라 오류: $e")));
       }
   }
 
@@ -104,6 +108,7 @@ class ModeSelectPage extends StatelessWidget {
     );
   }
 
+  // 난이도 선택 팝업 표시
   void _showDifficultyDialog(BuildContext parentContext, String mode) {
     showDialog(
       context: parentContext,
@@ -113,9 +118,9 @@ class ModeSelectPage extends StatelessWidget {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildDifficultyButton(dialogContext, parentContext, "Easy", Colors.green, mode, "easy"),
+              _buildDifficultyButton(dialogContext, parentContext, "Easy (쉬움)", Colors.green, mode, "easy"),
               const SizedBox(height: 10),
-              _buildDifficultyButton(dialogContext, parentContext, "Hard", Colors.redAccent, mode, "hard"),
+              _buildDifficultyButton(dialogContext, parentContext, "Hard (어려움)", Colors.redAccent, mode, "hard"),
             ],
           ),
         );
@@ -133,8 +138,8 @@ class ModeSelectPage extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
         onPressed: () {
-          Navigator.pop(dialogContext); // Close dialog using dialog context
-          _navigateToCamera(parentContext, mode, difficulty); // Navigate using persistent parent context
+          Navigator.pop(dialogContext); // 다이얼로그 닫기
+          _navigateToCamera(parentContext, mode, difficulty); // 카메라 화면으로 이동
         },
         child: Text(
           label, 

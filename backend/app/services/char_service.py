@@ -18,7 +18,7 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
         # 스탯이 없으면 중단 (실제 앱에서는 에러 처리 필요)
         return None
 
-    # 2. 행동 로그 저장
+    # 2. 행동 로그 저장 (히스토리 추적용)
     action_type = yolo_result.get("action_type", "unknown")
     
     action_log = ActionLog(
@@ -87,7 +87,7 @@ async def get_character_with_stats(db: AsyncSession, char_id: int):
     """
     캐릭터 정보와 스탯을 함께 조회합니다.
     """
-    # Eager Loading을 사용하여 스탯 정보까지 한번에 가져옴
+    # Eager Loading(selectinload)을 사용하여 연관된 스탯 정보까지 한번에 가져옴 (N+1 문제 방지)
     from sqlalchemy.orm import selectinload
     stmt = select(Character).options(selectinload(Character.stat)).where(Character.id == char_id)
     result = await db.execute(stmt)
@@ -96,11 +96,11 @@ async def get_character_with_stats(db: AsyncSession, char_id: int):
 
 async def create_character(db: AsyncSession, user_id: int, name: str):
     """
-    새로운 사용자와 캐릭터를 생성합니다. (초기 자산 지급)
+    새로운 사용자와 캐릭터를 생성합니다. (초기 자산 및 스탯 지급)
     """
     from app.db.models.user import User
 
-    # 1. 사용자 확인 또는 생성 (간소화된 로직)
+    # 1. 사용자 확인 또는 생성 (간소화된 MVP 로직)
     stmt = select(User).where(User.id == user_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
@@ -110,7 +110,7 @@ async def create_character(db: AsyncSession, user_id: int, name: str):
         db.add(user)
         await db.commit()
     
-    # 2. 기존 캐릭터 확인
+    # 2. 기존 캐릭터 확인 (중복 생성 방지)
     stmt = select(Character).where(Character.user_id == user_id)
     result = await db.execute(stmt)
     existing_char = result.scalar_one_or_none()
@@ -121,9 +121,9 @@ async def create_character(db: AsyncSession, user_id: int, name: str):
     # 3. 캐릭터 생성
     new_char = Character(user_id=user_id, name=name, status="normal")
     db.add(new_char)
-    await db.flush() # ID 생성을 위해 flush
+    await db.flush() # ID 생성을 위해 flush (commit 전 ID 확보)
     
-    # 4. 초기 스탯 생성
+    # 4. 초기 스탯 설정 (기본값)
     new_stat = Stat(
         character_id=new_char.id, 
         strength=10, 
@@ -142,7 +142,7 @@ async def create_character(db: AsyncSession, user_id: int, name: str):
 
 async def update_character_stats(db: AsyncSession, char_id: int, stats_update: dict):
     """
-    API 요청으로 캐릭터 스탯을 직접 수정합니다. (클라이언트 동기화용)
+    API 요청으로 캐릭터 스탯을 직접 수정합니다. (클라이언트 동기화 또는 포인트 분배용)
     """
     stmt = select(Stat).where(Stat.character_id == char_id)
     result = await db.execute(stmt)
@@ -151,7 +151,7 @@ async def update_character_stats(db: AsyncSession, char_id: int, stats_update: d
     if not stat:
         return None
         
-    # 전달된 필드만 업데이트
+    # 전달된 필드만 업데이트 (Partial Update)
     if "strength" in stats_update: stat.strength = stats_update["strength"]
     if "intelligence" in stats_update: stat.intelligence = stats_update["intelligence"]
     if "stamina" in stats_update: stat.stamina = stats_update["stamina"]

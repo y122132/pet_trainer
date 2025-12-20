@@ -10,32 +10,32 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Ensuring character data is loaded
+    // 캐릭터 데이터 로드 확인
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<CharProvider>(context, listen: false).fetchCharacter(1);
     });
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5FA), // Light grey background
+      backgroundColor: const Color(0xFFF5F5FA), // 연한 회색 배경
       body: SafeArea(
         child: Consumer<CharProvider>(
           builder: (context, provider, child) {
             return Column(
               children: [
-                // 1. Top Bar (Title + Messages)
+                // 1. 상단 바 (타이틀 + 메시지 버튼)
                 _buildTopBar(provider),
 
-                // 2. Main Content (Split Layout)
+                // 2. 메인 콘텐츠 (좌우 분할 레이아웃)
                 Expanded(
                   child: Row(
                     children: [
-                      // Left: Character Area (40%)
+                      // 왼쪽: 캐릭터 영역 (40%)
                       Expanded(
                         flex: 4,
                         child: _buildCharacterArea(provider),
                       ),
                       
-                      // Right: Stats & Chart Area (60%)
+                      // 오른쪽: 스탯 및 차트 영역 (60%)
                       Expanded(
                         flex: 6,
                         child: _buildStatsArea(context, provider),
@@ -44,7 +44,7 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
                 
-                // 3. Bottom Action Button (Floating or Fixed)
+                // 3. 하단 액션 버튼 (고정됨)
                 _buildBottomButton(context),
               ],
             );
@@ -54,13 +54,14 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  // 상단 바 위젯 생성
   Widget _buildTopBar(CharProvider provider) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Title Badge
+          // 타이틀 배지
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
@@ -75,7 +76,7 @@ class HomeScreen extends StatelessWidget {
                 const Icon(Icons.stars_rounded, color: Colors.amber, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  // Simple Title Logic based on STR
+                  // 근력(STR)을 기준으로 한 단순 칭호 로직
                   provider.strength > 50 ? "근육대장님" : "초보 트레이너",
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
@@ -83,7 +84,7 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
           
-          // Message Button
+          // 메시지 버튼 (알림함)
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -95,7 +96,7 @@ class HomeScreen extends StatelessWidget {
             child: IconButton(
               icon: const Icon(Icons.mail_outline_rounded, color: Colors.grey),
               onPressed: () {
-                // TODO: Open Message Box
+                // TODO: 메시지 보관함 열기 기능 구현
               },
             ),
           ),
@@ -104,11 +105,12 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  // 캐릭터 표시 영역 위젯
   Widget _buildCharacterArea(CharProvider provider) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // Character Image
+        // 캐릭터 이미지 (애니메이션 효과 포함)
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 500),
@@ -120,7 +122,7 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
         
-        // Nickname
+        // 닉네임 표시 박스
         Container(
           margin: const EdgeInsets.only(bottom: 20),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -138,6 +140,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  // 스탯 차트 영역 위젯
   Widget _buildStatsArea(BuildContext context, CharProvider provider) {
     final stats = provider.statsMap;
     final keys = stats.keys.toList();
@@ -154,7 +157,7 @@ class HomeScreen extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Radar Chart
+          // 레이더 차트 (육각형 스탯 그래프)
           AspectRatio(
             aspectRatio: 1.3,
             child: _buildRadarChart(stats),
@@ -162,7 +165,7 @@ class HomeScreen extends StatelessWidget {
           
           const Spacer(),
           
-          // Stat Bars
+          // 개별 스탯 바 (Stat Bars)
           ...keys.map((key) {
             return _buildStatRow(key, stats[key] ?? 0);
           }).toList(),
@@ -171,13 +174,14 @@ class HomeScreen extends StatelessWidget {
     );
   }
   
+  // 레이더 차트 생성 헬퍼
   Widget _buildRadarChart(Map<String, int> stats) {
-    // Normalize values to 0-100 for chart if not already
+    // 차트 데이터 정규화 (필요시 0-100 범위로 조정)
     List<RadarEntry> entries = stats.values.map((v) => RadarEntry(value: v.toDouble())).toList();
     
     return RadarChart(
       RadarChartData(
-        radarTouchData: RadarTouchData(enabled: false),
+        radarTouchData: RadarTouchData(enabled: false), // 터치 비활성화
         dataSets: [
           RadarDataSet(
             fillColor: Colors.blueAccent.withOpacity(0.2),
@@ -205,6 +209,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  // 개별 스탯 바 생성 헬퍼
   Widget _buildStatRow(String label, int value) {
     Color color = Colors.grey;
     if (label == "STR") color = Colors.redAccent;
@@ -223,7 +228,7 @@ class HomeScreen extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
-                value: value / 100,
+                value: value / 100, // 100 기준 퍼센트 계산
                 backgroundColor: Colors.grey.shade100,
                 color: color,
                 minHeight: 8,
@@ -237,6 +242,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
+  // 하단 버튼 ("오늘의 운동 시작하기")
   Widget _buildBottomButton(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
@@ -246,6 +252,7 @@ class HomeScreen extends StatelessWidget {
         child: ElevatedButton(
           onPressed: () async {
              try {
+                // 사용 가능한 카메라 확인 후 이동
                 final cameras = await availableCameras();
                 if (cameras.isEmpty) return;
                 Navigator.push(context, MaterialPageRoute(builder: (c) => CameraScreen(cameras: cameras)));

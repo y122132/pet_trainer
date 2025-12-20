@@ -1,10 +1,11 @@
+
 """
 반려동물 행동 설정 (Pet Behavior Configuration)
 각 반려동물의 YOLO Class ID와 해당 모드별 상호작용 대상(Target), 메시지 등을 정의합니다.
 이 파일을 수정하여 새로운 동물을 쉽게 추가할 수 있습니다.
 """
 
-# YOLO COCO Class ID 참조
+# YOLO COCO Class ID 참조 (주요 물체 ID)
 # 0: 사람 (person)
 # 16: 강아지 (dog)
 # 15: 고양이 (cat)
@@ -21,24 +22,24 @@
 # 51: 당근 (carrot)
 
 PET_BEHAVIORS = {
-    # --- DOG (ID: 16) ---
+    # --- DOG (강아지 - ID: 16) ---
     16: {
         "playing": {
-            "targets": [32, 29], # Sports Ball, Frisbee
+            "targets": [32, 29], # 대상 물체: 공, 프리스비
             "success_msg": "공놀이 중! 🎾",
             "fail_msg": "장난감(공)을 보여주세요",
-            "feedback_success": "반려동물이 즐거워해요!",
+            "feedback_success": "반려동물이 즐거워해요!", # AI 페르소나 피드백 키워드
             "feedback_fail": "toy_missing"
         },
         "feeding": {
-            "targets": [45, 41, 46, 47, 48, 49, 50, 51], # Bowl, Cup, Fruits
+            "targets": [45, 41, 46, 47, 48, 49, 50, 51], # 대상 물체: 그릇, 컵, 각종 과일/채소
             "success_msg": "맛있는 식사 시간 🥣",
             "fail_msg": "그릇이나 간식을 보여주세요",
             "feedback_success": "건강해지고 있어요!",
             "feedback_fail": "food_missing"
         },
         "interaction": {
-            "targets": [0], # Person
+            "targets": [0], # 대상 물체: 사람
             "success_msg": "주인과 교감 중 ❤️",
             "fail_msg": "반려동물과 함께 찍어주세요",
             "feedback_success": "행복도가 올라갑니다!",
@@ -46,24 +47,24 @@ PET_BEHAVIORS = {
         }
     },
     
-    # --- CAT (ID: 15) ---
+    # --- CAT (고양이 - ID: 15) ---
     15: {
         "playing": {
-            "targets": [39, 41, 29], # Bottle, Cup, Frisbee (Cats check things out)
+            "targets": [39, 41, 29], # 고양이는 병이나 컵, 원반 등 다양한 물체에 반응
             "success_msg": "사냥 놀이 중! 🎣",
             "fail_msg": "장난감을 보여주세요",
             "feedback_success": "냥냥펀치 날리기 직전!",
             "feedback_fail": "toy_missing"
         },
         "feeding": {
-            "targets": [45, 41], # Bowl, Cup (Milk?)
+            "targets": [45, 41], # 그릇, 컵 (우유 등)
             "success_msg": "냠냠 쩝쩝 🐟",
             "fail_msg": "밥그릇을 보여주세요",
             "feedback_success": "골골송 부르는 중...",
             "feedback_fail": "food_missing"
         },
         "interaction": {
-            "targets": [0], # Person
+            "targets": [0], # 사람 (집사)
             "success_msg": "집사와 함께 📸",
             "fail_msg": "집사님 어디 계세요?",
             "feedback_success": "그루밍 해주는 중?",
@@ -72,5 +73,6 @@ PET_BEHAVIORS = {
     }
 }
 
-# Default Behavior (Fallback to Dog logic if unknown pet)
+# 기본 행동 설정 (알 수 없는 동물이 감지되었을 때 강아지 로직 사용)
 DEFAULT_BEHAVIOR = PET_BEHAVIORS[16]
+

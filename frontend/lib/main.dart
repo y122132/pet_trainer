@@ -27,6 +27,7 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
+      // 앱의 시작 페이지는 메뉴 페이지입니다.
       home: const MenuPage(),
     );
   }

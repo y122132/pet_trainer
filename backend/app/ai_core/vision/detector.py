@@ -64,6 +64,15 @@ def calculate_overlap_ratio(pet_box, obj_box):
 def process_frame(base64_image: str, mode: str = "playing", target_class_id: int = 16, difficulty: str = "easy") -> dict:
     """
     프론트엔드에서 전송된 프레임을 분석하여 반려동물의 행동을 판단합니다.
+    
+    Args:
+        base64_image: Base64로 인코딩된 이미지 문자열
+        mode: 현재 게임 모드 ('playing', 'feeding', 'interaction')
+        target_class_id: 감지할 반려동물의 YOLO Class ID
+        difficulty: 난이도 설정
+        
+    Returns:
+        dict: 감지 결과, 성공 여부, 피드백 메시지 등
     """
     
     # 1. Base64 이미지 디코딩
@@ -84,14 +93,14 @@ def process_frame(base64_image: str, mode: str = "playing", target_class_id: int
     # 2. 반려동물 & 사물 탐지 (YOLO Object Detection)
     # ---------------------------------------------------------
     
-    # 난이도 조절
+    # 난이도에 따른 감지 임계값(Threshold) 조절
     det_conf = 0.5 if difficulty == "hard" else 0.4
     
-    # 객체 탐지 수행
+    # YOLO 추론 수행
     results_detect = model_detect(frame, conf=det_conf, verbose=False)
     
     found_pet = False
-    pet_box = [] # [x1, y1, x2, y2]
+    pet_box = [] # [x1, y1, x2, y2] (정규화된 좌표)
     best_conf = 0.0
     
     props_detected = [] 
@@ -102,19 +111,21 @@ def process_frame(base64_image: str, mode: str = "playing", target_class_id: int
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
             
-            # 좌표 정규화 (0.0 ~ 1.0) 및 float 변환 (JSON 직렬화 오류 방지)
+            # 좌표 정규화 (0.0 ~ 1.0) 
+            # 화면 크기가 달라도 일관된 처리를 위해 절대 좌표 대신 비율 사용
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             nx1, ny1, nx2, ny2 = float(x1/width), float(y1/height), float(x2/width), float(y2/height)
             current_box = [nx1, ny1, nx2, ny2]
 
-            # A. 반려동물 찾기
+            # A. 반려동물 찾기 (설정된 target_class_id와 일치하는지 확인)
             if cls_id == target_class_id:
-                if conf > best_conf:
+                if conf > best_conf: # 가장 신뢰도 높은 객체 선택
                     best_conf = conf
                     found_pet = True
                     pet_box = current_box
             
-            # B. 관련 사물 찾기
+            # B. 관련 사물 찾기 (공, 그릇, 사람 등)
+            # COCO 데이터셋 기준 ID 목록
             if cls_id in [0, 29, 32, 39, 41, 45, 46, 47, 48, 49, 50, 51]:
                 props_detected.append(cls_id)
                 prop_boxes[cls_id] = current_box
@@ -133,23 +144,24 @@ def process_frame(base64_image: str, mode: str = "playing", target_class_id: int
             "height": height
         }
 
-    # 행동 설정 가져오기
+    # 현재 모드에 필요한 타겟 물건 설정 가져오기
     pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
     mode_config = pet_config.get(mode, pet_config["playing"]) 
     target_props = mode_config["targets"]
     
-    # 타겟 물건 존재 여부 확인
+    # 화면에 타겟 물건이 하나라도 있는지 확인
     has_target = any(p in props_detected for p in target_props)
     
-    # 상호작용 여부 판단
+    # 상호작용 성공 여부 판단
     is_interacting = False
     distance_msg = ""
     
     if has_target:
-        # 가장 가까운(혹은 겹친) 타겟을 찾음
+        # 감지된 타겟들 중 가장 조건에 부합하는(가깝거나 겹친) 것 찾기
         max_overlap = 0.0
         min_distance = 9999.0
         
+        # 반려동물 중심점
         pet_cx = (pet_box[0] + pet_box[2]) / 2
         pet_cy = (pet_box[1] + pet_box[3]) / 2
 
@@ -157,19 +169,19 @@ def process_frame(base64_image: str, mode: str = "playing", target_class_id: int
             if pid in prop_boxes:
                 obj_box = prop_boxes[pid]
                 
-                # 1. 겹침 비율 계산 (식사 모드에서 중요)
+                # 1. 겹침 비율(IoU 유사) 계산 - 식사 모드에서 중요
                 overlap = calculate_overlap_ratio(pet_box, obj_box)
                 if overlap > max_overlap:
                     max_overlap = overlap
                     
-                # 2. 중심 거리 계산 (놀이 모드에서 중요)
+                # 2. 중심 거리 계산 (Euclidean Distance) - 놀이/교감 모드에서 중요
                 obj_cx = (obj_box[0] + obj_box[2]) / 2
                 obj_cy = (obj_box[1] + obj_box[3]) / 2
                 dist = np.sqrt((pet_cx - obj_cx)**2 + (pet_cy - obj_cy)**2)
                 if dist < min_distance:
                     min_distance = dist
         
-        # 모드별 판단 기준 적용
+        # [모드별 판단 로직]
         if mode == "feeding":
             # [식사] 겹침(Overlap)이 발생해야 함 (입이나 몸이 그릇을 가림)
             # 기준: 물체가 10% 이상 반려동물 영역과 겹치거나, 거리가 매우 가까움
@@ -187,20 +199,18 @@ def process_frame(base64_image: str, mode: str = "playing", target_class_id: int
                 distance_msg = "장난감과 너무 멀어요"
                 
         elif mode == "interaction":
-            # [교감] 사람과 가까워야 함
+            # [교감] 사람(주인)과 가까워야 함
             if min_distance < 0.3:
                 is_interacting = True
             else:
                 distance_msg = "주인님과 더 가까이!"
     
-    # 난이도 'hard'일 경우 기준 강화
+    # 난이도 'hard'일 경우 기준 강화 (더 엄격한 판정)
     if difficulty == "hard" and is_interacting:
-        # 거리 기준을 더 좁힘 (이미 통과했어도 다시 검사)
         if mode == "playing" and min_distance > 0.15:
             is_interacting = False
             distance_msg = "조금 더 가까이!"
         elif mode == "feeding" and max_overlap < 0.3:
-            # 식사는 확실하게 겹쳐야 인정
             is_interacting = False
             distance_msg = "맛있게 먹는 모습 보여주세요!"
 
@@ -211,15 +221,16 @@ def process_frame(base64_image: str, mode: str = "playing", target_class_id: int
     message = mode_config["fail_msg"]
     feedback_message = mode_config["feedback_fail"]
 
-    # 시각화용 데이터
+    # 시각화용 데이터 (스켈레톤 등)
     normalized_keypoints = []
 
     if has_target:
         if is_interacting:
-            # [성공]
+            # [성공 판정]
             message = mode_config["success_msg"]
             feedback_message = mode_config["feedback_success"]
             
+            # 보상 설정 (스탯 증가량)
             if mode == "playing":
                 action_detected = "playing_fetch"
                 base_reward = {"stat_type": "strength", "value": 3}
@@ -233,13 +244,14 @@ def process_frame(base64_image: str, mode: str = "playing", target_class_id: int
                 base_reward = {"stat_type": "happiness", "value": 4}
                 bonus_points = 3
         else:
-            # [실패] 물건은 있으나 상호작용 안됨
+            # [실패 판정] 물건은 있으나 상호작용 안됨
             message = distance_msg if distance_msg else "더 적극적으로 움직여보세요!"
             feedback_message = "not_interacting"
             
-        # [교감 모드] 사람 스켈레톤 추출
+        # [교감 모드 특수 처리] 사람 스켈레톤 추출하여 시각화 데이터로 반환
         if mode == "interaction" and (0 in prop_boxes):
             try:
+                # 사람 전용 포즈 모델 실행
                 results_pose = model_pose(frame, conf=0.45, classes=[0], verbose=False)
                 if results_pose and results_pose[0].keypoints is not None:
                     if len(results_pose[0].keypoints.data) > 0:
@@ -252,7 +264,7 @@ def process_frame(base64_image: str, mode: str = "playing", target_class_id: int
             except: pass
 
     else:
-        # [실패] 타겟 물건 없음
+        # [실패 판정] 타겟 물건 자체가 없음
         pass
 
     return {

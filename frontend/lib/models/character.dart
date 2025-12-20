@@ -1,12 +1,15 @@
+// --- 데이터 모델 클래스 ---
+
+// 스탯 정보 모델
 class Stat {
-  int strength;
-  int intelligence;
-  int stamina;
-  int happiness;
-  int health;
-  int exp;
-  int level;
-  int unused_points;
+  int strength;      // 근력 (빨간색)
+  int intelligence;  // 지능 (파란색)
+  int stamina;       // 지구력/민첩 (초록색)
+  int happiness;     // 행복도 (핑크색)
+  int health;        // 현재 체력
+  int exp;           // 현재 경험치
+  int level;         // 레벨
+  int unused_points; // 미사용 스탯 포인트 (분배 가능)
 
   Stat({
     required this.strength,
@@ -19,6 +22,7 @@ class Stat {
     this.unused_points = 0,
   });
 
+  // JSON 파싱 (서버 -> 앱)
   factory Stat.fromJson(Map<String, dynamic> json) {
     return Stat(
       strength: json['strength'] ?? 0,
@@ -33,12 +37,13 @@ class Stat {
   }
 }
 
+// 캐릭터 정보 모델
 class Character {
   final int id;
   final int userId;
   final String name;
-  String imageUrl;
-  final Stat? stat;
+  String imageUrl; // 이미지 경로 (상태에 따라 변경됨)
+  final Stat? stat; // 연관된 스탯 객체
 
   Character({
     required this.id,
@@ -48,12 +53,15 @@ class Character {
     this.stat,
   });
 
+  // JSON 파싱 (서버 -> 앱)
   factory Character.fromJson(Map<String, dynamic> json) {
     return Character(
       id: json['id'] ?? 0,
       userId: json['user_id'] ?? 0,
       name: json['name'] ?? 'Unknown',
+      // 이미지 URL이 없으면 기본 이미지 사용
       imageUrl: json['image_url'] ?? 'assets/images/characters/char_default.png',
+      // 중첩된 JSON 처리
       stat: (json['stats'] ?? json['stat']) != null ? Stat.fromJson(json['stats'] ?? json['stat']) : null,
     );
   }

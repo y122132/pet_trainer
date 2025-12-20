@@ -27,29 +27,30 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   late Future<void> _initializeControllerFuture;
   final SocketClient _socketClient = SocketClient();
   
-  // 상태 변수
-  bool _isAnalyzing = false; // 분석 중 여부
-  bool _isProcessing = false; // 이미지 전송 중 중복 방지
-  Timer? _analysisTimer;
+  // --- 상태 변수 (State Variables) ---
+  bool _isAnalyzing = false; // 현재 AI 분석이 진행 중인지 여부
+  bool _isProcessing = false; // 이미지 전송 중 중복 처리 방지 플래그
+  Timer? _analysisTimer; // 주기적으로 프레임을 전송하는 타이머
   String? _cameraError;
-  String _feedback = ""; // AI 피드백 메시지
-  double _confScore = 0.0; // 인식 신뢰도 점수
+  String _feedback = ""; // AI가 보내준 실시간 피드백 메시지 (예: "더 가까이")
+  double _confScore = 0.0; // 인식 신뢰도 점수 (0.0 ~ 1.0)
   
-  // 스켈레톤 데이터 (교감 모드 시 사람 시각화용)
-  List<dynamic> _keypoints = [];
-  double _imageWidth = 0;
-  double _imageHeight = 0;
+  // --- 시각화 데이터 (Visualization Data) ---
+  List<dynamic> _keypoints = []; // 사람 스켈레톤 좌표 (교감 모드용)
+  double _imageWidth = 0; // 분석된 이미지 원본 너비 (좌표 변환용)
+  double _imageHeight = 0; // 분석된 이미지 원본 높이
 
-  // 애니메이션 (컨페티 효과)
-  late AnimationController _confettiController;
+  // --- 애니메이션 (Animation) ---
+  late AnimationController _confettiController; // 성공 시 폭죽 효과 제어
   List<ConfettiParticle> _particles = [];
   
   @override
   void initState() {
     super.initState();
+    // 카메라 초기화: 성능을 위해 해상도는 Medium으로 설정 (분석용으로 충분함)
     _controller = CameraController(
       widget.cameras.first,
-      ResolutionPreset.medium, // PIP 화면이 작으므로 medium 정도면 충분
+      ResolutionPreset.medium, 
       enableAudio: false,
     );
     
@@ -76,13 +77,13 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
       }
     });
     
-    // 캐릭터 초기 데이터 로드
+    // 화면 진입 시 캐릭터 최신 정보 로드
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<CharProvider>(context, listen: false).fetchCharacter(); // 파라미터 제거 (기본값 사용)
+      Provider.of<CharProvider>(context, listen: false).fetchCharacter(); 
     });
   }
 
-  // 성공 축하 효과 시작
+  // 성공 축하 효과 시작 (폭죽 터뜨리기)
   void _startConfetti() {
     setState(() {
       _particles = List.generate(50, (index) => ConfettiParticle());
@@ -93,17 +94,17 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   @override
   void dispose() {
     _controller.dispose();
-    _socketClient.disconnect();
+    _socketClient.disconnect(); // 화면 종료 시 소켓 연결 해제
     _analysisTimer?.cancel();
     _confettiController.dispose();
     super.dispose();
   }
 
-  // 분석 시작/중지 토글
+  // [핵심 로직] 분석 시작/중지 토글
   void _toggleAnalysis() {
     setState(() {
       _isAnalyzing = !_isAnalyzing;
-      // 중지 시 데이터 초기화
+      // 중지 시 데이터 초기화 (잔상 제거)
       if (!_isAnalyzing) {
         _keypoints = [];
         _feedback = "";
@@ -114,10 +115,10 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
       final provider = Provider.of<CharProvider>(context, listen: false);
       String petType = provider.currentPetType; 
       
-      // 소켓 연결
+      // 1. 소켓 서버 연결 시도
       _socketClient.connect(petType, widget.difficulty);
       
-      // 메시지 수신 리스너 설정
+      // 2. 서버로부터 메시지 수신 리스너 설정
       _socketClient.stream.listen((message) {
         if (!mounted) return;
         
@@ -126,13 +127,12 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
           final provider = Provider.of<CharProvider>(context, listen: false);
 
           setState(() {
-             // 1. 키포인트(Keypoints) 파싱
+             // A. 키포인트(Keypoints) 파싱 및 업데이트
              if (data.containsKey('skeleton_points')) {
                _keypoints = data['skeleton_points'];
              } else if (data.containsKey('keypoints')) {
                _keypoints = data['keypoints'];
              } else {
-               // 중요: 서버에서 데이터가 없으면 키포인트를 초기화해야 잔상이 남지 않음
                _keypoints = [];
              }
 
@@ -143,14 +143,14 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                _imageHeight = (data['image_height'] as num).toDouble();
              }
              
-             // 2. 피드백 메시지 파싱
+             // B. 피드백 메시지 업데이트
              if (data.containsKey('feedback')) {
                _feedback = data['feedback'];
              } else {
                _feedback = "";
              }
              
-             // 3. 점수(Conf Score) 파싱
+             // C. 신뢰도 점수 업데이트
              if (data.containsKey('conf_score')) {
                _confScore = (data['conf_score'] as num).toDouble();
              } else {
@@ -158,42 +158,32 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
              }
           });
           
-          // 키포인트 및 해상도 업데이트 (항상 수행)
-          if (data['image_width'] != null) _imageWidth = (data['image_width'] as num).toDouble();
-          if (data['image_height'] != null) _imageHeight = (data['image_height'] as num).toDouble();
-          
-          if (data['keypoints'] != null) {
-            _keypoints = List<dynamic>.from(data['keypoints']);
-          } else {
-            _keypoints = [];
-          }
-
-          // 4. 성공 상태 확인 (Success Check)
+          // D. 성공 판정 처리 (Status Check)
           if (data['status'] == 'success') {
              if (data.containsKey('base_reward') && data['base_reward'] is Map) {
                 final baseReward = data['base_reward'];
                 final bonus = data['bonus_points'] ?? 0;
                 
-                // 스탯 업데이트 (Provider 호출)
+                // 스탯 보상 적용 (Provider)
                 provider.gainReward(baseReward, bonus);
                 
-                // 분석 중지 (훈련 종료)
+                // 훈련 종료 처리 (자동 중지)
                 _stopAnalysis();
                 
-                // 시각 효과 (컨페티) 시작
+                // 시각 효과 실행
                 _startConfetti();
                 
-                // 성공 대화상자 표시 (스탯 분배 등)
+                // 결과 다이얼로그 표시
                 _showSuccessDialog(baseReward, bonus);
              }
           }
           
-          // 화면 갱신 트리거
+          // (강제 리빌드용)
           setState(() {
              _isAnalyzing = true; 
           });
 
-          // 상태 메시지 업데이트 (성공 또는 실패 피드백 표시)
+          // E. 상태 메시지 표시 (성공/실패 피드백)
           if (data.containsKey('message')) {
             String msg = data['message'];
             if (_feedback.isNotEmpty) {
@@ -211,15 +201,16 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
         }
       });
 
-      // 프레임 캡처 루프 (200ms 간격)
+      // 3. 프레임 캡처 및 전송 루프 (200ms 간격)
+      // 너무 빠른 전송은 서버 부하 및 렉을 유발하므로 200ms(초당 5회) 정도로 제한
       _analysisTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
         if (_controller.value.isInitialized && !_isProcessing && _isAnalyzing) {
             _isProcessing = true;
             try {
               final image = await _controller.takePicture();
               final bytes = await image.readAsBytes();
-              // print("DEBUG: 프레임 전송 (${bytes.length} bytes)...");
-              _socketClient.sendMessage(base64Encode(bytes)); // 수정: base64Encode 필요 (SocketClient 수정에 따름)
+              // 이미지를 Base64 문자열로 인코딩하여 전송
+              _socketClient.sendMessage(base64Encode(bytes)); 
             } catch (e) {
               print("프레임 캡처 실패: $e");
             } finally {
@@ -235,6 +226,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     }
   }
 
+  // 분석 중지 및 리소스 정리
   void _stopAnalysis() {
     _socketClient.disconnect();
     _analysisTimer?.cancel();

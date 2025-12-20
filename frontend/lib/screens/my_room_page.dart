@@ -6,17 +6,19 @@ import '../providers/char_provider.dart';
 import '../widgets/stat_distribution_dialog.dart';
 import 'package:camera/camera.dart';
 
+// --- 마이룸 페이지 (MyRoomPage) ---
+// 반려동물의 상세 스탯을 확인하고, 획득한 포인트를 분배하며 휴식하는 공간입니다.
 class MyRoomPage extends StatelessWidget {
   const MyRoomPage({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5FA), // 연한 회색 배경
+      backgroundColor: const Color(0xFFF5F5FA), // 부드러운 연한 회색 배경
       body: SafeArea(
         child: Column(
           children: [
-            // 상단 커스텀 앱바 (뒤로가기 포함)
+            // [헤더 영역] 상단 커스텀 앱바 (뒤로가기 버튼 포함)
             Padding(
                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                child: Row(
@@ -27,7 +29,7 @@ class MyRoomPage extends StatelessWidget {
                      onPressed: () => Navigator.pop(context),
                    ),
                    const Text("마이룸", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                   const SizedBox(width: 48), // 타이틀 중앙 정렬을 위한 여백 균형
+                   const SizedBox(width: 48), // 중앙 정렬 유지를 위한 빈 공간
                  ],
                ),
             ),
@@ -37,20 +39,20 @@ class MyRoomPage extends StatelessWidget {
                 builder: (context, provider, child) {
                   return Column(
                     children: [
-                      // 1. 상단 정보 바 (타이틀, 메시지)
+                      // 1. 상단 정보 바 (사용자 칭호 및 알림)
                       _buildTopBar(provider),
 
-                      // 2. 메인 콘텐츠 (좌우 분할 레이아웃)
+                      // 2. 메인 레이아웃 (캐릭터 영역 40% : 스탯 영역 60% 분할)
                       Expanded(
                         child: Row(
                           children: [
-                            // 왼쪽: 캐릭터 영역 (40%)
+                            // [왼쪽] 캐릭터 비주얼 영역
                             Expanded(
                               flex: 4,
                               child: _buildCharacterArea(provider),
                             ),
                             
-                            // 오른쪽: 스탯 및 차트 영역 (60%)
+                            // [오른쪽] 스탯 수치 및 레이더 차트 영역
                             Expanded(
                               flex: 6,
                               child: _buildStatsArea(context, provider),
@@ -71,14 +73,14 @@ class MyRoomPage extends StatelessWidget {
     );
   }
 
-  // 상단 바 위젯
+  // 상단 바 위젯: 사용자의 현재 칭호와 알림 아이콘 표시
   Widget _buildTopBar(CharProvider provider) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 타이틀 배지 (Flexible로 감싸서 오버플로우 방지)
+          // 칭호 배지 (예: 근육대장님, 초보 트레이너)
           Flexible(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -96,7 +98,7 @@ class MyRoomPage extends StatelessWidget {
                   const SizedBox(width: 8),
                   Flexible(
                     child: Text(
-                      // 단순 타이틀 로직 (근력 기준) 추후 고도화 필요
+                      // 캐릭터 스탯 정보가 50을 넘으면 호칭 변경
                       provider.character?.stat?.strength != null && provider.character!.stat!.strength > 50 
                           ? "근육대장님" 
                           : "초보 트레이너",
@@ -110,7 +112,7 @@ class MyRoomPage extends StatelessWidget {
             ),
           ),
           
-          // 메시지 버튼 (알림함)
+          // 알림/메시지함 버튼
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -122,7 +124,7 @@ class MyRoomPage extends StatelessWidget {
             child: IconButton(
               icon: const Icon(Icons.mail_outline_rounded, color: Colors.grey),
               onPressed: () {
-                // TODO: 메시지함 열기
+                // TODO: 시스템 알림 또는 캐릭터 메시지함 기능 구현 예정
               },
             ),
           ),
@@ -131,17 +133,16 @@ class MyRoomPage extends StatelessWidget {
     );
   }
 
-  // 캐릭터 표시 영역
+  // 캐릭터 영역: 캐릭터 이미지와 HP/EXP 바 표시
   Widget _buildCharacterArea(CharProvider provider) {
-    // 안전장치: 캐릭터 정보가 없을 때 로딩
     final stat = provider.character?.stat;
-    final maxHealth = 100; // 임시 상수
+    final maxHealth = 100; // 최대 체력 기준값
     final currentHealth = stat?.health ?? 100;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // 캐릭터 이미지
+        // 반려동물 이미지 (AnimatedSwitcher로 표정 변화 시 부드럽게 전환)
         Expanded(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 500),
@@ -155,7 +156,7 @@ class MyRoomPage extends StatelessWidget {
         
         const SizedBox(height: 10),
 
-        // 체력 바 (HP)
+        // [HP 바] 체력 상태 표시
         SizedBox(
           width: 140,
           child: Column(
@@ -183,7 +184,7 @@ class MyRoomPage extends StatelessWidget {
 
         const SizedBox(height: 15),
         
-        // 닉네임 및 레벨 표시
+        // [정보창] 이름, 레벨, 경험치(EXP)
         Container(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -222,7 +223,7 @@ class MyRoomPage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              // 경험치 바 (EXP)
+              // [EXP 바] 경험치 진행률
               SizedBox(
                 width: 120,
                 child: ClipRRect(
@@ -247,7 +248,7 @@ class MyRoomPage extends StatelessWidget {
     );
   }
 
-  // 스탯 및 차트 표시 영역
+  // 스탯 영역: 레이더 차트와 세부 수치, 스탯 분배 기능 포함
   Widget _buildStatsArea(BuildContext context, CharProvider provider) {
     if (provider.character == null || provider.character!.stat == null) {
       return const Center(child: Text("데이터 로딩 중..."));
@@ -257,7 +258,7 @@ class MyRoomPage extends StatelessWidget {
     final statsMap = {
       "STR": stat.strength,
       "INT": stat.intelligence,
-      "DEX": stat.stamina, // DEX로 표기
+      "DEX": stat.stamina, 
       "HAP": stat.happiness
     };
     final keys = statsMap.keys.toList();
@@ -274,20 +275,21 @@ class MyRoomPage extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // 1. 미사용 포인트 분배 버튼 (포인트가 있을 때만 표시)
+          // 1. [스탯 분배 버튼] 포인트가 남아있을 때만 노출됨
           if (provider.unusedStatPoints > 0)
             Container(
               margin: const EdgeInsets.only(bottom: 10),
               width: double.infinity,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.upgrade, size: 16),
-                label: Text("스탯 분배 (${provider.unusedStatPoints})"),
+                label: Text("스탯 분배 (${provider.unusedStatPoints}P)"),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigoAccent,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 8),
                 ),
                 onPressed: () {
+                   // 팝업을 띄워 원하는 스탯에 포인트 투자
                    showDialog(
                      context: context,
                      builder: (context) => StatDistributionDialog(
@@ -303,32 +305,23 @@ class MyRoomPage extends StatelessWidget {
                        confirmLabel: "적용",
                        skipLabel: "취소",
                        onConfirm: (allocated, remaining) {
-                          // 할당된 포인트 적용 (Provider 호출 루프)
+                          // 선택한 스탯만큼 반복해서 Provider 업데이트 호출
                           _applyAllocated(provider, 'strength', allocated['strength']!);
                           _applyAllocated(provider, 'intelligence', allocated['intelligence']!);
                           _applyAllocated(provider, 'stamina', allocated['stamina']!);
                           _applyAllocated(provider, 'happiness', allocated['happiness']!);
                           _applyAllocated(provider, 'health', allocated['health']!);
                           
-                          // 남은 포인트 업데이트 로직
-                          // 방법 1: 소모한 만큼 unusedStatPoints 차감
-                          // 현재 provider.allocateStatSpecific()은 1 증가를 시키지만,
-                          // unusedPoints를 직접 감소시키는 로직이 provider 내부에 있는지 확인해야 함.
-                          // CharProvider 코드(`step 1971`)를 보면 `_unusedStatPoints -= 1` 코드가 있음.
-                          // 따라서 `allocateStatSpecific` 호출 시 자동으로 차감됨.
-                          
                           Navigator.pop(context);
                        },
-                       onSkip: () {
-                          Navigator.pop(context);
-                       },
+                       onSkip: () => Navigator.pop(context),
                      ),
                    );
                 },
               ),
             ),
 
-          // 2. 레이더 차트 (간소화된 뷰)
+          // 2. [레이더 차트] 시각적인 능력치 밸런스 확인
           AspectRatio(
             aspectRatio: 1.3,
             child: _buildRadarChart(statsMap),
@@ -336,7 +329,7 @@ class MyRoomPage extends StatelessWidget {
           
           const Spacer(),
           
-          // 3. 스탯 바 (Stat Bars)
+          // 3. [세부 스탯 바] 각 능력치별 진행도 표시
           ...keys.map((key) {
             return _buildStatRow(key, statsMap[key] ?? 0);
           }).toList(),
@@ -345,13 +338,14 @@ class MyRoomPage extends StatelessWidget {
     );
   }
   
+  // 포인트 할당 적용 로직
   void _applyAllocated(CharProvider provider, String type, int amount) {
     for (int i=0; i<amount; i++) {
-      provider.allocateStatSpecific(type); // 하나씩 증가 (내부에서 unused 포인트 차감)
+      provider.allocateStatSpecific(type); // 1포인트씩 소모하며 스탯 증가
     }
   }
   
-  // 레이더 차트 위젯
+  // 레이더 차트 위젯 빌더
   Widget _buildRadarChart(Map<String, int> stats) {
     List<RadarEntry> entries = stats.values.map((v) => RadarEntry(value: v.toDouble())).toList();
     
@@ -385,13 +379,13 @@ class MyRoomPage extends StatelessWidget {
     );
   }
 
-  // 개별 스탯 바
+  // 개별 스탯 바 위젯 빌더
   Widget _buildStatRow(String label, int value) {
     Color color = Colors.grey;
-    if (label == "STR") color = Colors.redAccent;
-    if (label == "INT") color = Colors.blueAccent;
-    if (label == "DEX") color = Colors.greenAccent;
-    if (label == "HAP") color = Colors.pinkAccent;
+    if (label == "STR") color = Colors.redAccent;     // 근력: 빨강
+    if (label == "INT") color = Colors.blueAccent;    // 지능: 파랑
+    if (label == "DEX") color = Colors.greenAccent;   // 민첩: 초록
+    if (label == "HAP") color = Colors.pinkAccent;    // 행복: 핑크
     
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
@@ -405,7 +399,7 @@ class MyRoomPage extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
-                value: (value / 100).clamp(0.0, 1.0), // 100 기준 퍼센트 (임시)
+                value: (value / 100).clamp(0.0, 1.0), // 100을 최대치로 가정
                 backgroundColor: Colors.grey.shade100,
                 color: color,
                 minHeight: 8,
