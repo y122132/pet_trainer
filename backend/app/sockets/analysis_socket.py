@@ -39,10 +39,10 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
     
     try:
         while True:
-            base64_image = await websocket.receive_text()
+            image_bytes = await websocket.receive_bytes()
             current_time = time.time()
             
-            result = await run_in_threadpool(detector.process_frame, base64_image, mode, target_class_id, difficulty)
+            result = await run_in_threadpool(detector.process_frame, image_bytes, mode, target_class_id, difficulty)
             is_success = result.get("success", False)
 
             # --- FSM 로직 시작 ---

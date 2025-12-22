@@ -61,12 +61,12 @@ def calculate_overlap_ratio(pet_box, obj_box):
     if objArea == 0: return 0.0
     return interArea / objArea # 물체 면적 대비 겹친 비율
 
-def process_frame(base64_image: str, mode: str = "playing", target_class_id: int = 16, difficulty: str = "easy") -> dict:
+def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: int = 16, difficulty: str = "easy") -> dict:
     """
     프론트엔드에서 전송된 프레임을 분석하여 반려동물의 행동을 판단합니다.
     
     Args:
-        base64_image: Base64로 인코딩된 이미지 문자열
+        image_bytes: 바이너리 이미지 데이터 (JPEG 등)
         mode: 현재 게임 모드 ('playing', 'feeding', 'interaction')
         target_class_id: 감지할 반려동물의 YOLO Class ID
         difficulty: 난이도 설정
@@ -75,10 +75,10 @@ def process_frame(base64_image: str, mode: str = "playing", target_class_id: int
         dict: 감지 결과, 성공 여부, 피드백 메시지 등
     """
     
-    # 1. Base64 이미지 디코딩
+    # 1. 바이너리 이미지 디코딩
     try:
-        decoded_data = base64.b64decode(base64_image)
-        np_data = np.frombuffer(decoded_data, np.uint8)
+        # base64 디코딩 단계 생략 (직접 bytes 수신)
+        np_data = np.frombuffer(image_bytes, np.uint8)
         frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
         
         if frame is None:

@@ -5,11 +5,56 @@ import 'dart:typed_data';
 import 'dart:math' as import_math;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // compute 함수 사용을 위해 추가
 import 'package:provider/provider.dart';
 import '../providers/char_provider.dart';
 import '../services/socket_client.dart';
 import 'my_room_page.dart' as import_my_room_page;
 import '../widgets/stat_distribution_dialog.dart';
+
+// --- 최상위 함수 (Top-level function) ---
+// 백그라운드 Isolate에서 실행될 함수입니다. compute()는 최상위 함수여야 합니다.
+Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
+  final int width = data['width'];
+  final int height = data['height'];
+  final List<dynamic> planes = data['planes'];
+  
+  // YUV 데이터 추출
+  final Uint8List yBytes = planes[0]['bytes'];
+  final Uint8List uBytes = planes[1]['bytes'];
+  final Uint8List vBytes = planes[2]['bytes'];
+  
+  final int uvRowStride = planes[1]['bytesPerRow'];
+  final int uvPixelStride = planes[1]['bytesPerPixel'] ?? 1;
+
+  final img.Image yuvImage = img.Image(width: width, height: height);
+
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      final int uvIndex = uvPixelStride * (x / 2).floor() + uvRowStride * (y / 2).floor();
+      final int index = y * width + x;
+      
+      final int yValue = yBytes[index];
+      final int uValue = uBytes[uvIndex];
+      final int vValue = vBytes[uvIndex];
+
+      int r = (yValue + 1.402 * (vValue - 128)).round();
+      int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round();
+      int b = (yValue + 1.772 * (uValue - 128)).round();
+
+      yuvImage.setPixelRgba(x, y, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255), 255);
+    }
+  }
+  
+  // 리사이징 및 JPEG 인코딩
+  final img.Image resizedImage = img.copyResize(yuvImage, width: 640, height: 640);
+  
+  /* 실제 핸드폰용 */
+  // return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 75));
+  
+  /* 에뮬레이터 테스트용 */
+  return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 40));
+}
 
 class CameraScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -39,9 +84,15 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   String _progressText = '';
   
   // --- 스트리밍 & 쓰로틀링 (Streaming & Throttling) ---
-  bool _isProcessingFrame = false; // 프레임 처리 중복 방지
+  bool _isProcessingFrame = false; // 이미지 변환 작업 중복 방지 (로컬)
+  bool _canSendFrame = true;       // 서버 응답 대기 (Flow Control)
   int _lastFrameSentTimestamp = 0; // 마지막으로 프레임을 보낸 시간
-  static const int _frameInterval = 200; // 프레임 전송 간격 (ms)
+  
+  /* 실제 핸드폰 용 */
+  //static const int _frameInterval = 150;  // 최소 간격 (서버가 빠르면 더 자주 보낼 수 있도록 200ms -> 100ms 단축)
+
+  /* 에뮬레이터 테스트용 */
+  static const int _frameInterval = 300; // 
 
   // --- 시각화 데이터 (Visualization Data) ---
   List<dynamic> _keypoints = []; // 사람 스켈레톤 좌표 (교감 모드용)
@@ -135,11 +186,15 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     final provider = Provider.of<CharProvider>(context, listen: false);
     String petType = provider.currentPetType; 
     
+    _canSendFrame = true; // 시작 시 전송 허용
     _socketClient.connect(petType, widget.difficulty, widget.mode);
     
     _socketClient.stream.listen((message) {
       if (!mounted) return;
       
+      // 서버로부터 응답을 받으면 다음 프레임 전송 허용 (Flow Control ACK)
+      _canSendFrame = true; 
+
       try {
         final data = jsonDecode(message);
         final provider = Provider.of<CharProvider>(context, listen: false);
@@ -193,13 +248,13 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
       } catch (e) {
         print("JSON 파싱 에러: $e");
       } finally {
-        _isProcessingFrame = false; 
+        // 여기서는 _isProcessingFrame을 해제하지 않음 (전송 작업과는 별개)
       }
     }, onError: (error) {
       if (mounted) {
         print("소켓 에러: $error");
         Provider.of<CharProvider>(context, listen: false).updateStatusMessage("통신 오류: $error");
-        _isProcessingFrame = false;
+        _canSendFrame = true; // 에러 발생 시에도 다시 시도할 수 있도록 허용
       }
     });
 
@@ -207,49 +262,49 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     provider.updateStatusMessage("분석 시작... 포즈를 취해주세요!");
   }
   
-  void _processCameraImage(CameraImage image) {
+  void _processCameraImage(CameraImage image) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastFrameSentTimestamp > _frameInterval && !_isProcessingFrame) {
-      _isProcessingFrame = true;
-      _lastFrameSentTimestamp = now;
-
-      try {
-        if (image.format.group == ImageFormatGroup.yuv420) {
-          final jpegBytes = _convertYUV420toJPEG(image);
-          _socketClient.sendMessage(base64Encode(jpegBytes));
-        } else {
-          _isProcessingFrame = false; 
-        }
-      } catch (e) {
-        print("프레임 처리 실패: $e");
-        _isProcessingFrame = false;
-      }
-    }
-  }
-  
-  Uint8List _convertYUV420toJPEG(CameraImage image) {
-    final int width = image.width;
-    final int height = image.height;
-    final img.Image yuvImage = img.Image(width: width, height: height);
-    final int uvRowStride = image.planes[1].bytesPerRow;
-    final int uvPixelStride = image.planes[1].bytesPerPixel!;
-
-    for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-        final int uvIndex = uvPixelStride * (x / 2).floor() + uvRowStride * (y / 2).floor();
-        final int index = y * width + x;
-        final int yValue = image.planes[0].bytes[index];
-        final int uValue = image.planes[1].bytes[uvIndex];
-        final int vValue = image.planes[2].bytes[uvIndex];
-        int r = (yValue + 1.402 * (vValue - 128)).round();
-        int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round();
-        int b = (yValue + 1.772 * (uValue - 128)).round();
-        yuvImage.setPixelRgba(x, y, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255), 255);
-      }
-    }
     
-    final img.Image resizedImage = img.copyResize(yuvImage, width: 640, height: 640);
-    return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 75));
+    // 1. 최소 간격 체크 (너무 빠른 전송 방지)
+    // 2. 로컬 변환 작업 중복 방지 (_isProcessingFrame)
+    // 3. 서버 응답 대기 (_canSendFrame) - Flow Control 핵심
+    if (now - _lastFrameSentTimestamp <= _frameInterval || _isProcessingFrame || !_canSendFrame) {
+      return;
+    }
+
+    _isProcessingFrame = true;
+    // 주의: _canSendFrame은 여기서 false로 만들지 않고, 
+    // 실제 전송 직전에 false로 만들어야 변환 실패 시 락이 걸리는 것을 방지할 수 있음.
+
+    try {
+      if (image.format.group == ImageFormatGroup.yuv420) {
+        // Isolate로 넘기기 위해 필요한 데이터만 추출 (복사 발생)
+        // CameraImage 객체 자체는 Isolate로 넘어갈 수 없음
+        final rawData = {
+          'width': image.width,
+          'height': image.height,
+          'planes': image.planes.map((plane) => {
+            'bytes': plane.bytes, // Uint8List
+            'bytesPerRow': plane.bytesPerRow,
+            'bytesPerPixel': plane.bytesPerPixel,
+          }).toList(),
+        };
+
+        // compute를 사용하여 백그라운드에서 변환 작업 수행
+        final jpegBytes = await compute(processCameraImageToJpeg, rawData);
+        
+        if (mounted && _isAnalyzing && _canSendFrame) {
+          _canSendFrame = false; // 전송 시작! 응답 올 때까지 대기
+          _lastFrameSentTimestamp = DateTime.now().millisecondsSinceEpoch;
+          _socketClient.sendMessage(jpegBytes);
+        }
+      } 
+    } catch (e) {
+      print("프레임 처리 실패: $e");
+    } finally {
+      // 변환 작업 완료 (다음 프레임 변환 준비)
+      _isProcessingFrame = false;
+    }
   }
 
   void _stopAnalysis() {
@@ -468,7 +523,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
 
   // 성공 팝업 표시
   void _showSuccessDialog(Map<String, dynamic> baseReward, int bonus) {
-    if (!mounted) return;
+    if (!mounted) return; 
     
     final provider = Provider.of<CharProvider>(context, listen: false);
     

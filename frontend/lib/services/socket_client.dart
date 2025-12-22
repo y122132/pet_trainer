@@ -53,8 +53,8 @@ class SocketClient {
     }
   }
 
-  /// 메시지(Base64 이미지 문자열)를 서버로 전송합니다.
-  void sendMessage(String message) {
+  /// 메시지(문자열 또는 바이너리)를 서버로 전송합니다.
+  void sendMessage(dynamic message) {
     if (_channel != null && _isConnected) {
       _channel!.sink.add(message);
     } else {
