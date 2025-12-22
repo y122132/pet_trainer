@@ -17,8 +17,8 @@ def load_models():
     global model_pose, model_detect
     if model_pose is None:
         print("Loading YOLO models... (AI 모델 로딩 중)")
-        model_pose = YOLO("yolo11n-pose.pt")
-        model_detect = YOLO("yolo11n.pt") 
+        model_pose = YOLO("yolo11n-pose.pt", verbose=False)
+        model_detect = YOLO("yolo11n.pt", verbose=False) 
         print("YOLO models loaded. (로딩 완료)")
     return model_pose, model_detect
 

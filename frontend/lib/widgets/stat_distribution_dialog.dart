@@ -11,6 +11,10 @@ class StatDistributionDialog extends StatefulWidget {
   final String title;        // 다이얼로그 제목
   final String confirmLabel; // 확인 버튼 텍스트
   final String skipLabel;    // 건너뛰기 버튼 텍스트
+  
+  // 새로 획득한 보상 표시를 위한 파라미터 (선택)
+  final Map<String, dynamic>? earnedReward;
+  final int? earnedBonus;
 
   const StatDistributionDialog({
     super.key,
@@ -21,6 +25,8 @@ class StatDistributionDialog extends StatefulWidget {
     this.title = "스탯 분배",
     this.confirmLabel = "확인",
     this.skipLabel = "나중에 하기",
+    this.earnedReward,
+    this.earnedBonus,
   });
 
   @override
@@ -66,6 +72,36 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
     }
   }
 
+  // 획득 보상 메시지 위젯 생성
+  Widget _buildRewardInfo() {
+    if (widget.earnedReward == null || widget.earnedReward!.isEmpty) {
+      return const SizedBox.shrink(); // 보상 정보 없으면 표시 안함
+    }
+    
+    final String statType = widget.earnedReward!['stat_type'] ?? '??';
+    final int statValue = widget.earnedReward!['value'] ?? 0;
+    final int bonus = widget.earnedBonus ?? 0;
+    
+    String rewardText = "기본 보상: ${statType.toUpperCase()} +$statValue";
+    if (bonus > 0) {
+      rewardText += ", 보너스: +$bonus";
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10, bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Text(
+        rewardText,
+        style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -82,8 +118,12 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
            children: [
              Text(widget.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.indigo)),
              const SizedBox(height: 10),
+             
+             // 획득한 보상 정보 표시
+             _buildRewardInfo(),
+
              // 현재 남은 포인트 수량 표시
-             Text("보너스 포인트: $remainingPoints", 
+             Text("분배 가능 포인트: $remainingPoints", 
                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
              const SizedBox(height: 5),
              const Text("차트 옆 + 버튼을 눌러 스탯을 올리세요!\n(길게 누르면 취소)", 

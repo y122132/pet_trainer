@@ -63,6 +63,7 @@ class ModeSelectPage extends StatelessWidget {
       try {
         // 카메라 권한 및 사용 가능 여부 확인
         final cameras = await availableCameras();
+        if (!context.mounted) return; // 비동기 작업 후 context 사용 전 체크
         if (cameras.isEmpty) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("사용 가능한 카메라가 없습니다.")));
             return;
@@ -73,6 +74,7 @@ class ModeSelectPage extends StatelessWidget {
           MaterialPageRoute(builder: (context) => CameraScreen(cameras: cameras, mode: mode, difficulty: difficulty)),
         );
       } catch (e) {
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("카메라 오류: $e")));
       }
   }

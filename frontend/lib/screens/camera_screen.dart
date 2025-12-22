@@ -1,3 +1,4 @@
+import 'package:image/image.dart' as img;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -8,7 +9,6 @@ import 'package:provider/provider.dart';
 import '../providers/char_provider.dart';
 import '../services/socket_client.dart';
 import 'my_room_page.dart' as import_my_room_page;
-import 'package:fl_chart/fl_chart.dart';
 import '../widgets/stat_distribution_dialog.dart';
 
 class CameraScreen extends StatefulWidget {
@@ -29,12 +29,20 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   
   // --- 상태 변수 (State Variables) ---
   bool _isAnalyzing = false; // 현재 AI 분석이 진행 중인지 여부
-  bool _isProcessing = false; // 이미지 전송 중 중복 처리 방지 플래그
-  Timer? _analysisTimer; // 주기적으로 프레임을 전송하는 타이머
   String? _cameraError;
   String _feedback = ""; // AI가 보내준 실시간 피드백 메시지 (예: "더 가까이")
   double _confScore = 0.0; // 인식 신뢰도 점수 (0.0 ~ 1.0)
   
+  // --- FSM & UI 피드백 변수 ---
+  String _trainingState = 'READY'; // READY, DETECTING, STAY, SUCCESS
+  double _stayProgress = 0.0;
+  String _progressText = '';
+  
+  // --- 스트리밍 & 쓰로틀링 (Streaming & Throttling) ---
+  bool _isProcessingFrame = false; // 프레임 처리 중복 방지
+  int _lastFrameSentTimestamp = 0; // 마지막으로 프레임을 보낸 시간
+  static const int _frameInterval = 200; // 프레임 전송 간격 (ms)
+
   // --- 시각화 데이터 (Visualization Data) ---
   List<dynamic> _keypoints = []; // 사람 스켈레톤 좌표 (교감 모드용)
   double _imageWidth = 0; // 분석된 이미지 원본 너비 (좌표 변환용)
@@ -52,15 +60,15 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
       widget.cameras.first,
       ResolutionPreset.medium, 
       enableAudio: false,
+      imageFormatGroup: ImageFormatGroup.yuv420, // 스트리밍을 위해 포맷 지정
     );
     
     _initializeControllerFuture = _controller.initialize().catchError((e) {
+      if (!mounted) return;
       print("Camera init error: $e");
-      if (mounted) {
-        setState(() {
-          _cameraError = e.toString();
-        });
-      }
+      setState(() {
+        _cameraError = e.toString();
+      });
     });
 
     // 컨페티 애니메이션 컨트롤러 초기화
@@ -79,7 +87,9 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     
     // 화면 진입 시 캐릭터 최신 정보 로드
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<CharProvider>(context, listen: false).fetchCharacter(); 
+      if (mounted) {
+        Provider.of<CharProvider>(context, listen: false).fetchCharacter();
+      }
     });
   }
 
@@ -95,141 +105,158 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   void dispose() {
     _controller.dispose();
     _socketClient.disconnect(); // 화면 종료 시 소켓 연결 해제
-    _analysisTimer?.cancel();
     _confettiController.dispose();
     super.dispose();
   }
 
   // [핵심 로직] 분석 시작/중지 토글
   void _toggleAnalysis() {
+    if (!mounted) return;
+
     setState(() {
       _isAnalyzing = !_isAnalyzing;
       // 중지 시 데이터 초기화 (잔상 제거)
       if (!_isAnalyzing) {
         _keypoints = [];
         _feedback = "";
+        _trainingState = 'READY';
+        _stayProgress = 0.0;
+        _progressText = '';
+        _stopAnalysis(); // 스트림 중지 및 소켓 연결 해제
+      } else {
+        // 분석 시작
+        _startAnalysis();
+      }
+    });
+  }
+  
+  void _startAnalysis() {
+    if (!mounted) return;
+    final provider = Provider.of<CharProvider>(context, listen: false);
+    String petType = provider.currentPetType; 
+    
+    _socketClient.connect(petType, widget.difficulty, widget.mode);
+    
+    _socketClient.stream.listen((message) {
+      if (!mounted) return;
+      
+      try {
+        final data = jsonDecode(message);
+        final provider = Provider.of<CharProvider>(context, listen: false);
+        final status = data['status'] as String?;
+
+        if (mounted) {
+          setState(() {
+            _trainingState = status ?? _trainingState;
+
+            if (_trainingState == 'stay') {
+              final message = data['message'] as String? ?? '';
+              final match = RegExp(r'(\d+\.\d+)').firstMatch(message);
+              if (match != null) {
+                final remaining = double.tryParse(match.group(1) ?? '3.0') ?? 3.0;
+                _stayProgress = (3.0 - remaining) / 3.0;
+                _progressText = "${remaining.toStringAsFixed(1)}초";
+              }
+            } else if (_trainingState != 'success') {
+              _stayProgress = 0.0;
+              _progressText = '';
+            }
+            
+            if (data.containsKey('keypoints')) _keypoints = data['keypoints'];
+            if (data.containsKey('image_width')) _imageWidth = (data['image_width'] as num).toDouble();
+            if (data.containsKey('image_height')) _imageHeight = (data['image_height'] as num).toDouble();
+            if (data.containsKey('feedback')) _feedback = data['feedback'];
+            if (data.containsKey('conf_score')) _confScore = (data['conf_score'] as num).toDouble();
+          });
+        }
+        
+        if (status == 'success') {
+           if (data.containsKey('base_reward') && data['base_reward'] is Map) {
+              final baseReward = data['base_reward'];
+              final bonus = data['bonus_points'] ?? 0;
+              
+              provider.gainReward(baseReward, bonus);
+              _toggleAnalysis();
+              _startConfetti();
+              _showSuccessDialog(baseReward, bonus);
+           }
+        }
+
+        if (data.containsKey('message')) {
+          String msg = data['message'];
+          if (_feedback.isNotEmpty && status != 'success') {
+            msg += "\n💡 $_feedback";
+          }
+          provider.updateStatusMessage(msg);
+        }
+
+      } catch (e) {
+        print("JSON 파싱 에러: $e");
+      } finally {
+        _isProcessingFrame = false; 
+      }
+    }, onError: (error) {
+      if (mounted) {
+        print("소켓 에러: $error");
+        Provider.of<CharProvider>(context, listen: false).updateStatusMessage("통신 오류: $error");
+        _isProcessingFrame = false;
       }
     });
 
-    if (_isAnalyzing) {
-      final provider = Provider.of<CharProvider>(context, listen: false);
-      String petType = provider.currentPetType; 
-      
-      // 1. 소켓 서버 연결 시도
-      _socketClient.connect(petType, widget.difficulty);
-      
-      // 2. 서버로부터 메시지 수신 리스너 설정
-      _socketClient.stream.listen((message) {
-        if (!mounted) return;
-        
-        try {
-          final data = jsonDecode(message);
-          final provider = Provider.of<CharProvider>(context, listen: false);
+    _controller.startImageStream(_processCameraImage);
+    provider.updateStatusMessage("분석 시작... 포즈를 취해주세요!");
+  }
+  
+  void _processCameraImage(CameraImage image) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastFrameSentTimestamp > _frameInterval && !_isProcessingFrame) {
+      _isProcessingFrame = true;
+      _lastFrameSentTimestamp = now;
 
-          setState(() {
-             // A. 키포인트(Keypoints) 파싱 및 업데이트
-             if (data.containsKey('skeleton_points')) {
-               _keypoints = data['skeleton_points'];
-             } else if (data.containsKey('keypoints')) {
-               _keypoints = data['keypoints'];
-             } else {
-               _keypoints = [];
-             }
-
-             if (data.containsKey('image_width')) {
-               _imageWidth = (data['image_width'] as num).toDouble();
-             }
-             if (data.containsKey('image_height')) {
-               _imageHeight = (data['image_height'] as num).toDouble();
-             }
-             
-             // B. 피드백 메시지 업데이트
-             if (data.containsKey('feedback')) {
-               _feedback = data['feedback'];
-             } else {
-               _feedback = "";
-             }
-             
-             // C. 신뢰도 점수 업데이트
-             if (data.containsKey('conf_score')) {
-               _confScore = (data['conf_score'] as num).toDouble();
-             } else {
-               _confScore = 0.0;
-             }
-          });
-          
-          // D. 성공 판정 처리 (Status Check)
-          if (data['status'] == 'success') {
-             if (data.containsKey('base_reward') && data['base_reward'] is Map) {
-                final baseReward = data['base_reward'];
-                final bonus = data['bonus_points'] ?? 0;
-                
-                // 스탯 보상 적용 (Provider)
-                provider.gainReward(baseReward, bonus);
-                
-                // 훈련 종료 처리 (자동 중지)
-                _stopAnalysis();
-                
-                // 시각 효과 실행
-                _startConfetti();
-                
-                // 결과 다이얼로그 표시
-                _showSuccessDialog(baseReward, bonus);
-             }
-          }
-          
-          // (강제 리빌드용)
-          setState(() {
-             _isAnalyzing = true; 
-          });
-
-          // E. 상태 메시지 표시 (성공/실패 피드백)
-          if (data.containsKey('message')) {
-            String msg = data['message'];
-            if (_feedback.isNotEmpty) {
-              msg += "\n💡 $_feedback";
-            }
-            provider.updateStatusMessage(msg);
-          }
-        } catch (e) {
-          print("JSON 파싱 에러: $e");
+      try {
+        if (image.format.group == ImageFormatGroup.yuv420) {
+          final jpegBytes = _convertYUV420toJPEG(image);
+          _socketClient.sendMessage(base64Encode(jpegBytes));
+        } else {
+          _isProcessingFrame = false; 
         }
-      }, onError: (error) {
-        print("소켓 에러: $error");
-        if (mounted) {
-           Provider.of<CharProvider>(context, listen: false).updateStatusMessage("통신 오류: $error");
-        }
-      });
-
-      // 3. 프레임 캡처 및 전송 루프 (200ms 간격)
-      // 너무 빠른 전송은 서버 부하 및 렉을 유발하므로 200ms(초당 5회) 정도로 제한
-      _analysisTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
-        if (_controller.value.isInitialized && !_isProcessing && _isAnalyzing) {
-            _isProcessing = true;
-            try {
-              final image = await _controller.takePicture();
-              final bytes = await image.readAsBytes();
-              // 이미지를 Base64 문자열로 인코딩하여 전송
-              _socketClient.sendMessage(base64Encode(bytes)); 
-            } catch (e) {
-              print("프레임 캡처 실패: $e");
-            } finally {
-              _isProcessing = false;
-            }
-        }
-      });
-      
-      Provider.of<CharProvider>(context, listen: false).updateStatusMessage("분석 시작... 포즈를 취해주세요!");
-
-    } else {
-      _stopAnalysis();
+      } catch (e) {
+        print("프레임 처리 실패: $e");
+        _isProcessingFrame = false;
+      }
     }
   }
+  
+  Uint8List _convertYUV420toJPEG(CameraImage image) {
+    final int width = image.width;
+    final int height = image.height;
+    final img.Image yuvImage = img.Image(width: width, height: height);
+    final int uvRowStride = image.planes[1].bytesPerRow;
+    final int uvPixelStride = image.planes[1].bytesPerPixel!;
 
-  // 분석 중지 및 리소스 정리
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final int uvIndex = uvPixelStride * (x / 2).floor() + uvRowStride * (y / 2).floor();
+        final int index = y * width + x;
+        final int yValue = image.planes[0].bytes[index];
+        final int uValue = image.planes[1].bytes[uvIndex];
+        final int vValue = image.planes[2].bytes[uvIndex];
+        int r = (yValue + 1.402 * (vValue - 128)).round();
+        int g = (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128)).round();
+        int b = (yValue + 1.772 * (uValue - 128)).round();
+        yuvImage.setPixelRgba(x, y, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255), 255);
+      }
+    }
+    
+    final img.Image resizedImage = img.copyResize(yuvImage, width: 640, height: 640);
+    return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 75));
+  }
+
   void _stopAnalysis() {
+    if (_controller.value.isStreamingImages) {
+      _controller.stopImageStream();
+    }
     _socketClient.disconnect();
-    _analysisTimer?.cancel();
     if (mounted) {
        setState(() {
          _isAnalyzing = false;
@@ -244,7 +271,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     final size = MediaQuery.of(context).size;
     
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5), // 부드러운 회색 배경
+      backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
         title: Text(
           widget.mode == 'feeding' ? '🥣 식사' : 
@@ -264,29 +291,24 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
         future: _initializeControllerFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
-            
             return Consumer<CharProvider>(
               builder: (context, provider, child) {
                 return Stack(
                   children: [
-                    // --- 1. 메인 배경 & 캐릭터 ("방" 화면) ---
                     Positioned.fill(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // 캐릭터 이미지 (크게)
                           Expanded(
                             flex: 3,
                             child: Center(
                               child: Image.asset(
-                                provider.character?.imageUrl ?? "assets/images/characters/char_default.png", // 안전한 접근
+                                provider.character?.imageUrl ?? "assets/images/characters/char_default.png",
                                 fit: BoxFit.contain,
                                 width: size.width * 0.8, 
                               ),
                             ),
                           ),
-                          
-                          // 대화창 / 상태 박스
                           Expanded(
                             flex: 2,
                             child: Container(
@@ -303,14 +325,8 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    _isAnalyzing 
-                                      ? "분석 중..." 
-                                      : "대기 중",
-                                    style: TextStyle(
-                                      color: _isAnalyzing ? Colors.blueAccent : Colors.grey,
-                                      fontWeight: FontWeight.bold, 
-                                      fontSize: 14
-                                    )
+                                    _isAnalyzing ? "분석 중..." : "대기 중",
+                                    style: TextStyle(color: _isAnalyzing ? Colors.blueAccent : Colors.grey, fontWeight: FontWeight.bold, fontSize: 14)
                                   ),
                                   const SizedBox(height: 10),
                                   Expanded(
@@ -321,7 +337,6 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                                       ),
                                     ),
                                   ),
-                                  // 즉각적인 피드백 (경고/안내)
                                   if (_feedback.isNotEmpty && !_feedback.contains("성공"))
                                     Container(
                                       margin: const EdgeInsets.only(top: 10),
@@ -344,18 +359,15 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                               ),
                             ),
                           ),
-                          const SizedBox(height: 100), // 하단 컨트롤 공간 확보
+                          const SizedBox(height: 100),
                         ],
                       ),
                     ),
-
-                    // --- 2. PIP 카메라 미리보기 (우측 하단) ---
                     Positioned(
                       bottom: 20,
                       right: 20,
                       child: Container(
                         width: 120,
-                        // 높이는 AspectRatio에 의해 자동 결정
                         decoration: BoxDecoration(
                           color: Colors.black,
                           borderRadius: BorderRadius.circular(15),
@@ -369,53 +381,25 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                // 카메라 영상
                                 CameraPreview(_controller),
-                                
-                                // 스켈레톤 오버레이 (교감 모드에서 사람 뼈대 그리기)
                                 if (_isAnalyzing && _imageWidth > 0)
                                   CustomPaint(
-                                    painter: PosePainter(
-                                      keypoints: _keypoints,
-                                      imageWidth: _imageWidth,
-                                      imageHeight: _imageHeight,
-                                      feedback: _feedback,
-                                    ),
+                                    painter: PosePainter(keypoints: _keypoints, imageWidth: _imageWidth, imageHeight: _imageHeight, feedback: _feedback),
                                   ),
-                                  
-                                // 녹화/분석 중 표시 (빨간 점)
                                 if (_isAnalyzing)
                                   Positioned(
-                                    top: 5,
-                                    right: 5,
-                                    child: Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: const BoxDecoration(
-                                        color: Colors.red,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
+                                    top: 5, right: 5,
+                                    child: Container(width: 10, height: 10, decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
                                   ),
-  
-                                // 신뢰도 점수 표시
                                 if (_isAnalyzing && _confScore > 0)
                                   Positioned(
-                                    top: 5,
-                                    left: 5,
+                                    top: 5, left: 5,
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.5),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
+                                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), borderRadius: BorderRadius.circular(4)),
                                       child: Text(
                                         "${(_confScore * 100).toInt()}%",
-                                        style: TextStyle(
-                                          color: _confScore >= 0.55 ? Colors.greenAccent : Colors.redAccent,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                        style: TextStyle(color: _confScore >= 0.55 ? Colors.greenAccent : Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold),
                                       ),
                                     ),
                                   ),
@@ -423,20 +407,41 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                             ),
                           ),
                         ),
-
                       ),
                     ),
-
-                    // --- 3. 컨페티 레이어 (성공 시 전체 화면) ---
-                    if (_particles.isNotEmpty)
-                      IgnorePointer(
-                        child: CustomPaint(
-                          painter: ConfettiPainter(_particles),
-                          size: Size.infinite,
+                    if (_trainingState == 'STAY')
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.black.withOpacity(0.4),
+                          child: Center(
+                            child: SizedBox(
+                              width: 160,
+                              height: 160,
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  CircularProgressIndicator(
+                                    value: _stayProgress,
+                                    strokeWidth: 12,
+                                    backgroundColor: Colors.white.withOpacity(0.3),
+                                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.lightGreenAccent),
+                                  ),
+                                  Center(
+                                    child: Text(
+                                      _progressText,
+                                      style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    
-                    // --- 4. 컨트롤 버튼 (좌측 하단) ---
+                    if (_particles.isNotEmpty)
+                      IgnorePointer(
+                        child: CustomPaint(painter: ConfettiPainter(_particles), size: Size.infinite),
+                      ),
                     Positioned(
                       bottom: 20,
                       left: 20,
@@ -444,15 +449,12 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                         onPressed: _cameraError == null ? _toggleAnalysis : null,
                         backgroundColor: _isAnalyzing ? Colors.redAccent : Colors.indigo,
                         icon: Icon(_isAnalyzing ? Icons.stop : Icons.play_arrow),
-                        label: Text(
-                          _isAnalyzing ? "그만하기" : "훈련 시작", 
-                          style: const TextStyle(fontWeight: FontWeight.bold)
-                        ),
+                        label: Text(_isAnalyzing ? "그만하기" : "훈련 시작", style: const TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ),
                   ],
                 );
-              }
+              },
             );
           } else if (snapshot.hasError) {
              return Center(child: Text("카메라 오류: ${snapshot.error}", style: const TextStyle(color: Colors.red)));
@@ -466,33 +468,14 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
 
   // 성공 팝업 표시
   void _showSuccessDialog(Map<String, dynamic> baseReward, int bonus) {
-    String statType = baseReward['stat_type'] ?? "strength";
+    if (!mounted) return;
     
-    // 난이도에 따른 보상 계산
-    int statReward = 1;
-    int bonusPoints = 2; // 기본 보너스
-
-    if (widget.difficulty == 'hard') {
-      statReward = 3;
-      bonusPoints = 5;
-    }
-
-    // 기본 보상 즉시 적용 (타겟 스탯)
     final provider = Provider.of<CharProvider>(context, listen: false);
     
-    // 1. 타겟 스탯 상승
-    provider.allocateStatSpecific(statType); // allocateStatSpecific는 1씩 증가하므로, 반복 호출 필요하거나 로직 수정 필요.
-    // Provider의 gainReward가 이미 호출되었으므로, 여기서는 Dialog 표시만 하면 됨.
-    // 하지만 gainReward 로직에 의존.
-    // 중복 호출 방지를 위해 여기서는 '추가 분배'용 UI만 띄우는 것이 맞음.
-    // `gainReward`가 이미 호출되었으므로, 보너스 포인트는 `unusedPoints`에 쌓여있음.
-    
-    // UI 표시용 데이터 준비
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        // 현재 스탯 상태 가져오기
         final currentStats = {
           "strength": provider.character?.stat?.strength ?? 0,
           "intelligence": provider.character?.stat?.intelligence ?? 0,
@@ -501,35 +484,23 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
           "health": provider.character?.stat?.health ?? 0,
         };
 
-        // 방금 받은 보너스를 분배하도록 유도
         return StatDistributionDialog(
-          availablePoints: provider.unusedStatPoints, // 누적된 포인트 사용
+          availablePoints: provider.unusedStatPoints,
           currentStats: currentStats,
           title: "🎉 훈련 성공!",
           confirmLabel: "마이룸으로 이동",
           skipLabel: "나중에 하기 (Skip)",
+          earnedReward: baseReward,
+          earnedBonus: bonus,
           onConfirm: (allocated, remaining) {
-             // 할당된 포인트 적용
-             // StatDistributionDialog는 UI상 변화만 보여주고, 실제 적용은 콜백에서 해야 함
-             // 하지만 Provider에 이미 `unusedPoints`로 들어가 있으므로, 
-             // `allocateStatSpecific`을 호출하여 차감하면서 적용해야 함.
-             
-             // 간편함을 위해 Dialog 내부 로직과 맞추려면:
-             // Dialog는 할당량(allocated)을 반환함.
-             // Provider는 'unused'에서 차감하고 스탯을 올리는 메서드가 필요.
-             
              if (allocated['strength']! > 0) _applyAllocated('strength', allocated['strength']!, provider);
              if (allocated['intelligence']! > 0) _applyAllocated('intelligence', allocated['intelligence']!, provider);
              if (allocated['stamina']! > 0) _applyAllocated('stamina', allocated['stamina']!, provider);
              if (allocated['happiness']! > 0) _applyAllocated('happiness', allocated['happiness']!, provider);
              if (allocated['health']! > 0) _applyAllocated('health', allocated['health']!, provider);
-             
-             // 남은 포인트는 그대로 둠 (자동 저장됨)
-             
              _goToMyRoom();
           },
           onSkip: () {
-             // 아무것도 안 하면 포인트는 그대로 유지됨
              _goToMyRoom();
           },
         );
@@ -539,11 +510,12 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   
   void _applyAllocated(String type, int amount, CharProvider provider) {
     for (int i=0; i<amount; i++) {
-      provider.allocateStatSpecific(type); // 1씩 증가 및 차감
+      provider.allocateStatSpecific(type);
     }
   }
 
   void _goToMyRoom() {
+    if (!mounted) return;
     Navigator.of(context).pop(); 
     Navigator.of(context).pop(); 
     Navigator.pushReplacement(
@@ -586,26 +558,19 @@ class PosePainter extends CustomPainter {
 
     List<Offset> points = [];
 
-    // 정규화된 좌표를 실제 화면 크기로 변환
     for (var kp in keypoints) {
       if (kp is List && kp.length >= 2) {
         double normX = (kp[0] as num).toDouble();
         double normY = (kp[1] as num).toDouble();
-        
-        // 전면 카메라 좌우 반전 고려 (필요 시 1.0 - normX)
         double finalX = (1.0 - normX) * size.width;
         double finalY = normY * size.height;
-        
         points.add(Offset(finalX, finalY));
       }
     }
 
-    // 스켈레톤 연결 정보 (COCO 포맷 기준)
     final connections = [
-      [11, 13], [13, 15], [12, 14], [14, 16], // 다리
-      [11, 12], [5, 6], // 몸통
-      [5, 11], [6, 12], 
-      [5, 7], [7, 9], [6, 8], [8, 10], // 팔
+      [11, 13], [13, 15], [12, 14], [14, 16], [11, 12], [5, 6], [5, 11], [6, 12], 
+      [5, 7], [7, 9], [6, 8], [8, 10],
     ];
 
     for (var conn in connections) {
@@ -625,7 +590,6 @@ class PosePainter extends CustomPainter {
   }
 }
 
-// 컨페티(꽃가루) 효과 그리기
 class ConfettiPainter extends CustomPainter {
   final List<ConfettiParticle> particles;
   ConfettiPainter(this.particles);
@@ -643,11 +607,7 @@ class ConfettiPainter extends CustomPainter {
 }
 
 class ConfettiParticle {
-  double x = 0.5;
-  double y = 0.5;
-  double vx = 0;
-  double vy = 0;
-  double size = 5;
+  double x = 0.5, y = 0.5, vx = 0, vy = 0, size = 5;
   Color color = Colors.red;
   
   ConfettiParticle() {
@@ -655,7 +615,7 @@ class ConfettiParticle {
     x = 0.5;
     y = 0.4;
     vx = (r.nextDouble() - 0.5) * 0.05;
-    vy = (r.nextDouble() - 0.5) * 0.05 - 0.02; // 위로 솟구침
+    vy = (r.nextDouble() - 0.5) * 0.05 - 0.02;
     size = r.nextDouble() * 5 + 3;
     color = Color.fromARGB(255, r.nextInt(255), r.nextInt(255), r.nextInt(255));
   }
@@ -663,6 +623,6 @@ class ConfettiParticle {
   void update() {
     x += vx;
     y += vy;
-    vy += 0.002; // 중력 적용
+    vy += 0.002;
   }
 }

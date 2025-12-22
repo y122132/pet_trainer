@@ -254,6 +254,7 @@ class HomeScreen extends StatelessWidget {
              try {
                 // 사용 가능한 카메라 확인 후 이동
                 final cameras = await availableCameras();
+                if (!context.mounted) return;
                 if (cameras.isEmpty) return;
                 Navigator.push(context, MaterialPageRoute(builder: (c) => CameraScreen(cameras: cameras)));
              } catch (e) {

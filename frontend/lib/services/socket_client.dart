@@ -21,12 +21,13 @@ class SocketClient {
   /// 웹소켓 서버에 연결합니다.
   /// [petType]: 반려동물 종류 (예: 'dog', 'cat')
   /// [difficulty]: 난이도 ('easy', 'hard')
-  Future<void> connect(String petType, String difficulty) async {
+  /// [mode]: 훈련 모드 ('playing', 'feeding', 'interaction')
+  Future<void> connect(String petType, String difficulty, String mode) async {
     if (_isConnected) return; // 이미 연결되어 있으면 무시
 
     try {
       // URL 쿼리 파라미터 구성 (사용자 ID는 1로 고정 - 추후 인증 연동 필요)
-      final uri = Uri.parse('$_wsUrl/1?pet_type=$petType&difficulty=$difficulty');
+      final uri = Uri.parse('$_wsUrl/1?pet_type=$petType&difficulty=$difficulty&mode=$mode');
       print("Socket Connecting to: $uri");
       
       _channel = WebSocketChannel.connect(uri);
