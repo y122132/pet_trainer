@@ -22,7 +22,7 @@ async def reset_database():
     async with AsyncSessionLocal() as session:
         # 1. Create User
         print("   - Creating User 1...")
-        new_user = User(id=1, email="test@example.com", hashed_password="hashed_password") 
+        new_user = User(id=1, email="test@example.com", password="hashed_password") 
         session.add(new_user)
         
         # 2. Create Character
