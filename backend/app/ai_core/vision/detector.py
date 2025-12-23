@@ -74,8 +74,8 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     Returns:
         dict: 감지 결과, 성공 여부, 피드백 메시지 등
     """
-    # 모델 로드 상태 확인 (방어적 코드)
-    load_models()
+    # 1. 모델 로드 (명시적 초기화: 전역 변수 대신 반환값 사용)
+    model_pose, model_detect = load_models()
     
     # 1. 바이너리 이미지 디코딩
     try:

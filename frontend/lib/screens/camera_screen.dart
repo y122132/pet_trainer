@@ -235,8 +235,10 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
             if (data.containsKey('image_width')) _imageWidth = (data['image_width'] as num).toDouble();
             if (data.containsKey('image_height')) _imageHeight = (data['image_height'] as num).toDouble();
             if (data.containsKey('feedback')) _feedback = data['feedback'];
-            // 항상 최신 신뢰도 점수 반영 (없으면 0.0)
-            _confScore = (data['conf_score'] as num?)?.toDouble() ?? 0.0;
+            // [User Request] 신뢰도 점수 업데이트 (서버 키 확인)
+            if (data.containsKey('conf_score')) {
+              _confScore = (data['conf_score'] as num?)?.toDouble() ?? 0.0;
+            }
           });
         }
         

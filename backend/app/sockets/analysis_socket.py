@@ -47,23 +47,30 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
             is_success = result.get("success", False)
 
             # --- FSM 로직 시작 ---
+            # --- FSM 로직 시작 ---
+            # 기본 응답 데이터 (AI 분석 결과 포함)
+            response = result.copy()
+
             if is_success:
                 last_detected_time = current_time
                 if state == "READY":
                     state = "DETECTING"
-                    await websocket.send_json({"status": "detecting", "message": "동작 감지 시작!"})
+                    response.update({"status": "detecting", "message": "동작 감지 시작!"})
+                    await websocket.send_json(response)
                 
                 elif state == "DETECTING":
                     state = "STAY"
                     state_start_time = current_time
-                    await websocket.send_json({"status": "stay", "message": "좋아요, 자세를 3초간 유지하세요!"})
+                    response.update({"status": "stay", "message": "좋아요, 자세를 3초간 유지하세요!"})
+                    await websocket.send_json(response)
                 
                 elif state == "STAY":
                     hold_duration = current_time - state_start_time
                     if hold_duration >= 3:
                         state = "SUCCESS"
                     else:
-                        await websocket.send_json({"status": "stay", "message": f"자세 유지... {3 - hold_duration:.1f}초"})
+                        response.update({"status": "stay", "message": f"자세 유지... {3 - hold_duration:.1f}초"})
+                        await websocket.send_json(response)
             
             else: # is_success가 False일 때
                 if state == "STAY":
@@ -71,18 +78,20 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                     if current_time - last_detected_time > 0.5:
                         state = "READY"
                         state_start_time = None
-                        await websocket.send_json({"status": "fail", "message": "동작이 끊겼습니다. 다시 시도하세요."})
+                        response.update({"status": "fail", "message": "동작이 끊겼습니다. 다시 시도하세요."})
+                        await websocket.send_json(response)
                 elif state == "DETECTING":
                     # 감지 시작 직후 실패 시 바로 초기화
                     state = "READY"
                 
                 # READY 상태에서는 실패 메시지를 계속 전송
                 if state == "READY":
-                    await websocket.send_json({
+                    response.update({
                         "status": "fail", 
                         "message": result.get("message", "대기 중..."),
                         "feedback": result.get("feedback_message", "")
                     })
+                    await websocket.send_json(response)
 
             # --- 성공 상태 처리 ---
             if state == "SUCCESS":
