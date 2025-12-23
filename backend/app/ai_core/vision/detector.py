@@ -74,6 +74,8 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     Returns:
         dict: 감지 결과, 성공 여부, 피드백 메시지 등
     """
+    # 모델 로드 상태 확인 (방어적 코드)
+    load_models()
     
     # 1. 바이너리 이미지 디코딩
     try:
@@ -141,7 +143,8 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             "feedback_message": "pet_not_found",
             "keypoints": [],
             "width": width,
-            "height": height
+            "height": height,
+            "conf_score": best_conf # 반려동물을 못 찾아도 현재까지의 최고 신뢰도 반환 (보통 0.0이거나 낮은 값)
         }
 
     # 현재 모드에 필요한 타겟 물건 설정 가져오기

@@ -76,7 +76,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   bool _isAnalyzing = false; // 현재 AI 분석이 진행 중인지 여부
   String? _cameraError;
   String _feedback = ""; // AI가 보내준 실시간 피드백 메시지 (예: "더 가까이")
-  double _confScore = 0.0; // 인식 신뢰도 점수 (0.0 ~ 1.0)
+  double _confScore = 0.0; // 인식 신뢰도 점수 (0.0 ~ 1.0) 
   
   // --- FSM & UI 피드백 변수 ---
   String _trainingState = 'READY'; // READY, DETECTING, STAY, SUCCESS
@@ -235,7 +235,8 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
             if (data.containsKey('image_width')) _imageWidth = (data['image_width'] as num).toDouble();
             if (data.containsKey('image_height')) _imageHeight = (data['image_height'] as num).toDouble();
             if (data.containsKey('feedback')) _feedback = data['feedback'];
-            if (data.containsKey('conf_score')) _confScore = (data['conf_score'] as num).toDouble();
+            // 항상 최신 신뢰도 점수 반영 (없으면 0.0)
+            _confScore = (data['conf_score'] as num?)?.toDouble() ?? 0.0;
           });
         }
         
@@ -288,8 +289,6 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     }
 
     _isProcessingFrame = true;
-    // 주의: _canSendFrame은 여기서 false로 만들지 않고, 
-    // 실제 전송 직전에 false로 만들어야 변환 실패 시 락이 걸리는 것을 방지할 수 있음.
 
     try {
       if (image.format.group == ImageFormatGroup.yuv420) {
@@ -373,84 +372,13 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                     // 메인 레이아웃: 항상 상하 분할 (Column)
                     Column(
                       children: [
-                        // [상단 50%] 캐릭터 및 메시지 영역
-                        Expanded(
-                          flex: 1,
-                          child: Container(
-                            width: double.infinity,
-                            color: Colors.white,
-                            child: Stack(
-                              children: [
-                                // 캐릭터 & 텍스트
-                                Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Expanded(
-                                        child: Image.asset(
-                                          provider.character?.imageUrl ?? "assets/images/characters/char_default.png",
-                                          fit: BoxFit.contain,
-                                        ),
-                                      ),
-                                      // 메시지 박스
-                                      Container(
-                                        padding: const EdgeInsets.all(15),
-                                        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey.shade100,
-                                          borderRadius: BorderRadius.circular(15),
-                                        ),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            if (!_isAnalyzing)
-                                              const Text("대기 중", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
-                                            const SizedBox(height: 5),
-                                            Text(
-                                              provider.statusMessage,
-                                              textAlign: TextAlign.center,
-                                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                // [상단 오버레이] 디버그 정보 (분석 중일 때만)
-                                if (_isAnalyzing)
-                                  Positioned(
-                                    top: 10, left: 10,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.6),
-                                        borderRadius: BorderRadius.circular(8)
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text("Status: $_trainingState", style: const TextStyle(color: Colors.white, fontSize: 10)),
-                                          Text("Confidence: ${(_confScore * 100).toStringAsFixed(1)}%", 
-                                            style: TextStyle(color: _confScore > 0.5 ? Colors.greenAccent : Colors.redAccent, fontSize: 10)
-                                          ),
-                                          Text("Latency: ${_latency}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        
-                        // [하단 50%] 카메라 프리뷰 및 시각화 영역
+                        // [상단 50%] 카메라 프리뷰 영역
                         Expanded(
                           flex: 1,
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              // 1. 카메라 프리뷰 (항상 표시)
+                              // 1. 카메라 프리뷰
                               CameraPreview(_controller),
                               
                               // 2. 분석 시각화 레이어 (분석 중일 때만)
@@ -460,7 +388,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                                   CustomPaint(painter: PosePainter(keypoints: _keypoints, imageWidth: _imageWidth, imageHeight: _imageHeight, feedback: _feedback, isFrontCamera: isFront)),
                               ],
 
-                              // 3. STAY 카운트다운 (분석 중 & STAY 상태)
+                              // 3. STAY 카운트다운
                               if (_isAnalyzing && _trainingState == 'STAY')
                                 Container(
                                   color: Colors.black.withOpacity(0.3),
@@ -476,7 +404,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                                   ),
                                 ),
                               
-                              // 4. 연결 경고 (분석 중 & 연결 끊김)
+                              // 4. 연결 경고
                               if (_isAnalyzing && !_socketClient.isConnected)
                                 Container(
                                   color: Colors.black54,
@@ -484,7 +412,74 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                                     child: Text("⚠️ 서버 연결 확인 중...", style: TextStyle(color: Colors.redAccent, fontSize: 24, fontWeight: FontWeight.bold)),
                                   ),
                                 ),
+
+                              // 5. 디버그 정보 (상단 영역 좌측)
+                              if (_isAnalyzing)
+                                Positioned(
+                                  top: 10, left: 10,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.6),
+                                      borderRadius: BorderRadius.circular(8)
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text("Status: $_trainingState", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                        Text("Confidence: ${(_confScore * 100).toStringAsFixed(1)}%", 
+                                          style: TextStyle(color: _confScore > 0.5 ? Colors.greenAccent : Colors.redAccent, fontSize: 10)
+                                        ),
+                                        Text("Latency: ${_latency}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                             ],
+                          ),
+                        ),
+
+                        // [하단 50%] 캐릭터 및 메시지 영역
+                        Expanded(
+                          flex: 1,
+                          child: Container(
+                            width: double.infinity,
+                            color: Colors.white,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                // 캐릭터 이미지
+                                Expanded(
+                                  child: Image.asset(
+                                    provider.character?.imageUrl ?? "assets/images/characters/char_default.png",
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                                // 메시지 박스
+                                Container(
+                                  padding: const EdgeInsets.all(15),
+                                  margin: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(15),
+                                    border: Border.all(color: Colors.grey.shade300),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (!_isAnalyzing)
+                                        const Text("대기 중", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
+                                      const SizedBox(height: 5),
+                                      Text(
+                                        provider.statusMessage,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, height: 1.4),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -573,7 +568,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     Navigator.of(context).pop(); 
     Navigator.of(context).pop(); 
     Navigator.pushReplacement(
-      context,
+      context, 
       MaterialPageRoute(builder: (context) => const import_my_room_page.MyRoomPage()), 
     );
   }
@@ -616,16 +611,6 @@ class DebugBoxPainter extends CustomPainter {
 
     final rect = Rect.fromLTRB(x1, y1, x2, y2);
     canvas.drawRect(rect, paint);
-    
-    // 텍스트 라벨 (선택 사항)
-    /*
-    final textPainter = TextPainter(
-      text: const TextSpan(text: "Target", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(canvas, Offset(x1, y1 - 20));
-    */
   }
 
   @override

@@ -30,7 +30,8 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
         print(f"[FSM_WS] 연결 실패: {e}")
         return
 
-    target_class_id = PET_CLASS_MAP.get(pet_type, 0)
+    # 대소문자 무시 및 기본값 설정 (기본값: 16 - 강아지)
+    target_class_id = PET_CLASS_MAP.get(pet_type.lower(), 16)
     
     # --- FSM 상태 변수 ---
     state = "READY"              # 현재 상태: READY, DETECTING, STAY, SUCCESS
