@@ -627,65 +627,16 @@ class DebugBoxPainter extends CustomPainter {
   DebugBoxPainter({required this.bbox, required this.isFrontCamera, required this.imgRatio});
 
   @override
+  @override
   void paint(Canvas canvas, Size size) {
-    if (bbox.isEmpty || bbox.length < 4) return;
+    if (bbox.isEmpty) return;
 
-    final paint = Paint() //
-      ..color = Colors.red
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0;
-
-    // 정규화된 좌표 (0.0 ~ 1.0)
-    double nx1 = (bbox[0] as num).toDouble();
-    double ny1 = (bbox[1] as num).toDouble();
-    double nx2 = (bbox[2] as num).toDouble();
-    double ny2 = (bbox[3] as num).toDouble();
-
-    // --- 좌표 보정 로직 (BoxFit.cover 대응) ---
-    // CameraPreview는 화면을 꽉 채우기 위해 이미지를 센터 크롭(Close-up)하여 보여줌.
+    // 공통 렌더링 파라미터 계산 (프레임 단위 고정값)
     // 1. 화면 비율 계산
     double screenRatio = size.width / size.height;
     
     // 2. 실제 렌더링될 이미지의 스케일과 오프셋 계산
-    double scale = 1.0;
-    double dx = 0.0;
-    double dy = 0.0;
-    
-    // 카메라 비율(imgRatio)은 가로/세로. (세로 모드여도 aspect ratio는 보통 가로/세로 < 1.0)
-    // 하지만 flutter의 camera controller aspect ratio는 센서 기준이라 
-    // Portrait에서는 1/aspectRatio가 될 수도 있음.
-    // 여기서 imgRatio가 3:4(0.75)라고 가정하자.
-    // 만약 화면이 9:16(0.56)이라면 화면이 더 길쭉함.
-    
-    // 안전한 비율 계산 (항상 1보다 작은 값으로 정규화하여 비교하거나, 상황에 맞게)
-    // * 중요: CameraPreview 구현상, 
-    //   - Screen이 Image보다 '더 길쭉하면' (screenRatio < imgRatio) -> 높이에 맞춤(FitHeight) -> 좌우가 잘림? 
-    //     아니, Cover(꽉채움)이므로 높이에 맞추면 좌우가 남음(Letterbox). 
-    //     Cover는 '더 짧은 쪽'을 기준으로 확대함.
-    
-    // Case A: Screen이 Image보다 더 '홀쭉'함 (Portrait Phone vs 4:3 Image)
-    // screenRatio (0.5) < imgRatio (0.75)
-    // -> 높이를 꽉 채우려면(FitHeight) 폭이 모자람. 
-    // -> 폭을 꽉 채우려면(FitWidth) 높이가 남음(Letterbox). 
-    // -> Cover(꽉채움)는 "넘치는 쪽을 자름".
-    // -> 따라서 높이에 맞춤(Scale = userH / imgH). 폭은 이미지 폭 * Scale 만큼 커짐.
-    // -> 화면 폭보다 이미지가 더 커짐 -> 좌우가 잘림(Crop).
-    
-    // Case B: Screen이 Image보다 더 '납작'함 (Tablet vs 16:9 Image)
-    // screenRatio > imgRatio
-    // -> 폭에 맞춤(Scale = userW / imgW). 높이는 이미지 높이 * Scale.
-    // -> 화면 높이보다 이미지가 더 커짐 -> 위아래가 잘림.
-
-    // * CameraController.value.aspectRatio는 보통 width/height (Landscape 기준)일 수 있음.
-    // Portrait에서는 이를 역수(1/ratio)로 써야 할 수도 있음.
-    // 간단히: 입력 이미지가 (imgW, imgH)이고 화면이 (scrW, scrH)일 때
-    
-    // 가상의 리사이즈된 이미지 크기 (renderW, renderH) 계산
     double renderW, renderH;
-    
-    // 직관적 접근: "더 많이 확대해야 하는 쪽"을 기준으로 스케일링
-    // ScaleW = size.width / 1.0 (정규화 width)
-    // ScaleH = size.height / 1.0 (정규화 height) => 이건 단순히 Stretch
     
     // 올바른 접근:
     // 실제 카메라 이미지의 종횡비 사용. (imgRatio가 Portrait 기준 W/H라고 가정)
@@ -706,41 +657,72 @@ class DebugBoxPainter extends CustomPainter {
     }
     
     // 오프셋 (센터 크롭 가정)
-    dx = (size.width - renderW) / 2.0;
-    dy = (size.height - renderH) / 2.0;
+    double dx = (size.width - renderW) / 2.0;
+    double dy = (size.height - renderH) / 2.0;
 
-    // 최종 좌표 변환
-    // x_screen = nx * renderW + dx
-    double x1, x2;
-    if (isFrontCamera) {
-       // 전면카메라는 좌우 반전
-       double rx1 = (1.0 - nx2) * renderW + dx;
-       double rx2 = (1.0 - nx1) * renderW + dx;
-       x1 = rx1; x2 = rx2;
-    } else {
-       x1 = nx1 * renderW + dx;
-       x2 = nx2 * renderW + dx;
-    }
-    double y1 = ny1 * renderH + dy;
-    double y2 = ny2 * renderH + dy;
+    // 그리기 도구 설정
+    final paint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0;
 
-    final rect = Rect.fromLTRB(x1, y1, x2, y2);
-    canvas.drawRect(rect, paint);
-    
-    // [Debug] 좌표 정보 및 분석 정보 표시
-    String debugInfo = "";
-    if (bbox.length > 5) {
-       debugInfo = "ID:${bbox[5].toInt()} (${((bbox[4]as num) * 100).toStringAsFixed(0)}%)";
+    // 단일 박스 포맷 호환성 처리 (혹시 모를 구버전 데이터 대비)
+    List<dynamic> targets = [];
+    if (bbox[0] is List) {
+      targets = bbox;
+    } else if (bbox.length >= 4) {
+      targets = [bbox];
     }
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: debugInfo, 
-        style: const TextStyle(color: Colors.yellow, fontSize: 12, fontWeight: FontWeight.bold, backgroundColor: Colors.black54),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(canvas, Offset(x1, y1 - 18));
+
+    // 모든 박스 그리기
+    for (var box in targets) {
+      if (box.length < 4) continue;
+
+      // 정규화된 좌표 (0.0 ~ 1.0)
+      double nx1 = (box[0] as num).toDouble();
+      double ny1 = (box[1] as num).toDouble();
+      double nx2 = (box[2] as num).toDouble();
+      double ny2 = (box[3] as num).toDouble();
+
+      // 최종 화면 좌표 변환
+      double x1, x2;
+      if (isFrontCamera) {
+         // 전면카메라는 좌우 반전
+         double rx1 = (1.0 - nx2) * renderW + dx;
+         double rx2 = (1.0 - nx1) * renderW + dx;
+         x1 = rx1; x2 = rx2;
+      } else {
+         x1 = nx1 * renderW + dx;
+         x2 = nx2 * renderW + dx;
+      }
+      double y1 = ny1 * renderH + dy;
+      double y2 = ny2 * renderH + dy;
+
+      final rect = Rect.fromLTRB(x1, y1, x2, y2);
+      
+      // 박스 그리기
+      // ID별 색상 구분 (선택 사항) - 지금은 모두 빨간색
+      canvas.drawRect(rect, paint);
+      
+      // 정보 표시 (ID, Conf)
+      String debugInfo = "";
+      if (box.length > 5) {
+         int cls = (box[5] as num).toInt();
+         int conf = ((box[4] as num) * 100).toInt();
+         // ID 16(강아지)은 빨강, 그 외는 노랑
+         debugInfo = "ID:$cls ($conf%)";
+      }
+      
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: debugInfo, 
+          style: const TextStyle(color: Colors.yellow, fontSize: 12, fontWeight: FontWeight.bold, backgroundColor: Colors.black54),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(x1, y1 - 18));
+    }
   }
 
   @override

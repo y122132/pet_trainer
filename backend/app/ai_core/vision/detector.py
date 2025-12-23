@@ -115,6 +115,12 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     pet_box = [] # [x1, y1, x2, y2] (정규화된 좌표)
     best_conf = 0.0
     
+    # [Config Load] 현재 모드에 필요한 타겟 물건 설정 미리 가져오기
+    pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
+    mode_config = pet_config.get(mode, pet_config["playing"]) 
+    target_props = mode_config["targets"]
+
+    detected_objects = [] # 프론트엔드 시각화용 (모든 관련 객체)
     props_detected = [] 
     prop_boxes = {} # class_id -> [x1, y1, x2, y2]
     
@@ -129,6 +135,13 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             nx1, ny1, nx2, ny2 = float(x1/width), float(y1/height), float(x2/width), float(y2/height)
             current_box = [nx1, ny1, nx2, ny2]
 
+            # [Visual] 시각화 리스트에 추가 (LOGIC_CONF 이상, 그리고 펫이나 타겟 물건인 경우)
+            # 사용자가 "이상한 것까지 잡히지 않게"라고 했으므로 필터링 적용
+            if conf >= LOGIC_CONF:
+                 if cls_id == target_class_id or cls_id in target_props:
+                      # [x1, y1, x2, y2, conf, cls]
+                      detected_objects.append([nx1, ny1, nx2, ny2, float(conf), float(cls_id)])
+
             # A. 반려동물 찾기 (설정된 target_class_id와 일치하는지 확인)
             if cls_id == target_class_id:
                 if conf > best_conf: # 가장 신뢰도 높은 객체 선택
@@ -137,9 +150,16 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                     # [nx1, ny1, nx2, ny2, conf, cls] 형태로 확장
                     pet_box = [nx1, ny1, nx2, ny2, float(conf), float(cls_id)]
             
-            # [Debug] 타겟 ID와 상관없이 가장 신뢰도 높은 객체 기록 (오인식 원인 분석용)
-            # 16(dog), 15(cat) 등 펫 관련 클래스라면 특히 주의
-            pass
+            # B. 타겟 물건(장난감, 그릇 등) 찾기
+            if cls_id in target_props:
+                # 해당 클래스의 객체가 여러 개일 경우, 일단 가장 높은 신뢰도 or 마지막 발견된 것 저장
+                # (상호작용 로직에서는 prop_boxes에 있는 것을 사용)
+                # 더 정교하게 하려면 리스트로 관리해야 하지만, 현재 로직(단순 거리 비교) 유지
+                # prop_boxes는 [x1, y1, x2, y2] 만 저장하는 구조였음.
+                if cls_id not in prop_boxes or conf > (prop_boxes.get(cls_id, [])[4] if len(prop_boxes.get(cls_id, [])) > 4 else -1):
+                     prop_boxes[cls_id] = current_box + [conf] # Store conf temporarily for comparison
+                     if cls_id not in props_detected: # Ensure unique class IDs
+                         props_detected.append(cls_id)
 
     # ---------------------------------------------------------
     # 3. 로직 처리 (상호작용/Overlap 판단)
@@ -177,13 +197,13 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             "height": height,
             "conf_score": best_conf,
             "debug_max_conf": max_conf_any, # 타겟 무관 최고 점수
-            "debug_max_cls": max_conf_cls   # 타겟 무관 최고 클래스
+            "debug_max_cls": max_conf_cls,   # 타겟 무관 최고 클래스
+            "bbox": detected_objects # [Change] pet_box 대신 전체 감지 객체 리스트 반환 (프론트 변경 필요)
         }
 
-    # 현재 모드에 필요한 타겟 물건 설정 가져오기
-    pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
-    mode_config = pet_config.get(mode, pet_config["playing"]) 
-    target_props = mode_config["targets"]
+    # [Moved Up] 현재 모드에 필요한 타겟 물건 설정은 위에서 이미 가져옴
+    
+    # 화면에 타겟 물건이 하나라도 있는지 확인
     
     # 화면에 타겟 물건이 하나라도 있는지 확인
     has_target = any(p in props_detected for p in target_props)
@@ -310,7 +330,7 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
         "feedback_message": feedback_message,
         "keypoints": normalized_keypoints,
         "skeleton_points": [],
-        "bbox": pet_box,
+        "bbox": detected_objects, # [Change] 전체 객체 리스트
         "width": width,
         "height": height,
         "conf_score": best_conf,
