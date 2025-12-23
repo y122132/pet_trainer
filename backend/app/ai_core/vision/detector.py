@@ -143,7 +143,8 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                       detected_objects.append([nx1, ny1, nx2, ny2, float(conf), float(cls_id)])
 
             # A. 반려동물 찾기 (설정된 target_class_id와 일치하는지 확인)
-            if cls_id == target_class_id:
+            # [Fix] 시각적 박스와 로직의 일관성을 위해 LOGIC_CONF 이상일 때만 로직 인정
+            if cls_id == target_class_id and conf >= LOGIC_CONF:
                 if conf > best_conf: # 가장 신뢰도 높은 객체 선택
                     best_conf = conf
                     found_pet = True
@@ -151,7 +152,8 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                     pet_box = [nx1, ny1, nx2, ny2, float(conf), float(cls_id)]
             
             # B. 타겟 물건(장난감, 그릇 등) 찾기
-            if cls_id in target_props:
+            # [Fix] 시각적 박스와 로직의 일관성을 위해 LOGIC_CONF 이상일 때만 로직 인정
+            if cls_id in target_props and conf >= LOGIC_CONF:
                 # 해당 클래스의 객체가 여러 개일 경우, 일단 가장 높은 신뢰도 or 마지막 발견된 것 저장
                 # (상호작용 로직에서는 prop_boxes에 있는 것을 사용)
                 # 더 정교하게 하려면 리스트로 관리해야 하지만, 현재 로직(단순 거리 비교) 유지
