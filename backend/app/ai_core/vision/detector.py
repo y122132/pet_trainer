@@ -109,7 +109,7 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
     # YOLO 추론 수행 (imgsz=640 명시하여 비율 유지 리사이징/패딩 보장)
-    results_detect = model_detect(frame_rgb, conf=det_conf, imgsz=640, verbose=False)
+    results_detect = model_detect(frame_rgb, conf=INFERENCE_CONF, imgsz=640, verbose=False)
     
     found_pet = False
     pet_box = [] # [x1, y1, x2, y2] (정규화된 좌표)
