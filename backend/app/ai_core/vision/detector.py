@@ -90,7 +90,8 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
         return {"success": False, "message": f"이미지 디코딩 에러: {str(e)}"}
 
     height, width, _ = frame.shape
-    print(f"[Detector] Input Image Size: {width}x{height} (Ratio: {width/height:.2f})", flush=True)
+    file_size_kb = len(image_bytes) / 1024
+    print(f"[Detector] Input Image Size: {width}x{height} (Ratio: {width/height:.2f}), File Size: {file_size_kb:.1f}KB", flush=True)
 
     # ---------------------------------------------------------
     # 2. 반려동물 & 사물 탐지 (YOLO Object Detection)
@@ -129,7 +130,6 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             if cls_id == target_class_id:
                 if conf > best_conf: # 가장 신뢰도 높은 객체 선택
                     best_conf = conf
-                    found_pet = True
                     found_pet = True
                     # [nx1, ny1, nx2, ny2, conf, cls] 형태로 확장
                     pet_box = [nx1, ny1, nx2, ny2, float(conf), float(cls_id)]

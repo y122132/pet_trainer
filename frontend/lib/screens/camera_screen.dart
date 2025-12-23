@@ -58,10 +58,10 @@ Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
   }
 
   /* 실제 핸드폰용 (고품질) */
-  // return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 75));
+  return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 85));
   
   /* 에뮬레이터/테스트용 (품질 상향: 40 -> 70) */
-  return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 70));
+  // return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 70));
 }
 
 class CameraScreen extends StatefulWidget {
@@ -100,10 +100,10 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   int _lastFrameSentTimestamp = 0; // 마지막 전송 시각 (최소 간격용)
 
   /* 실제 핸드폰 용 */
-  // static const int _frameInterval = 150;  // 최소 간격 (서버가 빠르면 더 자주 보낼 수 있도록 200ms -> 100ms 단축)
+  static const int _frameInterval = 150;  // 최소 간격 (서버가 빠르면 더 자주 보낼 수 있도록 200ms -> 100ms 단축)
   
   /* 에뮬레이터 테스트용 */
-  static const int _frameInterval = 300; // 최소 간격 (ms)
+  // static const int _frameInterval = 300; // 최소 간격 (ms)
   
   // --- 디버그 & 시각화 변수 ---
   int _frameStartTime = 0; // 프레임 전송 시작 시간 (Latency 계산용)
@@ -125,7 +125,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     // 카메라 초기화: 성능을 위해 해상도는 Medium으로 설정 (분석용으로 충분함)
     _controller = CameraController(
       widget.cameras.first,
-      ResolutionPreset.medium, 
+      ResolutionPreset.high, 
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420, // 스트리밍을 위해 포맷 지정
     );
