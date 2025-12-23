@@ -5,7 +5,7 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from app.ai_core.brain.prompts import (
     BASE_PERSONA, MODE_PERSONA, SUCCESS_TEMPLATE, FAIL_TEMPLATE, 
-    DAILY_STREAK_ADDON, MILESTONE_ADDON
+    DAILY_STREAK_ADDON, MILESTONE_ADDON, IDLE_TEMPLATE
 )
 
 # 환경변수에서 OpenAI API 키 로드
@@ -86,6 +86,10 @@ def generate_message(state: AgentState):
         # 마일스톤(10, 20...) 달성 시 특별 메시지
         if milestone_reached:
             situation_prompt += MILESTONE_ADDON
+            
+    elif action == "idle":
+        # 대기(심심함) 상태
+        situation_prompt = IDLE_TEMPLATE
             
     else:
         # 실패 시: 격려 및 힌트 제공

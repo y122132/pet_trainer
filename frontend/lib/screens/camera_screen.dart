@@ -11,6 +11,7 @@ import '../providers/char_provider.dart';
 import '../services/socket_client.dart';
 import 'my_room_page.dart' as import_my_room_page;
 import '../widgets/stat_distribution_dialog.dart';
+import '../widgets/chat_bubble.dart'; // [NEW]
 
 // --- 최상위 함수 (Top-level function) ---
 // 백그라운드 Isolate에서 실행될 함수입니다. compute()는 최상위 함수여야 합니다.
@@ -226,7 +227,10 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
 
         if (mounted) {
           setState(() {
-            _trainingState = status?.toUpperCase() ?? _trainingState;
+            // [Fix] 'keep' 상태가 오면 기존 훈련 상태(STAY, READY 등)를 유지하고 메시지만 업데이트 해야 함
+            if (status != null && status != 'keep') {
+               _trainingState = status.toUpperCase();
+            }
 
             if (_trainingState == 'STAY') {
               final msg = data['message'] as String? ?? '';
@@ -256,6 +260,10 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
             }
             if (data.containsKey('debug_max_cls')) {
               _maxConfCls = (data['debug_max_cls'] as num?)?.toInt() ?? -1;
+            }
+            // LLM 메시지 처리 (data['message'])
+            if (data.containsKey('message')) {
+               Provider.of<CharProvider>(context, listen: false).updateStatusMessage(data['message']);
             }
           });
         }
@@ -334,11 +342,18 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
           _canSendFrame = false;
           _lastFrameSentTimestamp = _frameStartTime;
           
+          
           _socketClient.sendMessage(jpegBytes);
         }
       } 
     } catch (e) {
       print("프레임 처리 실패: $e");
+      // [Safety] 전송 시도 중 에러 발생 시, 락 해제하여 멈춤 방지
+      if (mounted) {
+         setState(() {
+           _canSendFrame = true; 
+         });
+      }
     } finally {
       // 변환 작업 완료 (다음 프레임 변환 준비)
       _isProcessingFrame = false;
@@ -498,27 +513,10 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                                   ),
                                 ),
                                 // 메시지 박스
-                                Container(
-                                  padding: const EdgeInsets.all(15),
-                                  margin: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade100,
-                                    borderRadius: BorderRadius.circular(15),
-                                    border: Border.all(color: Colors.grey.shade300),
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (!_isAnalyzing)
-                                        const Text("대기 중", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
-                                      const SizedBox(height: 5),
-                                      Text(
-                                        provider.statusMessage,
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, height: 1.4),
-                                      ),
-                                    ],
-                                  ),
+                                // 메시지 박스 (말풍선 애니메이션)
+                                ChatBubble(
+                                  message: provider.statusMessage,
+                                  isAnalyzing: _isAnalyzing,
                                 ),
                               ],
                             ),

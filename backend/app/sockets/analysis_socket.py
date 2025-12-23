@@ -4,8 +4,10 @@ from app.ai_core.vision import detector
 from app.services import char_service
 from app.db.database import AsyncSessionLocal
 from app.core.pet_constants import PET_CLASS_MAP
+from app.ai_core.brain.graphs import get_character_response # [NEW] LLM 호출 함수
 import json
 import time
+import asyncio
 
 router = APIRouter()
 
@@ -26,7 +28,6 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
         await websocket.accept()
         print(f"[FSM_WS] 연결 수락: User {user_id}, 모드 {mode}, 펫 {pet_type}, 난이도 {difficulty}", flush=True)
     except Exception as e:
-
         print(f"[FSM_WS] 연결 실패: {e}")
         return
 
@@ -38,21 +39,122 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
     state_start_time = None      # STAY 상태 시작 시간
     last_detected_time = None    # 마지막으로 '성공'을 감지한 시간
     
+    # --- LLM 연동 변수 [NEW] ---
+    last_llm_time = 0            # 마지막 메시지 전송 시각
+    last_interaction_time = time.time() # 마지막 FSM 상태 변화 시각 (Idle 체크용)
+    llm_task = None              # 비동기 LLM 태스크 (Fire-and-forget)
+
+    # --- 헬퍼 함수: LLM 트리거 ---
+    async def trigger_llm(action_type, is_success=False, reward=None, feedback="", milestone=False):
+        nonlocal last_llm_time
+        current_now = time.time()
+        
+        # 쿨타임 체크 (성공이 아닌 경우 10초, 성공은 즉시)
+        cooldown = 10 if not is_success else 0
+        if current_now - last_llm_time < cooldown:
+            return
+
+        last_llm_time = current_now
+        
+        # 비동기 실행을 위해 별도 함수로 래핑
+        async def run_llm():
+            try:
+                # DB에서 최신 스탯 조회 (읽기 전용 세션)
+                async with AsyncSessionLocal() as db:
+                    char_stats = {"strength": 0, "happiness": 0} # Default
+                    
+                    # [Fix] user_id로 캐릭터 조회 후 char_id 사용
+                    # get_character_with_stats는 char_id를 받도록 설계되어 있음. 
+                    
+                    # 따라서 먼저 user_id에 해당하는 캐릭터를 찾아야 함.
+                    from sqlalchemy import select
+                    from app.db.models.character import Character
+                    
+                    stmt = select(Character).where(Character.user_id == user_id)
+                    result = await db.execute(stmt)
+                    character_obj = result.scalar_one_or_none()
+                    
+                    if character_obj:
+                         # 캐릭터가 있으면 스탯 로딩
+                         character = await char_service.get_character_with_stats(db, character_obj.id)
+                         if character and character.stat:
+                             char_stats = {
+                                "strength": character.stat.strength,
+                                "intelligence": character.stat.intelligence,
+                                "stamina": character.stat.stamina,
+                                "happiness": character.stat.happiness,
+                                "health": character.stat.health
+                            }
+                        
+                    msg = await get_character_response(
+                        action_type=action_type,
+                        current_stats=char_stats,
+                        mode=mode,
+                        is_success=is_success,
+                        reward_info=reward or {},
+                        feedback_detail=feedback,
+                        milestone_reached=milestone
+                    )
+                    
+                    # 소켓 전송 (비동기)
+                    # [Safety] 연결 상태 확인
+                    from fastapi.websockets import WebSocketState
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        await websocket.send_json({
+                            "message": msg,
+                            "status": "keep" # 상태 유지
+                        })
+                    else:
+                        print(f"[LLM_SKIP] 소켓 연결 끊김 (User {user_id})")
+            except Exception as ex:
+                print(f"[LLM_ERROR] {ex}")
+
+        # 백그라운드 태스크 생성
+        asyncio.create_task(run_llm())
+
+    
     try:
         while True:
-            image_bytes = await websocket.receive_bytes()
+            # 타임아웃을 두어 receive_bytes가 무한정 막히지 않게 할 수도 있지만,
+            # 여기서는 클라이언트가 주기적으로 보내준다고 가정.
+            # Idle 처리를 위해 asyncio.wait_for를 쓸 수도 있음.
+            # [Fix] 타임아웃 방식이 아닌, 프레임 수신 여부와 관계없이 시간 체크
+            try:
+                # 프레임을 기다림 (타임아웃 없이, 혹은 넉넉하게)
+                image_bytes = await websocket.receive_bytes()
+            except Exception:
+                break
+            
+            # 1. Idle 체크 (매 프레임마다 시간 비교)
+            # 마지막 상호작용(성공, 실패, 감지 등)으로부터 20초 경과 시
+            if time.time() - last_interaction_time > 20.0:
+                 # 20초 이상 잠수 -> 심심함 표현
+                 # trigger_llm 내부 쿨타임이 있으므로 빈번한 호출 방지됨
+                 # 하지만 Idle 메시지는 20초마다 한 번만 나가야 하므로 여기서 시간 리셋을 하거나
+                 # trigger_llm이 성공했을 때만 리셋 등 전략 필요.
+                 # 여기서는 trigger_llm 호출 후 시간을 리셋하여 20초 뒤에 다시 칭얼대도록 함.
+                 
+                 # 비동기 호출 (결과 기다리지 않음)
+                 await trigger_llm("idle", is_success=False)
+                 
+                 # 메시지를 보냈으므로 다시 20초 카운트 (재촉 주기)
+                 last_interaction_time = time.time()
+            
+
+            
             current_time = time.time()
             
+            # 비전 처리 (CPU/GPU)
             result = await run_in_threadpool(detector.process_frame, image_bytes, mode, target_class_id, difficulty)
-            is_success = result.get("success", False)
+            is_success_vision = result.get("success", False)
 
-            # --- FSM 로직 시작 ---
-            # --- FSM 로직 시작 ---
-            # 기본 응답 데이터 (AI 분석 결과 포함)
+            # --- FSM 로직 ---
             response = result.copy()
 
-            if is_success:
+            if is_success_vision:
+                last_interaction_time = current_time # 상호작용 발생
                 last_detected_time = current_time
+                
                 if state == "READY":
                     state = "DETECTING"
                     response.update({"status": "detecting", "message": "동작 감지 시작!"})
@@ -72,50 +174,74 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                         response.update({"status": "stay", "message": f"자세 유지... {3 - hold_duration:.1f}초"})
                         await websocket.send_json(response)
             
-            else: # is_success가 False일 때
+            else: # is_success_vision is False
                 if state == "STAY":
                     # 유예 시간 (Grace Period) 체크
                     if current_time - last_detected_time > 0.5:
+                        # [실패 전환]
                         state = "READY"
                         state_start_time = None
-                        response.update({"status": "fail", "message": "동작이 끊겼습니다. 다시 시도하세요."})
+                        response.update({"status": "fail", "message": "동작이 끊겼습니다."})
                         await websocket.send_json(response)
+                        
+                        last_interaction_time = current_time # 상호작용(실패) 발생
+                        
+                        # [NEW] 실패 시 격려 메시지 (Semantic Compression: 단순 실패가 아니라 '자세 무너짐'으로 전달)
+                        await trigger_llm(mode, is_success=False, feedback="pose_unstable")
+                        
                     else:
-                        # [Fixed] Grace Period 처리: Frontend가 멈추지 않도록 응답 전송
+                        # [Fixed] Grace Period 처리
                         hold_duration = current_time - state_start_time
                         response.update({
                             "status": "stay", 
                             "message": f"자세 유지... {3 - hold_duration:.1f}초 (인식 불안정)"
                         })
                         await websocket.send_json(response)
+                        
                 elif state == "DETECTING":
-                    # 감지 시작 직후 실패 시 바로 초기화
                     state = "READY"
+                    # 단순 감지 실패는 메시지 생성 안 함 (너무 빈번함)
                 
-                # READY 상태에서는 실패 메시지를 계속 전송
+                # READY 상태 반복 전송 방지 (클라이언트 부하 감소)
                 if state == "READY":
+                    # 매 프레임 fail 보내지 말고, 필요할 때만 보내거나 클라이언트가 알아서 처리
+                    # 하지만 기존 로직 유지를 위해 전송하되, LLM은 호출하지 않음
                     response.update({
                         "status": "fail", 
-                        "message": result.get("message", "대기 중..."),
-                        "feedback": result.get("feedback_message", "")
+                        "message": result.get("message", "대기 중...")
                     })
                     await websocket.send_json(response)
 
             # --- 성공 상태 처리 ---
             if state == "SUCCESS":
-                print(f"[FSM_SUCCESS] User {user_id} 훈련 성공! 보상 지급 절차 시작")
+                print(f"[FSM_SUCCESS] User {user_id} 훈련 성공!")
+                last_interaction_time = current_time
+                
+                # DB 업데이트
                 response_data = {}
                 try:
-                    # DB 업데이트 및 스탯 적용 (1회만 실행)
                     async with AsyncSessionLocal() as db:
-                        service_result = await char_service.update_stats_from_yolo_result(db, user_id, result)
+                        # [Fix] user_id로 character_id 조회
+                        from sqlalchemy import select
+                        from app.db.models.character import Character
+                        stmt = select(Character).where(Character.user_id == user_id)
+                        char_res = await db.execute(stmt)
+                        character_obj = char_res.scalar_one_or_none()
+                        
+                        if not character_obj:
+                            raise Exception("Character not found for user")
+                            
+                        # char_id를 사용하여 스탯 업데이트 호출
+                        service_result = await char_service.update_stats_from_yolo_result(db, character_obj.id, result)
                         
                         if service_result:
+                            # LLM 호출을 위한 정보 준비 (여기서는 직접 호출하지 않고 trigger 함수 사용 권장하지만,
+                            # service_result가 필요하므로 인라인 혹은 trigger 함수 확장 필요)
+                            
+                            # 기존 구조 유지하되 LLM 부분만 교체
                             updated_stat = service_result["stat"]
                             
-                            # LLM을 통해 동적 응답 생성
-                            from app.ai_core.brain.graphs import get_character_response
-                            ai_message = await get_character_response(
+                            msg = await get_character_response(
                                 action_type=result.get("action_type", "action").replace("_", " ").title(),
                                 current_stats={
                                     "strength": updated_stat.strength,
@@ -130,35 +256,32 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                                 milestone_reached=service_result.get("milestone_reached")
                             )
                             
-                            # 최종 성공 데이터 구성
                             response_data = {
                                 "status": "success",
-                                "message": ai_message,
+                                "message": msg,
                                 "base_reward": result.get("base_reward", {}),
                                 "bonus_points": result.get("bonus_points", 0),
                                 "count": service_result.get("daily_count", 0),
-                                "bbox": [] # [Safety] 성공 시 시각적 오버레이 제거 보장
+                                "bbox": []
                             }
                         else:
-                             raise Exception("DB 서비스 결과가 없습니다.")
+                             raise Exception("DB Error")
                              
                 except Exception as e:
-                    print(f"보상 처리 중 에러 발생: {e}")
+                    print(f"Error: {e}")
                     response_data = {
                         "status": "success",
-                        "message": "훈련 성공! (보상 처리 중 오류 발생)", # 기본 성공 메시지
+                        "message": "훈련 성공! (보상 오류)",
                         "base_reward": result.get("base_reward", {}),
-                        "bonus_points": result.get("bonus_points", 0),
-                        "bbox": [] # [Safety] 성공 시 시각적 오버레이 제거 보장
+                        "bonus_points": 0,
+                        "bbox": []
                     }
                 
                 await websocket.send_json(response_data)
                 
-                # 상태 초기화
                 state = "READY"
                 state_start_time = None
                 last_detected_time = None
-                print(f"[FSM_RESET] User {user_id} 상태 초기화 완료.")
 
     except WebSocketDisconnect:
         print(f"[FSM_WS] 사용자 {user_id} 연결 종료", flush=True)
