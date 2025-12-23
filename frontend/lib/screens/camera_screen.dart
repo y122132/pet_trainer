@@ -617,6 +617,25 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
 }
 
 // --- 헬퍼 클래스 ---
+// YOLO COCO Class ID Map
+const Map<int, String> yoloClasses = {
+  0: 'Person',
+  15: 'Cat',
+  16: 'Dog',
+  28: 'Handbag', // 가방(장난감대용)
+  29: 'Frisbee',
+  32: 'Ball',
+  39: 'Bottle',
+  41: 'Cup',
+  45: 'Bowl',
+  46: 'Banana',
+  47: 'Apple',
+  48: 'Sandwich',
+  49: 'Orange',
+  50: 'Broccoli',
+  51: 'Carrot',
+  77: 'Teddy',
+};
 
 // Bounding Box 시각화 Painter
 class DebugBoxPainter extends CustomPainter {
@@ -660,18 +679,25 @@ class DebugBoxPainter extends CustomPainter {
     double dx = (size.width - renderW) / 2.0;
     double dy = (size.height - renderH) / 2.0;
 
-    // 그리기 도구 설정
-    final paint = Paint()
-      ..color = Colors.red
+    // 그리기 도구 설정 (기본값)
+    final paintPet = Paint()
+      ..color = Colors.redAccent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0;
+      
+    final paintProp = Paint()
+      ..color = Colors.blueAccent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.0;
 
-    // 단일 박스 포맷 호환성 처리 (혹시 모를 구버전 데이터 대비)
+    // 단일 박스 포맷 호환성 처리 & 빈 리스트 처리
     List<dynamic> targets = [];
-    if (bbox[0] is List) {
-      targets = bbox;
-    } else if (bbox.length >= 4) {
-      targets = [bbox];
+    if (bbox.isNotEmpty) {
+        if (bbox[0] is List) {
+           targets = bbox;
+        } else if (bbox.length >= 4) {
+           targets = [bbox]; // 구버전 호환 (단일 박스)
+       }
     }
 
     // 모든 박스 그리기
@@ -700,28 +726,43 @@ class DebugBoxPainter extends CustomPainter {
 
       final rect = Rect.fromLTRB(x1, y1, x2, y2);
       
-      // 박스 그리기
-      // ID별 색상 구분 (선택 사항) - 지금은 모두 빨간색
-      canvas.drawRect(rect, paint);
-      
-      // 정보 표시 (ID, Conf)
+      // 박스 그리기 및 정보 준비
       String debugInfo = "";
+      Paint currentPaint = paintProp; // 기본은 파란색 (도구)
+      
       if (box.length > 5) {
          int cls = (box[5] as num).toInt();
          int conf = ((box[4] as num) * 100).toInt();
-         // ID 16(강아지)은 빨강, 그 외는 노랑
-         debugInfo = "ID:$cls ($conf%)";
+         
+         // 15:Cat, 16:Dog -> 빨간색
+         String name = yoloClasses[cls] ?? "ID:$cls";
+         
+         if (cls == 15 || cls == 16) {
+             currentPaint = paintPet;
+             debugInfo = "$name $conf%";
+         } else {
+             // 그 외 (장난감, 식기 등) -> 파란색
+             currentPaint = paintProp;
+             debugInfo = "$name $conf%";
+         }
       }
+      
+      canvas.drawRect(rect, currentPaint);
       
       final textPainter = TextPainter(
         text: TextSpan(
           text: debugInfo, 
-          style: const TextStyle(color: Colors.yellow, fontSize: 12, fontWeight: FontWeight.bold, backgroundColor: Colors.black54),
+          style: TextStyle(
+            color: currentPaint.color, // 박스 색과 동일하게
+            fontSize: 14, 
+            fontWeight: FontWeight.bold, 
+            backgroundColor: Colors.black54
+          ),
         ),
         textDirection: TextDirection.ltr,
       );
       textPainter.layout();
-      textPainter.paint(canvas, Offset(x1, y1 - 18));
+      textPainter.paint(canvas, Offset(x1, y1 - 20)); // 박스 바로 위에 표시
     }
   }
 
