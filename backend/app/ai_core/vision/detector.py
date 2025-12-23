@@ -126,25 +126,39 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                     found_pet = True
                     pet_box = current_box
             
-            # B. 관련 사물 찾기 (공, 그릇, 사람 등)
-            # COCO 데이터셋 기준 ID 목록
-            if cls_id in [0, 29, 32, 39, 41, 45, 46, 47, 48, 49, 50, 51]:
-                props_detected.append(cls_id)
-                prop_boxes[cls_id] = current_box
+            # [Debug] 타겟 ID와 상관없이 가장 신뢰도 높은 객체 기록 (오인식 원인 분석용)
+            # 16(dog), 15(cat) 등 펫 관련 클래스라면 특히 주의
+            pass
 
     # ---------------------------------------------------------
     # 3. 로직 처리 (상호작용/Overlap 판단)
     # ---------------------------------------------------------
+    
+    # [Debug] 전체 탐지 결과 요약 (디버깅용)
+    all_detections_summary = ""
+    max_conf_any = 0.0
+    max_conf_cls = -1
+    
+    if results_detect and results_detect[0].boxes:
+        for box in results_detect[0].boxes:
+             c = float(box.conf[0])
+             cid = int(box.cls[0])
+             if c > max_conf_any:
+                 max_conf_any = c
+                 max_conf_cls = cid
+             all_detections_summary += f"{cid}({c:.2f}) "
 
     if not found_pet:
         return {
             "success": False,
-            "message": "반려동물을 찾는 중... 🔍", 
+            "message": f"반려동물 찾는 중... (Raw: {all_detections_summary})", 
             "feedback_message": "pet_not_found",
             "keypoints": [],
             "width": width,
             "height": height,
-            "conf_score": best_conf # 반려동물을 못 찾아도 현재까지의 최고 신뢰도 반환 (보통 0.0이거나 낮은 값)
+            "conf_score": best_conf,
+            "debug_max_conf": max_conf_any, # 타겟 무관 최고 점수
+            "debug_max_cls": max_conf_cls   # 타겟 무관 최고 클래스
         }
 
     # 현재 모드에 필요한 타겟 물건 설정 가져오기

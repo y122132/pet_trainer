@@ -85,6 +85,9 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   String? _cameraError;
   String _feedback = ""; // AI가 보내준 실시간 피드백 메시지 (예: "더 가까이")
   double _confScore = 0.0; // 인식 신뢰도 점수 (0.0 ~ 1.0) 
+  // [Debug] 디버깅용 변수 (타겟 무관 최고 점수)
+  double _maxConfAny = 0.0;
+  int _maxConfCls = -1; 
   
   // --- FSM & UI 피드백 변수 ---
   String _trainingState = 'READY'; // READY, DETECTING, STAY, SUCCESS
@@ -246,6 +249,13 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
             // [User Request] 신뢰도 점수 업데이트 (서버 키 확인)
             if (data.containsKey('conf_score')) {
               _confScore = (data['conf_score'] as num?)?.toDouble() ?? 0.0;
+            }
+            // [Debug] 디버그 정보 업데이트
+            if (data.containsKey('debug_max_conf')) {
+              _maxConfAny = (data['debug_max_conf'] as num?)?.toDouble() ?? 0.0;
+            }
+            if (data.containsKey('debug_max_cls')) {
+              _maxConfCls = (data['debug_max_cls'] as num?)?.toInt() ?? -1;
             }
           });
         }
@@ -442,6 +452,11 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                                           style: TextStyle(color: _confScore > 0.5 ? Colors.greenAccent : Colors.redAccent, fontSize: 10)
                                         ),
                                         Text("Latency: ${_latency}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                        // [Debug] 오인식 정보 표시
+                                        if (_maxConfAny > 0)
+                                          Text("Raw Max: ${(_maxConfAny * 100).toStringAsFixed(1)}% (ID: $_maxConfCls)", 
+                                            style: const TextStyle(color: Colors.yellowAccent, fontSize: 10, fontWeight: FontWeight.bold)
+                                          ),
                                       ],
                                     ),
                                   ),
