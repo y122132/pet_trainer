@@ -80,6 +80,14 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                         state_start_time = None
                         response.update({"status": "fail", "message": "동작이 끊겼습니다. 다시 시도하세요."})
                         await websocket.send_json(response)
+                    else:
+                        # [Fixed] Grace Period 처리: Frontend가 멈추지 않도록 응답 전송
+                        hold_duration = current_time - state_start_time
+                        response.update({
+                            "status": "stay", 
+                            "message": f"자세 유지... {3 - hold_duration:.1f}초 (인식 불안정)"
+                        })
+                        await websocket.send_json(response)
                 elif state == "DETECTING":
                     # 감지 시작 직후 실패 시 바로 초기화
                     state = "READY"
@@ -128,7 +136,8 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                                 "message": ai_message,
                                 "base_reward": result.get("base_reward", {}),
                                 "bonus_points": result.get("bonus_points", 0),
-                                "count": service_result.get("daily_count", 0)
+                                "count": service_result.get("daily_count", 0),
+                                "bbox": [] # [Safety] 성공 시 시각적 오버레이 제거 보장
                             }
                         else:
                              raise Exception("DB 서비스 결과가 없습니다.")
@@ -140,6 +149,7 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                         "message": "훈련 성공! (보상 처리 중 오류 발생)", # 기본 성공 메시지
                         "base_reward": result.get("base_reward", {}),
                         "bonus_points": result.get("bonus_points", 0),
+                        "bbox": [] # [Safety] 성공 시 시각적 오버레이 제거 보장
                     }
                 
                 await websocket.send_json(response_data)
