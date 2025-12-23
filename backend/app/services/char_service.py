@@ -94,7 +94,7 @@ async def get_character_with_stats(db: AsyncSession, char_id: int):
     character = result.scalar_one_or_none()
     return character
 
-async def create_character(db: AsyncSession, user_id: int, name: str):
+async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: str = "dog"):
     """
     새로운 사용자와 캐릭터를 생성합니다. (초기 자산 및 스탯 지급)
     """
@@ -119,7 +119,7 @@ async def create_character(db: AsyncSession, user_id: int, name: str):
         return existing_char
 
     # 3. 캐릭터 생성
-    new_char = Character(user_id=user_id, name=name, status="normal")
+    new_char = Character(user_id=user_id, name=name, status="normal", pet_type=pet_type)
     db.add(new_char)
     await db.flush() # ID 생성을 위해 flush (commit 전 ID 확보)
     

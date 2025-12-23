@@ -90,6 +90,7 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
         return {"success": False, "message": f"이미지 디코딩 에러: {str(e)}"}
 
     height, width, _ = frame.shape
+    print(f"[Detector] Input Image Size: {width}x{height} (Ratio: {width/height:.2f})", flush=True)
 
     # ---------------------------------------------------------
     # 2. 반려동물 & 사물 탐지 (YOLO Object Detection)
@@ -98,8 +99,13 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     # 난이도에 따른 감지 임계값(Threshold) 조절 (초기 인식률 향상을 위해 0.4 -> 0.3으로 완화)
     det_conf = 0.5 if difficulty == "hard" else 0.3
     
-    # YOLO 추론 수행
-    results_detect = model_detect(frame, conf=det_conf, verbose=False)
+    # [Critical Fix] BGR -> RGB 변환
+    # OpenCV는 BGR을 사용하지만, YOLO 모델(Ultralytics)은 RGB를 기대함.
+    # 색상이 반전되면(예: 갈색 강아지 -> 파란색) 모델이 오인식(사람 등)할 수 있음.
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    
+    # YOLO 추론 수행 (imgsz=640 명시하여 비율 유지 리사이징/패딩 보장)
+    results_detect = model_detect(frame_rgb, conf=det_conf, imgsz=640, verbose=False)
     
     found_pet = False
     pet_box = [] # [x1, y1, x2, y2] (정규화된 좌표)
@@ -269,7 +275,7 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
         if mode == "interaction" and (0 in prop_boxes):
             try:
                 # 사람 전용 포즈 모델 실행
-                results_pose = model_pose(frame, conf=0.45, classes=[0], verbose=False)
+                results_pose = model_pose(frame_rgb, conf=0.45, classes=[0], verbose=False)
                 if results_pose and results_pose[0].keypoints is not None:
                     if len(results_pose[0].keypoints.data) > 0:
                          kps = results_pose[0].keypoints.data[0].cpu().numpy()
