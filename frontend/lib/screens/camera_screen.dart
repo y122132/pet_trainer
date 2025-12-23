@@ -17,6 +17,7 @@ import '../widgets/stat_distribution_dialog.dart';
 Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
   final int width = data['width'];
   final int height = data['height'];
+  final int sensorOrientation = data['sensorOrientation'] ?? 0;
   final List<dynamic> planes = data['planes'];
   
   // YUV 데이터 추출
@@ -46,14 +47,21 @@ Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
     }
   }
   
-  // 리사이징 및 JPEG 인코딩
-  final img.Image resizedImage = img.copyResize(yuvImage, width: 640, height: 640);
+  // 리사이징 (비율 유지, 가로 640 고정)
+  // 강제로 height를 지정하지 않아 원본의 비율(Aspect Ratio)을 유지합니다.
+  // 세로 촬영 시 찌그러짐(왜곡) 방지에 필수적입니다.
+  img.Image resizedImage = img.copyResize(yuvImage, width: 640);
+
+  // [User Request] 이미지 회전 보정 (스마트폰 카메라는 보통 90도 돌아가 있음)
+  if (sensorOrientation != 0) {
+    resizedImage = img.copyRotate(resizedImage, angle: sensorOrientation);
+  }
 
   /* 실제 핸드폰용 (고품질) */
   // return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 75));
   
-  /* 에뮬레이터 테스트용 (저품질, 성능 최적화) */
-  return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 40));
+  /* 에뮬레이터/테스트용 (품질 상향: 40 -> 70) */
+  return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 70));
 }
 
 class CameraScreen extends StatefulWidget {
@@ -299,6 +307,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
         final rawData = {
           'width': image.width,
           'height': image.height,
+          'sensorOrientation': _controller.description.sensorOrientation,
           'planes': image.planes.map((plane) => {
             'bytes': plane.bytes, // Uint8List
             'bytesPerRow': plane.bytesPerRow,

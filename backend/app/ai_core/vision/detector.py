@@ -95,8 +95,8 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     # 2. 반려동물 & 사물 탐지 (YOLO Object Detection)
     # ---------------------------------------------------------
     
-    # 난이도에 따른 감지 임계값(Threshold) 조절
-    det_conf = 0.5 if difficulty == "hard" else 0.4
+    # 난이도에 따른 감지 임계값(Threshold) 조절 (초기 인식률 향상을 위해 0.4 -> 0.3으로 완화)
+    det_conf = 0.5 if difficulty == "hard" else 0.3
     
     # YOLO 추론 수행
     results_detect = model_detect(frame, conf=det_conf, verbose=False)
