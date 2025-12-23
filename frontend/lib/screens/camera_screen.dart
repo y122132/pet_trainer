@@ -728,7 +728,10 @@ class DebugBoxPainter extends CustomPainter {
     canvas.drawRect(rect, paint);
     
     // [Debug] 좌표 정보 및 분석 정보 표시
-    String debugInfo = "ID:${bbox[5].toInt()} (${(bbox[4]as num).toStringAsFixed(0)}%)"; // bbox[5]=cls
+    String debugInfo = "";
+    if (bbox.length > 5) {
+       debugInfo = "ID:${bbox[5].toInt()} (${(bbox[4]as num).toStringAsFixed(0)}%)";
+    }
     final textPainter = TextPainter(
       text: TextSpan(
         text: debugInfo, 

@@ -130,7 +130,9 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                 if conf > best_conf: # 가장 신뢰도 높은 객체 선택
                     best_conf = conf
                     found_pet = True
-                    pet_box = current_box
+                    found_pet = True
+                    # [nx1, ny1, nx2, ny2, conf, cls] 형태로 확장
+                    pet_box = [nx1, ny1, nx2, ny2, float(conf), float(cls_id)]
             
             # [Debug] 타겟 ID와 상관없이 가장 신뢰도 높은 객체 기록 (오인식 원인 분석용)
             # 16(dog), 15(cat) 등 펫 관련 클래스라면 특히 주의
@@ -153,6 +155,9 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                  max_conf_any = c
                  max_conf_cls = cid
              all_detections_summary += f"{cid}({c:.2f}) "
+    
+    # [Debug] 전체 탐지 로그 출력 (필수)
+    print(f"[Detector] All detections: {all_detections_summary}", flush=True)
 
     if not found_pet:
         return {
