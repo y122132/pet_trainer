@@ -48,11 +48,11 @@ Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
   
   // 리사이징 및 JPEG 인코딩
   final img.Image resizedImage = img.copyResize(yuvImage, width: 640, height: 640);
-  
-  /* 실제 핸드폰용 */
+
+  /* 실제 핸드폰용 (고품질) */
   // return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 75));
   
-  /* 에뮬레이터 테스트용 */
+  /* 에뮬레이터 테스트용 (저품질, 성능 최적화) */
   return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 40));
 }
 
@@ -83,16 +83,21 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   double _stayProgress = 0.0;
   String _progressText = '';
   
-  // --- 스트리밍 & 쓰로틀링 (Streaming & Throttling) ---
-  bool _isProcessingFrame = false; // 이미지 변환 작업 중복 방지 (로컬)
+  // --- 스트리밍 & Flow Control 변수 ---
+  bool _isProcessingFrame = false; // 로컬 변환 작업 중복 방지
   bool _canSendFrame = true;       // 서버 응답 대기 (Flow Control)
-  int _lastFrameSentTimestamp = 0; // 마지막으로 프레임을 보낸 시간
-  
-  /* 실제 핸드폰 용 */
-  //static const int _frameInterval = 150;  // 최소 간격 (서버가 빠르면 더 자주 보낼 수 있도록 200ms -> 100ms 단축)
+  int _lastFrameSentTimestamp = 0; // 마지막 전송 시각 (최소 간격용)
 
+  /* 실제 핸드폰 용 */
+  // static const int _frameInterval = 150;  // 최소 간격 (서버가 빠르면 더 자주 보낼 수 있도록 200ms -> 100ms 단축)
+  
   /* 에뮬레이터 테스트용 */
-  static const int _frameInterval = 300; // 
+  static const int _frameInterval = 300; // 최소 간격 (ms)
+  
+  // --- 디버그 & 시각화 변수 ---
+  int _frameStartTime = 0; // 프레임 전송 시작 시간 (Latency 계산용)
+  int _latency = 0;        // 왕복 지연 시간 (ms)
+  List<dynamic> _bbox = []; // 탐지된 객체 바운딩 박스 [x1, y1, x2, y2]
 
   // --- 시각화 데이터 (Visualization Data) ---
   List<dynamic> _keypoints = []; // 사람 스켈레톤 좌표 (교감 모드용)
@@ -169,6 +174,8 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
       // 중지 시 데이터 초기화 (잔상 제거)
       if (!_isAnalyzing) {
         _keypoints = [];
+        _bbox = [];
+        _latency = 0;
         _feedback = "";
         _trainingState = 'READY';
         _stayProgress = 0.0;
@@ -192,8 +199,14 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     _socketClient.stream.listen((message) {
       if (!mounted) return;
       
-      // 서버로부터 응답을 받으면 다음 프레임 전송 허용 (Flow Control ACK)
+      // 서버로부터 응답을 받으면 다음 프레임 전송 허용 (ACK)
       _canSendFrame = true; 
+      
+      // Latency 계산
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (_frameStartTime > 0) {
+        _latency = now - _frameStartTime;
+      }
 
       try {
         final data = jsonDecode(message);
@@ -202,22 +215,23 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
 
         if (mounted) {
           setState(() {
-            _trainingState = status ?? _trainingState;
+            _trainingState = status?.toUpperCase() ?? _trainingState;
 
-            if (_trainingState == 'stay') {
-              final message = data['message'] as String? ?? '';
-              final match = RegExp(r'(\d+\.\d+)').firstMatch(message);
+            if (_trainingState == 'STAY') {
+              final msg = data['message'] as String? ?? '';
+              final match = RegExp(r'(\d+\.\d+)').firstMatch(msg);
               if (match != null) {
                 final remaining = double.tryParse(match.group(1) ?? '3.0') ?? 3.0;
                 _stayProgress = (3.0 - remaining) / 3.0;
-                _progressText = "${remaining.toStringAsFixed(1)}초";
+                _progressText = "${remaining.toStringAsFixed(1)}초 유지 중...";
               }
-            } else if (_trainingState != 'success') {
+            } else if (_trainingState != 'SUCCESS') {
               _stayProgress = 0.0;
               _progressText = '';
             }
             
             if (data.containsKey('keypoints')) _keypoints = data['keypoints'];
+            if (data.containsKey('bbox')) _bbox = data['bbox'];
             if (data.containsKey('image_width')) _imageWidth = (data['image_width'] as num).toDouble();
             if (data.containsKey('image_height')) _imageHeight = (data['image_height'] as num).toDouble();
             if (data.containsKey('feedback')) _feedback = data['feedback'];
@@ -247,14 +261,15 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
 
       } catch (e) {
         print("JSON 파싱 에러: $e");
-      } finally {
-        // 여기서는 _isProcessingFrame을 해제하지 않음 (전송 작업과는 별개)
       }
     }, onError: (error) {
       if (mounted) {
         print("소켓 에러: $error");
         Provider.of<CharProvider>(context, listen: false).updateStatusMessage("통신 오류: $error");
-        _canSendFrame = true; // 에러 발생 시에도 다시 시도할 수 있도록 허용
+        // 에러 발생 시 UI 업데이트 및 전송 락 해제
+        setState(() {
+            _canSendFrame = true; // 에러 발생 시에도 다시 시도할 수 있도록 허용
+        });
       }
     });
 
@@ -294,8 +309,11 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
         final jpegBytes = await compute(processCameraImageToJpeg, rawData);
         
         if (mounted && _isAnalyzing && _canSendFrame) {
-          _canSendFrame = false; // 전송 시작! 응답 올 때까지 대기
-          _lastFrameSentTimestamp = DateTime.now().millisecondsSinceEpoch;
+          // 전송 직전 시간 기록 및 락 걸기
+          _frameStartTime = DateTime.now().millisecondsSinceEpoch;
+          _canSendFrame = false;
+          _lastFrameSentTimestamp = _frameStartTime;
+          
           _socketClient.sendMessage(jpegBytes);
         }
       } 
@@ -324,6 +342,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+    bool isFront = widget.cameras.first.lensDirection == CameraLensDirection.front;
     
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -348,113 +367,75 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
           if (snapshot.connectionState == ConnectionState.done) {
             return Consumer<CharProvider>(
               builder: (context, provider, child) {
+                // Stack: 전체 화면 레이어 (폭죽 효과, FAB 등 오버레이를 위해 필요)
                 return Stack(
                   children: [
-                    Positioned.fill(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: Center(
-                              child: Image.asset(
-                                provider.character?.imageUrl ?? "assets/images/characters/char_default.png",
-                                fit: BoxFit.contain,
-                                width: size.width * 0.8, 
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            flex: 2,
-                            child: Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                              padding: const EdgeInsets.all(20),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: Colors.grey.shade300, width: 2),
-                                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 5))],
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _isAnalyzing ? "분석 중..." : "대기 중",
-                                    style: TextStyle(color: _isAnalyzing ? Colors.blueAccent : Colors.grey, fontWeight: FontWeight.bold, fontSize: 14)
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Expanded(
-                                    child: SingleChildScrollView(
-                                      child: Text(
-                                        provider.statusMessage,
-                                        style: const TextStyle(fontSize: 18, color: Colors.black87, height: 1.5),
-                                      ),
-                                    ),
-                                  ),
-                                  if (_feedback.isNotEmpty && !_feedback.contains("성공"))
-                                    Container(
-                                      margin: const EdgeInsets.only(top: 10),
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange.shade50,
-                                        borderRadius: BorderRadius.circular(10),
-                                        border: Border.all(color: Colors.orange.shade200),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.info_outline, size: 16, color: Colors.orange),
-                                          const SizedBox(width: 5),
-                                          Text(_feedback, style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.bold)),
-                                        ],
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 100),
-                        ],
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 20,
-                      right: 20,
-                      child: Container(
-                        width: 120,
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.circular(15),
-                          border: Border.all(color: Colors.white, width: 3),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8)],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: AspectRatio(
-                            aspectRatio: _controller.value.aspectRatio,
+                    // 메인 레이아웃: 항상 상하 분할 (Column)
+                    Column(
+                      children: [
+                        // [상단 50%] 캐릭터 및 메시지 영역
+                        Expanded(
+                          flex: 1,
+                          child: Container(
+                            width: double.infinity,
+                            color: Colors.white,
                             child: Stack(
-                              fit: StackFit.expand,
                               children: [
-                                CameraPreview(_controller),
-                                if (_isAnalyzing && _imageWidth > 0)
-                                  CustomPaint(
-                                    painter: PosePainter(keypoints: _keypoints, imageWidth: _imageWidth, imageHeight: _imageHeight, feedback: _feedback),
+                                // 캐릭터 & 텍스트
+                                Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Expanded(
+                                        child: Image.asset(
+                                          provider.character?.imageUrl ?? "assets/images/characters/char_default.png",
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                      // 메시지 박스
+                                      Container(
+                                        padding: const EdgeInsets.all(15),
+                                        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade100,
+                                          borderRadius: BorderRadius.circular(15),
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (!_isAnalyzing)
+                                              const Text("대기 중", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
+                                            const SizedBox(height: 5),
+                                            Text(
+                                              provider.statusMessage,
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
+                                ),
+                                // [상단 오버레이] 디버그 정보 (분석 중일 때만)
                                 if (_isAnalyzing)
                                   Positioned(
-                                    top: 5, right: 5,
-                                    child: Container(width: 10, height: 10, decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
-                                  ),
-                                if (_isAnalyzing && _confScore > 0)
-                                  Positioned(
-                                    top: 5, left: 5,
+                                    top: 10, left: 10,
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), borderRadius: BorderRadius.circular(4)),
-                                      child: Text(
-                                        "${(_confScore * 100).toInt()}%",
-                                        style: TextStyle(color: _confScore >= 0.55 ? Colors.greenAccent : Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.6),
+                                        borderRadius: BorderRadius.circular(8)
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text("Status: $_trainingState", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                          Text("Confidence: ${(_confScore * 100).toStringAsFixed(1)}%", 
+                                            style: TextStyle(color: _confScore > 0.5 ? Colors.greenAccent : Colors.redAccent, fontSize: 10)
+                                          ),
+                                          Text("Latency: ${_latency}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                        ],
                                       ),
                                     ),
                                   ),
@@ -462,49 +443,67 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                    if (_trainingState == 'STAY')
-                      Positioned.fill(
-                        child: Container(
-                          color: Colors.black.withOpacity(0.4),
-                          child: Center(
-                            child: SizedBox(
-                              width: 160,
-                              height: 160,
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  CircularProgressIndicator(
-                                    value: _stayProgress,
-                                    strokeWidth: 12,
-                                    backgroundColor: Colors.white.withOpacity(0.3),
-                                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.lightGreenAccent),
-                                  ),
-                                  Center(
-                                    child: Text(
-                                      _progressText,
-                                      style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                        
+                        // [하단 50%] 카메라 프리뷰 및 시각화 영역
+                        Expanded(
+                          flex: 1,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              // 1. 카메라 프리뷰 (항상 표시)
+                              CameraPreview(_controller),
+                              
+                              // 2. 분석 시각화 레이어 (분석 중일 때만)
+                              if (_isAnalyzing) ...[
+                                CustomPaint(painter: DebugBoxPainter(bbox: _bbox, isFrontCamera: isFront)),
+                                if (_imageWidth > 0)
+                                  CustomPaint(painter: PosePainter(keypoints: _keypoints, imageWidth: _imageWidth, imageHeight: _imageHeight, feedback: _feedback, isFrontCamera: isFront)),
+                              ],
+
+                              // 3. STAY 카운트다운 (분석 중 & STAY 상태)
+                              if (_isAnalyzing && _trainingState == 'STAY')
+                                Container(
+                                  color: Colors.black.withOpacity(0.3),
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        CircularProgressIndicator(value: _stayProgress, strokeWidth: 8, valueColor: const AlwaysStoppedAnimation<Color>(Colors.lightGreenAccent)),
+                                        const SizedBox(height: 10),
+                                        Text(_progressText, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 10, color: Colors.black)])),
+                                      ],
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
+                                ),
+                              
+                              // 4. 연결 경고 (분석 중 & 연결 끊김)
+                              if (_isAnalyzing && !_socketClient.isConnected)
+                                Container(
+                                  color: Colors.black54,
+                                  child: const Center(
+                                    child: Text("⚠️ 서버 연결 확인 중...", style: TextStyle(color: Colors.redAccent, fontSize: 24, fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
-                      ),
+                      ],
+                    ),
+
+                    // [최상단 오버레이] 폭죽 효과
                     if (_particles.isNotEmpty)
-                      IgnorePointer(
-                        child: CustomPaint(painter: ConfettiPainter(_particles), size: Size.infinite),
-                      ),
+                      IgnorePointer(child: CustomPaint(painter: ConfettiPainter(_particles), size: Size.infinite)),
+                    
+                    // [최상단 오버레이] 컨트롤 버튼 (하단 중앙)
                     Positioned(
-                      bottom: 20,
-                      left: 20,
-                      child: FloatingActionButton.extended(
-                        onPressed: _cameraError == null ? _toggleAnalysis : null,
-                        backgroundColor: _isAnalyzing ? Colors.redAccent : Colors.indigo,
-                        icon: Icon(_isAnalyzing ? Icons.stop : Icons.play_arrow),
-                        label: Text(_isAnalyzing ? "그만하기" : "훈련 시작", style: const TextStyle(fontWeight: FontWeight.bold)),
+                      bottom: 30, left: 0, right: 0,
+                      child: Center(
+                        child: FloatingActionButton.extended(
+                          onPressed: _cameraError == null ? _toggleAnalysis : null,
+                          backgroundColor: _isAnalyzing ? Colors.redAccent : Colors.indigo,
+                          icon: Icon(_isAnalyzing ? Icons.stop : Icons.play_arrow),
+                          label: Text(_isAnalyzing ? "그만하기" : "훈련 시작", style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ),
                       ),
                     ),
                   ],
@@ -582,18 +581,73 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
 
 // --- 헬퍼 클래스 ---
 
+// Bounding Box 시각화 Painter
+class DebugBoxPainter extends CustomPainter {
+  final List<dynamic> bbox; // [x1, y1, x2, y2] (0.0 ~ 1.0)
+  final bool isFrontCamera;
+
+  DebugBoxPainter({required this.bbox, required this.isFrontCamera});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (bbox.isEmpty || bbox.length < 4) return;
+
+    final paint = Paint() //
+      ..color = Colors.red
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0;
+
+    // 정규화된 좌표를 화면 크기로 변환
+    double nx1 = (bbox[0] as num).toDouble();
+    double ny1 = (bbox[1] as num).toDouble();
+    double nx2 = (bbox[2] as num).toDouble();
+    double ny2 = (bbox[3] as num).toDouble();
+
+    double x1, x2;
+    if (isFrontCamera) {
+      x1 = (1.0 - nx2) * size.width;
+      x2 = (1.0 - nx1) * size.width;
+    } else {
+      x1 = nx1 * size.width;
+      x2 = nx2 * size.width;
+    }
+    double y1 = ny1 * size.height;
+    double y2 = ny2 * size.height;
+
+    final rect = Rect.fromLTRB(x1, y1, x2, y2);
+    canvas.drawRect(rect, paint);
+    
+    // 텍스트 라벨 (선택 사항)
+    /*
+    final textPainter = TextPainter(
+      text: const TextSpan(text: "Target", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    textPainter.paint(canvas, Offset(x1, y1 - 20));
+    */
+  }
+
+  @override
+  bool shouldRepaint(covariant DebugBoxPainter oldDelegate) {
+    return oldDelegate.bbox != bbox;
+  }
+}
+
 // 사람 스켈레톤 그리기 (교감 모드용)
 class PosePainter extends CustomPainter {
   final List<dynamic> keypoints;
   final double imageWidth; 
   final double imageHeight;
   final String feedback;
+  final bool isFrontCamera;
 
   PosePainter({
     required this.keypoints,
     required this.imageWidth,
     required this.imageHeight,
     required this.feedback,
+    required this.isFrontCamera,
   });
 
   @override
@@ -602,7 +656,7 @@ class PosePainter extends CustomPainter {
 
     final Color color = feedback.isEmpty || feedback == "no_action" ? Colors.redAccent : Colors.greenAccent;
     
-    final paint = Paint()
+    final paint = Paint() //
       ..color = color
       ..strokeWidth = 3.0 
       ..style = PaintingStyle.fill;
@@ -617,7 +671,7 @@ class PosePainter extends CustomPainter {
       if (kp is List && kp.length >= 2) {
         double normX = (kp[0] as num).toDouble();
         double normY = (kp[1] as num).toDouble();
-        double finalX = (1.0 - normX) * size.width;
+        double finalX = isFrontCamera ? (1.0 - normX) * size.width : normX * size.width;
         double finalY = normY * size.height;
         points.add(Offset(finalX, finalY));
       }
