@@ -730,7 +730,7 @@ class DebugBoxPainter extends CustomPainter {
     // [Debug] 좌표 정보 및 분석 정보 표시
     String debugInfo = "";
     if (bbox.length > 5) {
-       debugInfo = "ID:${bbox[5].toInt()} (${(bbox[4]as num).toStringAsFixed(0)}%)";
+       debugInfo = "ID:${bbox[5].toInt()} (${((bbox[4]as num) * 100).toStringAsFixed(0)}%)";
     }
     final textPainter = TextPainter(
       text: TextSpan(

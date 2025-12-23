@@ -97,8 +97,11 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     # 2. 반려동물 & 사물 탐지 (YOLO Object Detection)
     # ---------------------------------------------------------
     
-    # 난이도에 따른 감지 임계값(Threshold) 조절 (초기 인식률 향상을 위해 0.4 -> 0.3으로 완화)
-    det_conf = 0.5 if difficulty == "hard" else 0.3
+    # [Logic Separation] 추론용 임계값 vs 로직용 임계값 분리
+    # 추론: 0.25 (YOLO 기본 권장값, 노이즈 필터링)
+    # 로직: 0.4 (확실한 인식만 허용하여 게임 품질 확보)
+    INFERENCE_CONF = 0.25
+    LOGIC_CONF = 0.6 if difficulty == "hard" else 0.4
     
     # [Critical Fix] BGR -> RGB 변환
     # OpenCV는 BGR을 사용하지만, YOLO 모델(Ultralytics)은 RGB를 기대함.
@@ -155,6 +158,11 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                  max_conf_any = c
                  max_conf_cls = cid
              all_detections_summary += f"{cid}({c:.2f}) "
+    
+    # [Logic Fix] best_conf(타겟)가 max_conf_any(전체)보다 높으면 갱신 (논리적 정합성)
+    if best_conf > max_conf_any:
+        max_conf_any = best_conf
+        max_conf_cls = target_class_id
     
     # [Debug] 전체 탐지 로그 출력 (필수)
     print(f"[Detector] All detections: {all_detections_summary}", flush=True)
