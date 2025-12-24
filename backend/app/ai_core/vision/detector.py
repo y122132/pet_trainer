@@ -208,18 +208,38 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                 "bbox": detected_objects # 사람 박스는 포함됨
             }
 
+    # [Logic Refine] 반려동물은 없지만, 타겟(예: 주인, 장난감)은 감지된 경우 피드백 강화
     if not found_pet:
+        # 타겟 물건이 감지되었는지 미리 확인
+        has_target_pre = any(p in props_detected for p in target_props)
+        
+        msg = f"반려동물 찾는 중... (Raw: {all_detections_summary})"
+        feedback_code = "pet_not_found"
+        is_spec = False
+        
+        # 교감 모드에서 주인(0)은 찾았는데 펫이 없는 경우
+        if mode == "interaction" and has_target_pre:
+            msg = "주인님은 보이네요! 반려동물도 함께 보여주세요."
+            feedback_code = "owner_found_no_pet"
+            is_spec = True
+        # 놀이 모드에서 장난감은 찾았는데 펫이 없는 경우
+        elif mode == "playing" and has_target_pre:
+            msg = "장난감은 준비됐군요! 반려동물을 보여주세요."
+            feedback_code = "toy_found_no_pet"
+            is_spec = True
+
         return {
             "success": False,
-            "message": f"반려동물 찾는 중... (Raw: {all_detections_summary})", 
-            "feedback_message": "pet_not_found",
+            "message": msg, 
+            "feedback_message": feedback_code,
             "keypoints": [],
             "width": width,
             "height": height,
             "conf_score": best_conf,
-            "debug_max_conf": max_conf_any, # 타겟 무관 최고 점수
-            "debug_max_cls": max_conf_cls,   # 타겟 무관 최고 클래스
-            "bbox": detected_objects # [Change] pet_box 대신 전체 감지 객체 리스트 반환 (프론트 변경 필요)
+            "debug_max_conf": max_conf_any, 
+            "debug_max_cls": max_conf_cls,
+            "bbox": detected_objects,
+            "is_specific_feedback": is_spec
         }
 
     # [Moved Up] 현재 모드에 필요한 타겟 물건 설정은 위에서 이미 가져옴
