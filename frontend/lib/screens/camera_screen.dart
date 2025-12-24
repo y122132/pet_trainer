@@ -366,7 +366,6 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
           
           _socketClient.sendMessage(jpegBytes);
         }
-      } 
     } catch (e) {
       print("프레임 처리 실패: $e");
       // [Safety] 전송 시도 중 에러 발생 시, 락 해제하여 멈춤 방지
