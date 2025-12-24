@@ -250,17 +250,27 @@ class CharProvider with ChangeNotifier {
   }
 
   // 스탯에 따라 이미지/표정 변경 로직
+  // [Fix] 사용자 요청: 행복도에 따른 변경 로직 제거. 설정된 PetType에 따라 고정된 이미지 사용.
   void _updateImage() {
     if (_character == null) return;
     
-    // 단순 예시: 행복도에 따라 이미지 경로 변경
-    int happy = _character!.stat!.happiness;
-    if (happy > 80) {
-      _character!.imageUrl = "assets/images/characters/char_happy.png"; 
-    } else if (happy < 30) {
-      _character!.imageUrl = "assets/images/characters/char_sad.png";
-    } else {
-      _character!.imageUrl = "assets/images/characters/char_default.png";
+    String type = _currentPetType.toLowerCase();
+    
+    switch (type) {
+      case 'dog': 
+        _character!.imageUrl = "assets/images/characters/멜빵옷.png"; // Dog -> Overalls
+        break;
+      case 'cat': 
+        _character!.imageUrl = "assets/images/characters/공주옷.png"; // Cat -> Princess
+        break;
+      case 'ninja':
+        _character!.imageUrl = "assets/images/characters/닌자옷.png"; // Ninja -> Ninja
+        break;
+      case 'banana':
+        _character!.imageUrl = "assets/images/characters/바나나옷.png"; // Banana -> Banana
+        break;
+      default: 
+        _character!.imageUrl = "assets/images/characters/닌자옷.png"; // Fallback
     }
   }
 }

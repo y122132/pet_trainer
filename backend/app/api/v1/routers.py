@@ -33,12 +33,14 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Character not found")
     
     # ORM 객체를 딕셔너리로 수동 직렬화 (간단한 응답 구조)
+    # ORM 객체를 딕셔너리로 수동 직렬화 (간단한 응답 구조)
     return {
         "id": char.id,
-        "name": char.name,
+        "user_id": char.user_id, # [Fix] user_id 추가
         "name": char.name,
         "status": char.status,
-        "pet_type": char.pet_type, # [New] 펫 종류 추가
+        "pet_type": char.pet_type, 
+        "learned_skills": char.learned_skills, # [New] 스킬 목록 추가
         "stats": {
             "level": char.stat.level,
             "exp": char.stat.exp,
