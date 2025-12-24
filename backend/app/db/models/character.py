@@ -13,6 +13,7 @@ class Character(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True) # 유저당 하나의 캐릭터 (1:1)
     name: Mapped[str] = mapped_column(String, index=True) # 캐릭터 이름
     status: Mapped[str] = mapped_column(String, default="normal") # 상태 (예: normal, hungry, sleepy)
+    pet_type: Mapped[str] = mapped_column(String, default="dog") # 반려동물 종류 (dog, cat 등)
     
     # 관계 설정 (Relationships)
     user: Mapped["User"] = relationship("User", back_populates="character")
