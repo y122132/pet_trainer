@@ -158,8 +158,12 @@ class CharProvider with ChangeNotifier {
     }
   }
 
-  // 상태 메시지 업데이트
+  // 상태 메시지 업데이트 (캐릭터 대사 전용)
+  // [Fix] 시스템 로그("찾는 중..." 등)는 이 함수를 호출하면 안 됨.
   void updateStatusMessage(String msg) {
+    // 빈 문자열이나 null이 들어오면 무시 (기존 메시지 유지)
+    if (msg.isEmpty) return;
+    
     _statusMessage = msg;
     notifyListeners();
   }
@@ -185,6 +189,16 @@ class CharProvider with ChangeNotifier {
         }
         
         _character = Character.fromJson(data);
+        
+        // [New] 서버에서 가져온 펫 종류 적용 (동기화)
+        // 기존에는 하드코딩된 'dog'만 사용했으나, 이제는 DB 정보를 따름
+        _currentPetType = _character!.petType;
+        if (PET_CONFIGS.containsKey(_currentPetType)) {
+          _petConfig = PET_CONFIGS[_currentPetType]!;
+        } else {
+          // 예외 처리: 모르는 펫 타입이면 기본값 유지
+          print("Unknown pet type: $_currentPetType, using default.");
+        }
         
         // 서버의 'unused_points' 정보를 로컬 변수와 동기화
         if (_character!.stat != null) {

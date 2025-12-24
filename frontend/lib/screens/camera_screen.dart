@@ -11,6 +11,7 @@ import '../providers/char_provider.dart';
 import '../services/socket_client.dart';
 import 'my_room_page.dart' as import_my_room_page;
 import '../widgets/stat_distribution_dialog.dart';
+import '../widgets/chat_bubble.dart'; // [NEW]
 
 // --- 최상위 함수 (Top-level function) ---
 // 백그라운드 Isolate에서 실행될 함수입니다. compute()는 최상위 함수여야 합니다.
@@ -52,16 +53,19 @@ Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
   // 세로 촬영 시 찌그러짐(왜곡) 방지에 필수적입니다.
   img.Image resizedImage = img.copyResize(yuvImage, width: 640);
 
-  // [User Request] 이미지 회전 보정 (스마트폰 카메라는 보통 90도 돌아가 있음)
-  if (sensorOrientation != 0) {
-    resizedImage = img.copyRotate(resizedImage, angle: sensorOrientation);
+  // [Fix] 가로/세로 모드에 따른 동적 회전 적용
+  // 전달받은 rotationAngle 만큼 회전 (0, 90, 180, 270)
+  final int rotationAngle = data['rotationAngle'] ?? 0;
+  
+  if (rotationAngle != 0) {
+    resizedImage = img.copyRotate(resizedImage, angle: rotationAngle);
   }
 
   /* 실제 핸드폰용 (고품질) */
-  // return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 75));
+  return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 85));
   
   /* 에뮬레이터/테스트용 (품질 상향: 40 -> 70) */
-  return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 70));
+  // return Uint8List.fromList(img.encodeJpg(resizedImage, quality: 70));
 }
 
 class CameraScreen extends StatefulWidget {
@@ -100,15 +104,16 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
   int _lastFrameSentTimestamp = 0; // 마지막 전송 시각 (최소 간격용)
 
   /* 실제 핸드폰 용 */
-  // static const int _frameInterval = 150;  // 최소 간격 (서버가 빠르면 더 자주 보낼 수 있도록 200ms -> 100ms 단축)
+  static const int _frameInterval = 150;  // 최소 간격 (서버가 빠르면 더 자주 보낼 수 있도록 200ms -> 100ms 단축)
   
   /* 에뮬레이터 테스트용 */
-  static const int _frameInterval = 300; // 최소 간격 (ms)
+  // static const int _frameInterval = 300; // 최소 간격 (ms)
   
   // --- 디버그 & 시각화 변수 ---
   int _frameStartTime = 0; // 프레임 전송 시작 시간 (Latency 계산용)
   int _latency = 0;        // 왕복 지연 시간 (ms)
   List<dynamic> _bbox = []; // 탐지된 객체 바운딩 박스 [x1, y1, x2, y2]
+  Orientation _currentOrientation = Orientation.portrait; // [NEW] 현재 화면 방향 추적
 
   // --- 시각화 데이터 (Visualization Data) ---
   List<dynamic> _keypoints = []; // 사람 스켈레톤 좌표 (교감 모드용)
@@ -125,7 +130,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     // 카메라 초기화: 성능을 위해 해상도는 Medium으로 설정 (분석용으로 충분함)
     _controller = CameraController(
       widget.cameras.first,
-      ResolutionPreset.medium, 
+      ResolutionPreset.high, 
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420, // 스트리밍을 위해 포맷 지정
     );
@@ -226,7 +231,10 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
 
         if (mounted) {
           setState(() {
-            _trainingState = status?.toUpperCase() ?? _trainingState;
+            // [Fix] 'keep' 상태가 오면 기존 훈련 상태(STAY, READY 등)를 유지하고 메시지만 업데이트 해야 함
+            if (status != null && status != 'keep') {
+               _trainingState = status.toUpperCase();
+            }
 
             if (_trainingState == 'STAY') {
               final msg = data['message'] as String? ?? '';
@@ -257,6 +265,10 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
             if (data.containsKey('debug_max_cls')) {
               _maxConfCls = (data['debug_max_cls'] as num?)?.toInt() ?? -1;
             }
+            // LLM 메시지 처리 (data['char_message']) - [Change] chat_message -> char_message
+            if (data.containsKey('char_message')) {
+               Provider.of<CharProvider>(context, listen: false).updateStatusMessage(data['char_message']);
+            }
           });
         }
         
@@ -272,6 +284,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
            }
         }
 
+        // [Logic Restored] 이제 서버가 '중요한 메시지'만 보냄. key가 있으면 표시해도 안전함.
         if (data.containsKey('message')) {
           String msg = data['message'];
           if (_feedback.isNotEmpty && status != 'success') {
@@ -295,7 +308,10 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     });
 
     _controller.startImageStream(_processCameraImage);
-    provider.updateStatusMessage("분석 시작... 포즈를 취해주세요!");
+    // [Fix] 초기화 시 "분석 시작" 메시지는 캐릭터 대사('chat_bubble')에 표시하지 않음 (시스템 로그로만 취급)
+    // 애매하면 차라리 비워두거나 LLM이 첫 인사를 하도록 유도.
+    // 여기서는 일단 아무것도 하지 않아, 이전 메시지나 빈 상태를 유지.
+    // provider.updateStatusMessage("분석 시작... 포즈를 취해주세요!"); // -> 삭제
   }
   
   void _processCameraImage(CameraImage image) async {
@@ -311,13 +327,27 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
     _isProcessingFrame = true;
 
     try {
-      if (image.format.group == ImageFormatGroup.yuv420) {
+        // [Logic Refine] 동적 회전 각도 계산
+        // 목표: YOLO가 똑바로 선 이미지(Upright)를 받도록 함.
+        // 공식: (SensorOrientation - DeviceOrientationAngle + 360) % 360
+        // - Portrait (Device 0도) -> Sensor(90) - 0 = 90도 회전 필요
+        // - Landscape (Device 90도) -> Sensor(90) - 90 = 0도 회전 필요 (회전 안 함)
+        
+        int deviceAngle = 0;
+        if (_currentOrientation == Orientation.landscape) {
+           deviceAngle = 90;
+        }
+        
+        int sensorOrientation = _controller.description.sensorOrientation;
+        int rotationAngle = (sensorOrientation - deviceAngle + 360) % 360;
+
         // Isolate로 넘기기 위해 필요한 데이터만 추출 (복사 발생)
         // CameraImage 객체 자체는 Isolate로 넘어갈 수 없음
         final rawData = {
           'width': image.width,
           'height': image.height,
-          'sensorOrientation': _controller.description.sensorOrientation,
+          'sensorOrientation': sensorOrientation, // (참고용)
+          'rotationAngle': rotationAngle, // [NEW] 계산된 최종 회전 각도
           'planes': image.planes.map((plane) => {
             'bytes': plane.bytes, // Uint8List
             'bytesPerRow': plane.bytesPerRow,
@@ -334,11 +364,17 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
           _canSendFrame = false;
           _lastFrameSentTimestamp = _frameStartTime;
           
+          
           _socketClient.sendMessage(jpegBytes);
         }
-      } 
     } catch (e) {
       print("프레임 처리 실패: $e");
+      // [Safety] 전송 시도 중 에러 발생 시, 락 해제하여 멈춤 방지
+      if (mounted) {
+         setState(() {
+           _canSendFrame = true; 
+         });
+      }
     } finally {
       // 변환 작업 완료 (다음 프레임 변환 준비)
       _isProcessingFrame = false;
@@ -387,147 +423,160 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
           if (snapshot.connectionState == ConnectionState.done) {
             return Consumer<CharProvider>(
               builder: (context, provider, child) {
-                // Stack: 전체 화면 레이어 (폭죽 효과, FAB 등 오버레이를 위해 필요)
-                return Stack(
-                  children: [
-                    // 메인 레이아웃: 항상 상하 분할 (Column)
-                    Column(
-                      children: [
-                        // [상단 50%] 카메라 프리뷰 영역
-                        Expanded(
-                          flex: 1,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              // 1. 카메라 프리뷰
-                              CameraPreview(_controller),
-                              
-                              // 2. 분석 시각화 레이어 (분석 중일 때만)
-                              if (_isAnalyzing) ...[
-                                CustomPaint(painter: DebugBoxPainter(bbox: _bbox, isFrontCamera: isFront)),
-                                if (_imageWidth > 0)
-                                  CustomPaint(painter: PosePainter(keypoints: _keypoints, imageWidth: _imageWidth, imageHeight: _imageHeight, feedback: _feedback, isFrontCamera: isFront)),
-                              ],
-
-                              // 3. STAY 카운트다운
-                              if (_isAnalyzing && _trainingState == 'STAY')
-                                Container(
-                                  color: Colors.black.withOpacity(0.3),
-                                  child: Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        CircularProgressIndicator(value: _stayProgress, strokeWidth: 8, valueColor: const AlwaysStoppedAnimation<Color>(Colors.lightGreenAccent)),
-                                        const SizedBox(height: 10),
-                                        Text(_progressText, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 10, color: Colors.black)])),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              
-                              // 4. 연결 경고
-                              if (_isAnalyzing && !_socketClient.isConnected)
-                                Container(
-                                  color: Colors.black54,
-                                  child: const Center(
-                                    child: Text("⚠️ 서버 연결 확인 중...", style: TextStyle(color: Colors.redAccent, fontSize: 24, fontWeight: FontWeight.bold)),
-                                  ),
-                                ),
-
-                              // 5. 디버그 정보 (상단 영역 좌측)
-                              if (_isAnalyzing)
-                                Positioned(
-                                  top: 10, left: 10,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.6),
-                                      borderRadius: BorderRadius.circular(8)
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text("Status: $_trainingState", style: const TextStyle(color: Colors.white, fontSize: 10)),
-                                        Text("Confidence: ${(_confScore * 100).toStringAsFixed(1)}%", 
-                                          style: TextStyle(color: _confScore > 0.5 ? Colors.greenAccent : Colors.redAccent, fontSize: 10)
-                                        ),
-                                        Text("Latency: ${_latency}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
-                                        // [Debug] 오인식 정보 표시
-                                        if (_maxConfAny > 0)
-                                          Text("Raw Max: ${(_maxConfAny * 100).toStringAsFixed(1)}% (ID: $_maxConfCls)", 
-                                            style: const TextStyle(color: Colors.yellowAccent, fontSize: 10, fontWeight: FontWeight.bold)
-                                          ),
-                                      ],
-                                    ),
-                                  ),
+                return OrientationBuilder(
+                  builder: (context, orientation) {
+                    // [Logic] 현재 방향 상태 업데이트 (Frame Processing에서 사용)
+                    // 빌드 중에 setState를 호출하면 안되므로 값만 갱신
+                    if (_currentOrientation != orientation) {
+                       _currentOrientation = orientation;
+                    }
+                    
+                    // 가로 모드일 때는 Row, 세로 모드일 때는 Column
+                    final isLandscape = orientation == Orientation.landscape;
+                    
+                    List<Widget> layoutChildren = [
+                      // [카메라 영역]
+                      Expanded(
+                        flex: 1, // 1:1 비율
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            // 1. 카메라 프리뷰
+                            CameraPreview(_controller),
+                            
+                            // 2. 분석 시각화 레이어 (분석 중일 때만)
+                            if (_isAnalyzing) ...[
+                              CustomPaint(
+                                painter: DebugBoxPainter(
+                                  bbox: _bbox, 
+                                  isFrontCamera: isFront,
+                                  imgRatio: _controller.value.aspectRatio
+                                )
+                              ),
+                              if (_imageWidth > 0)
+                                CustomPaint(
+                                  painter: PosePainter(
+                                    keypoints: _keypoints, 
+                                    imageWidth: _imageWidth, 
+                                    imageHeight: _imageHeight, 
+                                    feedback: _feedback, 
+                                    isFrontCamera: isFront,
+                                    imgRatio: _controller.value.aspectRatio
+                                  )
                                 ),
                             ],
-                          ),
-                        ),
 
-                        // [하단 50%] 캐릭터 및 메시지 영역
-                        Expanded(
-                          flex: 1,
-                          child: Container(
-                            width: double.infinity,
-                            color: Colors.white,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                // 캐릭터 이미지
-                                Expanded(
-                                  child: Image.asset(
-                                    provider.character?.imageUrl ?? "assets/images/characters/char_default.png",
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                                // 메시지 박스
-                                Container(
-                                  padding: const EdgeInsets.all(15),
-                                  margin: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade100,
-                                    borderRadius: BorderRadius.circular(15),
-                                    border: Border.all(color: Colors.grey.shade300),
-                                  ),
+                            // 3. STAY 카운트다운
+                            if (_isAnalyzing && _trainingState == 'STAY')
+                              Container(
+                                color: Colors.black.withOpacity(0.3),
+                                child: Center(
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      if (!_isAnalyzing)
-                                        const Text("대기 중", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 12)),
-                                      const SizedBox(height: 5),
-                                      Text(
-                                        provider.statusMessage,
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, height: 1.4),
-                                      ),
+                                      CircularProgressIndicator(value: _stayProgress, strokeWidth: 8, valueColor: const AlwaysStoppedAnimation<Color>(Colors.lightGreenAccent)),
+                                      const SizedBox(height: 10),
+                                      Text(_progressText, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 10, color: Colors.black)])),
                                     ],
                                   ),
                                 ),
-                              ],
+                              ),
+                            
+                            // 4. 연결 경고
+                            // [Fix] 성공 후 소켓이 닫힐 때 '연결 확인 중'이 뜨는 문제 해결
+                            // 훈련 상태가 SUCCESS가 아닐 때만 경고 표시.
+                            if (_isAnalyzing && !_socketClient.isConnected && _trainingState != 'SUCCESS')
+                              Container(
+                                color: Colors.black54,
+                                child: const Center(
+                                  child: Text("⚠️ 서버 연결 확인 중...", style: TextStyle(color: Colors.redAccent, fontSize: 24, fontWeight: FontWeight.bold)),
+                                ),
+                              ),
+
+                            // 5. 디버그 정보 (상단 영역 좌측)
+                            if (_isAnalyzing)
+                              Positioned(
+                                top: 10, left: 10,
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.6),
+                                    borderRadius: BorderRadius.circular(8)
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text("Status: $_trainingState", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                      Text("Confidence: ${(_confScore * 100).toStringAsFixed(1)}%", 
+                                        style: TextStyle(color: _confScore > 0.5 ? Colors.greenAccent : Colors.redAccent, fontSize: 10)
+                                      ),
+                                      Text("Latency: ${_latency}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                      if (_maxConfAny > 0)
+                                        Text("Raw Max: ${(_maxConfAny * 100).toStringAsFixed(1)}% (ID: $_maxConfCls)", 
+                                          style: const TextStyle(color: Colors.yellowAccent, fontSize: 10, fontWeight: FontWeight.bold)
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+
+                      // [캐릭터 및 메시지 영역]
+                      Expanded(
+                        flex: 1,
+                        child: Container(
+                          width: double.infinity,
+                          color: Colors.white,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // 캐릭터 이미지
+                              Expanded(
+                                child: Image.asset(
+                                  provider.character?.imageUrl ?? "assets/images/characters/char_default.png",
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                              // 메시지 박스
+                              ChatBubble(
+                                message: provider.statusMessage,
+                                isAnalyzing: _isAnalyzing,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ];
+
+                    return Stack(
+                      children: [
+                        // 메인 레이아웃 (반응형)
+                        isLandscape 
+                          ? Row(children: layoutChildren)
+                          : Column(children: layoutChildren),
+
+                        // [최상단 오버레이] 폭죽 효과
+                        if (_particles.isNotEmpty)
+                          IgnorePointer(child: CustomPaint(painter: ConfettiPainter(_particles), size: Size.infinite)),
+                        
+                        // [최상단 오버레이] 컨트롤 버튼 (위치 조정 필요)
+                        Positioned(
+                          bottom: isLandscape ? 20 : 150, // 가로 모드에서는 좀 더 아래로
+                          left: 0, right: 0,
+                          child: Center(
+                            child: FloatingActionButton.extended(
+                              onPressed: _cameraError == null ? _toggleAnalysis : null,
+                              backgroundColor: _isAnalyzing ? Colors.redAccent : Colors.indigo,
+                              icon: Icon(_isAnalyzing ? Icons.stop : Icons.play_arrow),
+                              label: Text(_isAnalyzing ? "그만하기" : "훈련 시작", style: const TextStyle(fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ),
                       ],
-                    ),
-
-                    // [최상단 오버레이] 폭죽 효과
-                    if (_particles.isNotEmpty)
-                      IgnorePointer(child: CustomPaint(painter: ConfettiPainter(_particles), size: Size.infinite)),
-                    
-                    // [최상단 오버레이] 컨트롤 버튼 (하단 중앙)
-                    Positioned(
-                      bottom: 30, left: 0, right: 0,
-                      child: Center(
-                        child: FloatingActionButton.extended(
-                          onPressed: _cameraError == null ? _toggleAnalysis : null,
-                          backgroundColor: _isAnalyzing ? Colors.redAccent : Colors.indigo,
-                          icon: Icon(_isAnalyzing ? Icons.stop : Icons.play_arrow),
-                          label: Text(_isAnalyzing ? "그만하기" : "훈련 시작", style: const TextStyle(fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                    ),
-                  ],
+                    );
+                  }
                 );
               },
             );
@@ -578,6 +627,11 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
           onSkip: () {
              _goToMyRoom();
           },
+          // [NEW] 계속하기 (한 번 더 하기)
+          onContinue: () {
+             Navigator.of(context).pop(); // 다이얼로그 닫기
+             _toggleAnalysis(); // 훈련 재시작 (상태 초기화됨)
+          },
         );
       },
     );
@@ -591,57 +645,170 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
 
   void _goToMyRoom() {
     if (!mounted) return;
-    Navigator.of(context).pop(); 
-    Navigator.of(context).pop(); 
-    Navigator.pushReplacement(
-      context, 
-      MaterialPageRoute(builder: (context) => const import_my_room_page.MyRoomPage()), 
-    );
+    // [Fix] 네비게이션 최적화 (Stack Unwind)
+    // 기존: pop(Dialog) -> pop(Page) -> pushReplacement(MyRoom) (비효율적)
+    // 변경: pop(Dialog) -> pop(Page) (자연스럽게 MyRoom으로 돌아감)
+    Navigator.of(context).pop(); // 다이얼로그 닫기
+    Navigator.of(context).pop(); // 카메라 화면 닫기 (MyRoom으로 복귀)
+    
+    // 만약 MyRoom이 아닌 곳에서 왔다면 pushReplacement가 맞을 수 있으나,
+    // 현재 플로우상 MyRoom -> CameraScreen 이므로 pop이 정답.
   }
 }
 
 // --- 헬퍼 클래스 ---
+// YOLO COCO Class ID Map
+const Map<int, String> yoloClasses = {
+  0: 'Person',
+  15: 'Cat',
+  16: 'Dog',
+  28: 'Handbag', // 가방(장난감대용)
+  29: 'Frisbee',
+  32: 'Ball',
+  39: 'Bottle',
+  41: 'Cup',
+  45: 'Bowl',
+  46: 'Banana',
+  47: 'Apple',
+  48: 'Sandwich',
+  49: 'Orange',
+  50: 'Broccoli',
+  51: 'Carrot',
+  77: 'Teddy',
+};
 
 // Bounding Box 시각화 Painter
 class DebugBoxPainter extends CustomPainter {
   final List<dynamic> bbox; // [x1, y1, x2, y2] (0.0 ~ 1.0)
   final bool isFrontCamera;
+  final double imgRatio; // 카메라 이미지 비율 (width / height) - 보통 3/4 (0.75) 등
 
-  DebugBoxPainter({required this.bbox, required this.isFrontCamera});
+  DebugBoxPainter({required this.bbox, required this.isFrontCamera, required this.imgRatio});
 
   @override
+  @override
   void paint(Canvas canvas, Size size) {
-    if (bbox.isEmpty || bbox.length < 4) return;
+    if (bbox.isEmpty) return;
 
-    final paint = Paint() //
-      ..color = Colors.red
+    // 공통 렌더링 파라미터 계산 (프레임 단위 고정값)
+    // 1. 화면 비율 계산
+    double screenRatio = size.width / size.height;
+    
+    // 2. 실제 렌더링될 이미지의 스케일과 오프셋 계산
+    double renderW, renderH;
+    
+    // 올바른 접근:
+    // 실제 카메라 이미지의 종횡비 사용. (imgRatio가 Portrait 기준 W/H라고 가정)
+    // 만약 imgRatio가 4/3(1.33) 처럼 1보다 크면 Landscape임. 뒤집어야 함.
+    double effectiveImgRatio = imgRatio;
+    if (effectiveImgRatio > 1.0 && size.width < size.height) {
+        effectiveImgRatio = 1.0 / effectiveImgRatio; 
+    }
+    
+    if (screenRatio > effectiveImgRatio) {
+       // 화면이 더 납작함 -> 폭에 맞춤 (위아래 잘림)
+       renderW = size.width;
+       renderH = size.width / effectiveImgRatio;
+    } else {
+       // 화면이 더 길쭉함 -> 높이에 맞춤 (좌우 잘림)
+       renderH = size.height;
+       renderW = size.height * effectiveImgRatio;
+    }
+    
+    // 오프셋 (센터 크롭 가정)
+    double dx = (size.width - renderW) / 2.0;
+    double dy = (size.height - renderH) / 2.0;
+
+    // 그리기 도구 설정 (기본값)
+    final paintPet = Paint()
+      ..color = Colors.redAccent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0;
+      
+    final paintProp = Paint()
+      ..color = Colors.blueAccent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.0;
 
-    // 정규화된 좌표를 화면 크기로 변환
-    double nx1 = (bbox[0] as num).toDouble();
-    double ny1 = (bbox[1] as num).toDouble();
-    double nx2 = (bbox[2] as num).toDouble();
-    double ny2 = (bbox[3] as num).toDouble();
-
-    double x1, x2;
-    if (isFrontCamera) {
-      x1 = (1.0 - nx2) * size.width;
-      x2 = (1.0 - nx1) * size.width;
-    } else {
-      x1 = nx1 * size.width;
-      x2 = nx2 * size.width;
+    // 단일 박스 포맷 호환성 처리 & 빈 리스트 처리
+    List<dynamic> targets = [];
+    if (bbox.isNotEmpty) {
+        if (bbox[0] is List) {
+           targets = bbox;
+        } else if (bbox.length >= 4) {
+           targets = [bbox]; // 구버전 호환 (단일 박스)
+       }
     }
-    double y1 = ny1 * size.height;
-    double y2 = ny2 * size.height;
 
-    final rect = Rect.fromLTRB(x1, y1, x2, y2);
-    canvas.drawRect(rect, paint);
+    // 모든 박스 그리기
+    for (var box in targets) {
+      if (box.length < 4) continue;
+
+      // 정규화된 좌표 (0.0 ~ 1.0)
+      double nx1 = (box[0] as num).toDouble();
+      double ny1 = (box[1] as num).toDouble();
+      double nx2 = (box[2] as num).toDouble();
+      double ny2 = (box[3] as num).toDouble();
+
+      // 최종 화면 좌표 변환
+      double x1, x2;
+      if (isFrontCamera) {
+         // 전면카메라는 좌우 반전
+         double rx1 = (1.0 - nx2) * renderW + dx;
+         double rx2 = (1.0 - nx1) * renderW + dx;
+         x1 = rx1; x2 = rx2;
+      } else {
+         x1 = nx1 * renderW + dx;
+         x2 = nx2 * renderW + dx;
+      }
+      double y1 = ny1 * renderH + dy;
+      double y2 = ny2 * renderH + dy;
+
+      final rect = Rect.fromLTRB(x1, y1, x2, y2);
+      
+      // 박스 그리기 및 정보 준비
+      String debugInfo = "";
+      Paint currentPaint = paintProp; // 기본은 파란색 (도구)
+      
+      if (box.length > 5) {
+         int cls = (box[5] as num).toInt();
+         int conf = ((box[4] as num) * 100).toInt();
+         
+         // 15:Cat, 16:Dog -> 빨간색
+         String name = yoloClasses[cls] ?? "ID:$cls";
+         
+         if (cls == 15 || cls == 16) {
+             currentPaint = paintPet;
+             debugInfo = "$name $conf%";
+         } else {
+             // 그 외 (장난감, 식기 등) -> 파란색
+             currentPaint = paintProp;
+             debugInfo = "$name $conf%";
+         }
+      }
+      
+      canvas.drawRect(rect, currentPaint);
+      
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: debugInfo, 
+          style: TextStyle(
+            color: currentPaint.color, // 박스 색과 동일하게
+            fontSize: 14, 
+            fontWeight: FontWeight.bold, 
+            backgroundColor: Colors.black54
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(x1, y1 - 20)); // 박스 바로 위에 표시
+    }
   }
 
   @override
   bool shouldRepaint(covariant DebugBoxPainter oldDelegate) {
-    return oldDelegate.bbox != bbox;
+    return oldDelegate.bbox != bbox || oldDelegate.imgRatio != imgRatio;
   }
 }
 
@@ -652,6 +819,7 @@ class PosePainter extends CustomPainter {
   final double imageHeight;
   final String feedback;
   final bool isFrontCamera;
+  final double imgRatio; // [New]
 
   PosePainter({
     required this.keypoints,
@@ -659,6 +827,7 @@ class PosePainter extends CustomPainter {
     required this.imageHeight,
     required this.feedback,
     required this.isFrontCamera,
+    required this.imgRatio, // [New]
   });
 
   @override
@@ -676,14 +845,41 @@ class PosePainter extends CustomPainter {
       ..color = color
       ..strokeWidth = 2.0;
 
+    // --- 좌표 보정 로직 (DebugBoxPainter와 동일) ---
+    double screenRatio = size.width / size.height;
+    double effectiveImgRatio = imgRatio;
+    if (effectiveImgRatio > 1.0 && size.width < size.height) {
+        effectiveImgRatio = 1.0 / effectiveImgRatio; 
+    }
+    
+    double renderW, renderH;
+    if (screenRatio > effectiveImgRatio) {
+       renderW = size.width;
+       renderH = size.width / effectiveImgRatio;
+    } else {
+       renderH = size.height;
+       renderW = size.height * effectiveImgRatio;
+    }
+    
+    double dx = (size.width - renderW) / 2.0;
+    double dy = (size.height - renderH) / 2.0;
+
     List<Offset> points = [];
 
     for (var kp in keypoints) {
       if (kp is List && kp.length >= 2) {
         double normX = (kp[0] as num).toDouble();
         double normY = (kp[1] as num).toDouble();
-        double finalX = isFrontCamera ? (1.0 - normX) * size.width : normX * size.width;
-        double finalY = normY * size.height;
+        
+        // 보정된 좌표 변환
+        double finalX;
+        if (isFrontCamera) {
+             finalX = (1.0 - normX) * renderW + dx;
+        } else {
+             finalX = normX * renderW + dx;
+        }
+        double finalY = normY * renderH + dy;
+        
         points.add(Offset(finalX, finalY));
       }
     }
@@ -706,7 +902,7 @@ class PosePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant PosePainter oldDelegate) {
-    return oldDelegate.keypoints != keypoints || oldDelegate.feedback != feedback;
+    return oldDelegate.keypoints != keypoints || oldDelegate.feedback != feedback || oldDelegate.imgRatio != imgRatio;
   }
 }
 

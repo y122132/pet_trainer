@@ -90,21 +90,37 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
         return {"success": False, "message": f"이미지 디코딩 에러: {str(e)}"}
 
     height, width, _ = frame.shape
+    file_size_kb = len(image_bytes) / 1024
+    print(f"[Detector] Input Image Size: {width}x{height} (Ratio: {width/height:.2f}), File Size: {file_size_kb:.1f}KB", flush=True)
 
     # ---------------------------------------------------------
     # 2. 반려동물 & 사물 탐지 (YOLO Object Detection)
     # ---------------------------------------------------------
     
-    # 난이도에 따른 감지 임계값(Threshold) 조절 (초기 인식률 향상을 위해 0.4 -> 0.3으로 완화)
-    det_conf = 0.5 if difficulty == "hard" else 0.3
+    # [Logic Separation] 추론용 임계값 vs 로직용 임계값 분리
+    # 추론: 0.25 (YOLO 기본 권장값, 노이즈 필터링)
+    # 로직: 0.4 (확실한 인식만 허용하여 게임 품질 확보)
+    INFERENCE_CONF = 0.25
+    LOGIC_CONF = 0.6 if difficulty == "hard" else 0.4
     
-    # YOLO 추론 수행
-    results_detect = model_detect(frame, conf=det_conf, verbose=False)
+    # [Critical Fix] BGR -> RGB 변환
+    # OpenCV는 BGR을 사용하지만, YOLO 모델(Ultralytics)은 RGB를 기대함.
+    # 색상이 반전되면(예: 갈색 강아지 -> 파란색) 모델이 오인식(사람 등)할 수 있음.
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    
+    # YOLO 추론 수행 (imgsz=640 명시하여 비율 유지 리사이징/패딩 보장)
+    results_detect = model_detect(frame_rgb, conf=INFERENCE_CONF, imgsz=640, verbose=False)
     
     found_pet = False
     pet_box = [] # [x1, y1, x2, y2] (정규화된 좌표)
     best_conf = 0.0
     
+    # [Config Load] 현재 모드에 필요한 타겟 물건 설정 미리 가져오기
+    pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
+    mode_config = pet_config.get(mode, pet_config["playing"]) 
+    target_props = mode_config["targets"]
+
+    detected_objects = [] # 프론트엔드 시각화용 (모든 관련 객체)
     props_detected = [] 
     prop_boxes = {} # class_id -> [x1, y1, x2, y2]
     
@@ -119,16 +135,33 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             nx1, ny1, nx2, ny2 = float(x1/width), float(y1/height), float(x2/width), float(y2/height)
             current_box = [nx1, ny1, nx2, ny2]
 
+            # [Visual] 시각화 리스트에 추가 (LOGIC_CONF 이상, 그리고 펫이나 타겟 물건인 경우)
+            # 사용자가 "이상한 것까지 잡히지 않게"라고 했으므로 필터링 적용
+            if conf >= LOGIC_CONF:
+                 if cls_id == target_class_id or cls_id in target_props:
+                      # [x1, y1, x2, y2, conf, cls]
+                      detected_objects.append([nx1, ny1, nx2, ny2, float(conf), float(cls_id)])
+
             # A. 반려동물 찾기 (설정된 target_class_id와 일치하는지 확인)
-            if cls_id == target_class_id:
+            # [Fix] 시각적 박스와 로직의 일관성을 위해 LOGIC_CONF 이상일 때만 로직 인정
+            if cls_id == target_class_id and conf >= LOGIC_CONF:
                 if conf > best_conf: # 가장 신뢰도 높은 객체 선택
                     best_conf = conf
                     found_pet = True
-                    pet_box = current_box
+                    # [nx1, ny1, nx2, ny2, conf, cls] 형태로 확장
+                    pet_box = [nx1, ny1, nx2, ny2, float(conf), float(cls_id)]
             
-            # [Debug] 타겟 ID와 상관없이 가장 신뢰도 높은 객체 기록 (오인식 원인 분석용)
-            # 16(dog), 15(cat) 등 펫 관련 클래스라면 특히 주의
-            pass
+            # B. 타겟 물건(장난감, 그릇 등) 찾기
+            # [Fix] 시각적 박스와 로직의 일관성을 위해 LOGIC_CONF 이상일 때만 로직 인정
+            if cls_id in target_props and conf >= LOGIC_CONF:
+                # 해당 클래스의 객체가 여러 개일 경우, 일단 가장 높은 신뢰도 or 마지막 발견된 것 저장
+                # (상호작용 로직에서는 prop_boxes에 있는 것을 사용)
+                # 더 정교하게 하려면 리스트로 관리해야 하지만, 현재 로직(단순 거리 비교) 유지
+                # prop_boxes는 [x1, y1, x2, y2] 만 저장하는 구조였음.
+                if cls_id not in prop_boxes or conf > (prop_boxes.get(cls_id, [])[4] if len(prop_boxes.get(cls_id, [])) > 4 else -1):
+                     prop_boxes[cls_id] = current_box + [conf] # Store conf temporarily for comparison
+                     if cls_id not in props_detected: # Ensure unique class IDs
+                         props_detected.append(cls_id)
 
     # ---------------------------------------------------------
     # 3. 로직 처리 (상호작용/Overlap 판단)
@@ -147,28 +180,86 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                  max_conf_any = c
                  max_conf_cls = cid
              all_detections_summary += f"{cid}({c:.2f}) "
+    
+    # [Logic Fix] best_conf(타겟)가 max_conf_any(전체)보다 높으면 갱신 (논리적 정합성)
+    if best_conf > max_conf_any:
+        max_conf_any = best_conf
+        max_conf_cls = target_class_id
+    
+    # [Debug] 전체 탐지 로그 출력 (필수)
+    print(f"[Detector] All detections: {all_detections_summary}", flush=True)
 
+    # [NEW] 교감 모드 상세 피드백 (반려동물 미감지 시)
+    if not found_pet and mode == "interaction":
+        # 사람이 있는지 확인 (class ID 0은 'person')
+        person_detected = any(obj[5] == 0 for obj in detected_objects) # detected_objects는 [nx1, ny1, nx2, ny2, conf, cls]
+        if person_detected:
+            # 사람은 있는데 펫이 없음
+            return {
+                "success": False,
+                "message": "주인님은 보이는데, 강아지는 어디 있나요?", # 구체적 피드백
+                "feedback_message": "owner_found_no_pet",
+                "keypoints": [],
+                "width": width,
+                "height": height,
+                "conf_score": best_conf,
+                "debug_max_conf": max_conf_any,
+                "debug_max_cls": max_conf_cls,
+                "bbox": detected_objects # 사람 박스는 포함됨
+            }
+
+    # [Logic Refine] 반려동물은 없지만, 타겟(예: 주인, 장난감)은 감지된 경우 피드백 강화
     if not found_pet:
+        # 타겟 물건이 감지되었는지 미리 확인
+        has_target_pre = any(p in props_detected for p in target_props)
+        
+        msg = f"반려동물 찾는 중... (Raw: {all_detections_summary})"
+        feedback_code = "pet_not_found"
+        is_spec = False
+        
+        # 교감 모드에서 주인(0)은 찾았는데 펫이 없는 경우
+        if mode == "interaction" and has_target_pre:
+            msg = "주인님은 보이네요! 반려동물도 함께 보여주세요."
+            feedback_code = "owner_found_no_pet"
+            is_spec = True
+        # 놀이 모드에서 장난감은 찾았는데 펫이 없는 경우
+        elif mode == "playing" and has_target_pre:
+            msg = "장난감은 준비됐군요! 반려동물을 보여주세요."
+            feedback_code = "toy_found_no_pet"
+            is_spec = True
+
         return {
             "success": False,
-            "message": f"반려동물 찾는 중... (Raw: {all_detections_summary})", 
-            "feedback_message": "pet_not_found",
+            "message": msg, 
+            "feedback_message": feedback_code,
             "keypoints": [],
             "width": width,
             "height": height,
             "conf_score": best_conf,
-            "debug_max_conf": max_conf_any, # 타겟 무관 최고 점수
-            "debug_max_cls": max_conf_cls   # 타겟 무관 최고 클래스
+            "debug_max_conf": max_conf_any, 
+            "debug_max_cls": max_conf_cls,
+            "bbox": detected_objects,
+            "is_specific_feedback": is_spec
         }
 
-    # 현재 모드에 필요한 타겟 물건 설정 가져오기
-    pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
-    mode_config = pet_config.get(mode, pet_config["playing"]) 
-    target_props = mode_config["targets"]
+    # [Moved Up] 현재 모드에 필요한 타겟 물건 설정은 위에서 이미 가져옴
+    
+    # 화면에 타겟 물건이 하나라도 있는지 확인
     
     # 화면에 타겟 물건이 하나라도 있는지 확인
     has_target = any(p in props_detected for p in target_props)
     
+    # [NEW] 상세 피드백: 반려동물은 찾았는데 도구(그릇/장난감)가 없는 경우
+    # has_target이 False이고 found_pet이 True일 때 실행
+    missing_prop_msg = ""
+    if found_pet and not has_target:
+        if mode == "feeding":
+            missing_prop_msg = "강아지는 보이는데, 밥그릇은 어디 있나요?"
+        elif mode == "playing":
+            missing_prop_msg = "강아지는 보이는데, 장난감(공)은 어디 있나요?"
+        elif mode == "interaction":
+            missing_prop_msg = "강아지는 보이는데, 주인님은 어디 계세요?"
+
     # 상호작용 성공 여부 판단
     is_interacting = False
     distance_msg = ""
@@ -216,11 +307,30 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                 distance_msg = "장난감과 너무 멀어요"
                 
         elif mode == "interaction":
-            # [교감] 사람(주인)과 가까워야 함
             if min_distance < 0.3:
                 is_interacting = True
             else:
                 distance_msg = "주인님과 더 가까이!"
+    
+    # [NEW] 교감 모드 피드백 강화
+    # 타겟(주인)은 감지되었는데 반려동물이 없는 경우
+    elif mode == "interaction" and not has_target:
+        # interaction 모드의 target_props는 "person"임. 
+        # has_target이 False라면 사람이 없다는 뜻이므로 "주인님 어디 계세요?"가 맞고,
+        # has_target(사람)은 True인데 여기까지 왔다면(is_interacting 변수 범위 밖),
+        # 애초에 pet_box가 없는 경우(Detector 초입)를 처리해야 함.
+        
+        # 현재 코드 구조상 process_frame 초반에 detections를 확인해야 함.
+        # 여기는 has_target(사람있음) 일때만 진입하므로,
+        # 사람이 없어서 여기를 못 들어오는 경우 -> "주인을 찾는 중" (기본 메시지)
+        # 사람이 있는데 반려동물이 감지 안 된 경우 -> detector.py 상단에서 처리 필요.
+        pass
+    
+    # [Logic Refine] has_target 변수 자체가 "target_props(사람)가 있냐"임.
+    # 하지만 이 블록은 "반려동물(pet_box)"도 감지되었을 때만 실행됨 (detector.py 상단 로직 참조)
+    # 따라서, 반려동물이 없으면 이 블록 자체를 건너뜀.
+    
+    # 난이도 'hard'일 경우 기준 강화 (더 엄격한 판정)
     
     # 난이도 'hard'일 경우 기준 강화 (더 엄격한 판정)
     if difficulty == "hard" and is_interacting:
@@ -238,6 +348,19 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     message = mode_config["fail_msg"]
     feedback_message = mode_config["feedback_fail"]
 
+    # [NEW] 도구 미감지 시 메시지 덮어쓰기
+    is_specific_feedback = False
+
+    if missing_prop_msg:
+        message = missing_prop_msg
+        feedback_message = "prop_missing"
+        is_specific_feedback = True
+    # 거리 부족 시 메시지 덮어쓰기 (도구는 있는데 상호작용 실패)
+    elif distance_msg:
+        message = distance_msg
+        feedback_message = "distance_fail"
+        is_specific_feedback = True
+
     # 시각화용 데이터 (스켈레톤 등)
     normalized_keypoints = []
 
@@ -246,6 +369,7 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             # [성공 판정]
             message = mode_config["success_msg"]
             feedback_message = mode_config["feedback_success"]
+            is_specific_feedback = True
             
             # 보상 설정 (스탯 증가량)
             if mode == "playing":
@@ -264,12 +388,13 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             # [실패 판정] 물건은 있으나 상호작용 안됨
             message = distance_msg if distance_msg else "더 적극적으로 움직여보세요!"
             feedback_message = "not_interacting"
+            is_specific_feedback = True # 상호작용 시도 중인 피드백이므로 중요함
             
         # [교감 모드 특수 처리] 사람 스켈레톤 추출하여 시각화 데이터로 반환
         if mode == "interaction" and (0 in prop_boxes):
             try:
                 # 사람 전용 포즈 모델 실행
-                results_pose = model_pose(frame, conf=0.45, classes=[0], verbose=False)
+                results_pose = model_pose(frame_rgb, conf=0.45, classes=[0], verbose=False)
                 if results_pose and results_pose[0].keypoints is not None:
                     if len(results_pose[0].keypoints.data) > 0:
                          kps = results_pose[0].keypoints.data[0].cpu().numpy()
@@ -291,10 +416,11 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
         "feedback_message": feedback_message,
         "keypoints": normalized_keypoints,
         "skeleton_points": [],
-        "bbox": pet_box,
+        "bbox": detected_objects, # [Change] 전체 객체 리스트
         "width": width,
         "height": height,
         "conf_score": best_conf,
         "base_reward": base_reward,
-        "bonus_points": bonus_points
+        "bonus_points": bonus_points,
+        "is_specific_feedback": is_specific_feedback
     }

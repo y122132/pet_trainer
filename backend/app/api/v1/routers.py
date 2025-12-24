@@ -36,7 +36,9 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
     return {
         "id": char.id,
         "name": char.name,
+        "name": char.name,
         "status": char.status,
+        "pet_type": char.pet_type, # [New] 펫 종류 추가
         "stats": {
             "level": char.stat.level,
             "exp": char.stat.exp,
