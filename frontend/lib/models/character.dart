@@ -44,6 +44,7 @@ class Character {
   final String name;
   String imageUrl; // 이미지 경로 (상태에 따라 변경됨)
   final String petType; // 반려동물 종류 (dog, cat 등) - [New]
+  final List<int> learnedSkills; // 습득한 기술 ID 목록 - [New]
   final Stat? stat; // 연관된 스탯 객체
 
   Character({
@@ -52,6 +53,7 @@ class Character {
     required this.name,
     this.imageUrl = 'assets/images/characters/char_default.png', 
     this.petType = 'dog', // 기본값
+    this.learnedSkills = const [],
     this.stat,
   });
 
@@ -64,6 +66,9 @@ class Character {
       // 이미지 URL이 없으면 기본 이미지 사용
       imageUrl: json['image_url'] ?? 'assets/images/characters/char_default.png',
       petType: json['pet_type'] ?? 'dog', // 서버 데이터 반영
+      learnedSkills: json['learned_skills'] != null 
+          ? List<int>.from(json['learned_skills']) 
+          : [],
       // 중첩된 JSON 처리
       stat: (json['stats'] ?? json['stat']) != null ? Stat.fromJson(json['stats'] ?? json['stat']) : null,
     );

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.routers import api_router
 from app.sockets.analysis_socket import router as websocket_router
+from app.sockets.battle_socket import router as battle_router
 from app.db.database import init_db
 from app.ai_core.vision import detector
 
@@ -36,6 +37,7 @@ async def on_startup():
 # REST API와 WebSocket 엔드포인트를 메인 앱에 연결합니다.
 app.include_router(api_router)
 app.include_router(websocket_router)
+app.include_router(battle_router)
 
 @app.get("/")
 async def root():

@@ -11,9 +11,9 @@ class MenuPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 앱 시작 시 초기 데이터 로드 (캐릭터 정보)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<CharProvider>(context, listen: false).fetchCharacter(1);
-    });
+    // WidgetsBinding.instance.addPostFrameCallback((_) {
+    //   Provider.of<CharProvider>(context, listen: false).fetchCharacter(1);
+    // });
 
     return Scaffold(
       body: SafeArea(
@@ -37,6 +37,61 @@ class MenuPage extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
+                    // 상태 표시 (Debug info)
+                    Consumer<CharProvider>(
+                      builder: (context, provider, child) {
+                        if (provider.character != null) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              "✅ 접속됨: ${provider.character!.name} (ID: ${provider.character!.userId}, ${provider.character!.petType})",
+                              style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                            ),
+                          );
+                        } else {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              "❌ 연결 안됨: ${provider.statusMessage}",
+                              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    
+                    // 테스트용 유저 변경 버튼 (런타임에 각각 다른 유저로 로그인하기 위함)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        ElevatedButton(
+                          onPressed: () {
+                             Provider.of<CharProvider>(context, listen: false).fetchCharacter(1);
+                          },
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blue[100]),
+                          child: const Text("User 1 (Dog)"),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton(
+                          onPressed: () {
+                             Provider.of<CharProvider>(context, listen: false).fetchCharacter(2);
+                          },
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.pink[100]),
+                          child: const Text("User 2 (Cat)"),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
                     // 메인 메뉴 버튼들
                     _buildMenuButton(
                       context,

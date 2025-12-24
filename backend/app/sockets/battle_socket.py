@@ -1,25 +1,321 @@
-"""
-# --- 실시간 배틀 소켓 (Battle Socket) ---
-# 이 파일은 유저 vs NPC 또는 유저 vs 유저(친구) 간의 실시간 턴제 배틀 통신을 관리합니다.
-# 'BattleManager'의 세션 관리 기능과 연동하여 양측의 데이터를 실시간으로 중계합니다.
-#
-# 주요 역할:
-# 1. 배틀 룸(Room) 및 세션 관리:
-#    - 유저 ID와 친구 ID를 기반으로 고유한 배틀 소켓 룸을 생성하고 연결을 유지합니다.
-# 2. 양측 명령 수집 및 동기화:
-#    - PvP 시, 두 유저가 모두 기술을 선택할 때까지 대기(Wait) 상태를 관리하고 동시 처리합니다.
-# 3. 배틀 시퀀스 패킷 전송:
-#    - 계산된 결과(데미지, 상태이상 등)를 단순 수치가 아닌 '애니메이션 시퀀스' 순서대로 패킷화하여 전송합니다.
-# 4. 연결 유실 처리:
-#    - 전투 중 소켓 연결이 끊겼을 때의 재연결 처리 또는 패배 처리 로직을 담당합니다.
-#
-# 추후 구현 계획:
-# 1. room_matching: 
-#    - 친구 초대 수락 시 특정 룸 ID로 두 유저를 조인(Join)시키는 로직
-# 2. handle_move_selection:
-#    - 기술 선택 정보를 수신하고, 상대방이 선택 중인지 여부를 실시간 알림(UI 반영용)
-# 3. sync_turn_result:
-#    - 두 명의 유저가 동일한 타이밍에 배틀 애니메이션을 볼 수 있도록 결과 패킷 동기화 전송
-# 4. battle_event_logger:
-#    - 모든 소켓 통신 내용을 ActionLog 모델에 기록하여 추후 배틀 리플레이 데이터로 활용
-"""
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from typing import Dict, List
+import json
+import asyncio
+from app.game.battle_manager import BattleManager, BattleState
+from app.db.database import AsyncSessionLocal
+from app.services import char_service
+from sqlalchemy import select
+from app.db.models.character import Character, Stat
+from dataclasses import dataclass
+
+router = APIRouter()
+
+# --- Room Management ---
+class BattleRoom:
+    def __init__(self, room_id: str):
+        self.room_id = room_id
+        self.connections: Dict[int, WebSocket] = {} # user_id -> websocket
+        self.ready_status: Dict[int, bool] = {}
+        self.character_stats: Dict[int, Stat] = {} # user_id -> Stat Object
+        self.pet_types: Dict[int, str] = {} # user_id -> pet_type
+        self.learned_skills: Dict[int, List[int]] = {} # user_id -> learned_skills
+        self.battle_states: Dict[int, BattleState] = {} # user_id -> BattleState
+        self.selections: Dict[int, int] = {} # user_id -> move_id
+        self.turn_count = 0
+
+    async def connect(self, websocket: WebSocket, user_id: int):
+        await websocket.accept()
+        self.connections[user_id] = websocket
+        self.ready_status[user_id] = False 
+        self.battle_states[user_id] = BattleState() # Initialize battle state
+    
+    def disconnect(self, user_id: int):
+        if user_id in self.connections:
+            del self.connections[user_id]
+        if user_id in self.selections:
+            del self.selections[user_id]
+        if user_id in self.battle_states:
+            del self.battle_states[user_id]
+        if user_id in self.pet_types:
+            del self.pet_types[user_id]
+        if user_id in self.learned_skills:
+            del self.learned_skills[user_id]
+            
+    async def broadcast(self, message: dict):
+        for connection in self.connections.values():
+            await connection.send_json(message)
+
+    async def send_to(self, user_id: int, message: dict):
+        if user_id in self.connections:
+            await self.connections[user_id].send_json(message)
+
+    def is_full(self):
+        return len(self.connections) >= 2
+
+    def all_selected(self):
+        return len(self.selections) == 2 and len(self.connections) == 2
+
+    def reset_selections(self):
+        self.selections = {}
+
+# Global Room Store (In-memory)
+rooms: Dict[str, BattleRoom] = {}
+
+@router.websocket("/ws/battle/{room_id}/{user_id}")
+async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int):
+    # 1. Room 생성 또는 조회
+    if room_id not in rooms:
+        rooms[room_id] = BattleRoom(room_id)
+    
+    room = rooms[room_id]
+    
+    if room.is_full() and user_id not in room.connections:
+        await websocket.close(code=4003, reason="Room is full")
+        return
+
+    # 2. 연결 및 캐릭터 데이터 로드
+    await room.connect(websocket, user_id)
+    
+    # DB에서 캐릭터 스탯 가져오기
+    try:
+        async with AsyncSessionLocal() as db:
+            stmt = select(Character).where(Character.user_id == user_id)
+            result = await db.execute(stmt)
+            character_obj = result.scalar_one_or_none()
+            
+            if character_obj:
+                stmt_stat = select(Stat).where(Stat.character_id == character_obj.id)
+                res_stat = await db.execute(stmt_stat)
+                stat_obj = res_stat.scalar_one_or_none()
+                
+                if stat_obj:
+                    # Store a snapshot (or reference if safe)
+                    room.character_stats[user_id] = stat_obj
+                    room.pet_types[user_id] = character_obj.pet_type
+                    # [Fix] 기존 데이터 호환성을 위해 스킬이 없으면 기본 스킬(1: 짖기) 부여
+                    room.learned_skills[user_id] = character_obj.learned_skills if character_obj.learned_skills else [1]
+                else:
+                    await websocket.close(code=4004, reason="No character stat found")
+                    return
+            else:
+                 await websocket.close(code=4004, reason="No character found")
+                 return
+    except Exception as e:
+        print(f"Error loading character: {e}")
+        await websocket.close(code=4004, reason="DB Error")
+        return
+
+    # 3. 접속 알림
+    await room.broadcast({
+        "type": "JOIN",
+        "user_id": user_id,
+        "current_players": len(room.connections),
+        "message": f"User {user_id} joined the battle."
+    })
+    
+    # 4. 양쪽 다 접속했으면 배틀 시작 알림
+    if room.is_full():
+        # 양측 스탯 정보 교환
+        stats_info = {}
+        for uid, stat in room.character_stats.items():
+            stats_info[uid] = {
+                "hp": stat.health,
+                "max_hp": stat.health, 
+                "name": f"User {uid}",
+                "pet_type": room.pet_types.get(uid, "dog")
+            }
+            
+        await room.broadcast({
+            "type": "BATTLE_START",
+            "players": stats_info,
+            "message": "Battle Started!"
+        })
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            # Expecting: {"action": "select_move", "move_id": 1}
+            
+            if data.get("action") == "select_move":
+                move_id = data.get("move_id")
+
+                # [New] 스킬 보유 검증
+                known_skills = room.learned_skills.get(user_id, [])
+                if move_id not in known_skills:
+                    await room.send_to(user_id, {
+                        "type": "ERROR", 
+                        "message": "Invalid Move! You haven't learned this skill."
+                    })
+                    continue
+                
+                # 행동 불가 체크 (마비, 잠듦 등)
+                can_move, fail_msg = BattleManager.can_move(room.battle_states[user_id])
+                
+                room.selections[user_id] = move_id
+                
+                # 본인에게는 "대기 중"
+                await room.send_to(user_id, {
+                    "type": "WAITING", 
+                    "message": "Waiting for opponent..."
+                })
+                
+                # 상대방에게 "상대가 고르는 중..." 알림
+                for other_id in room.connections:
+                    if other_id != user_id:
+                        await room.send_to(other_id, {
+                            "type": "OPPONENT_SELECTING",
+                            "message": "Opponent is selecting a move..."
+                        })
+                
+                # 양측 모두 선택 완료 시 턴 진행
+                if room.all_selected():
+                    await process_turn(room)
+                    
+    except WebSocketDisconnect:
+        room.disconnect(user_id)
+        await room.broadcast({
+            "type": "LEAVE",
+            "user_id": user_id,
+            "message": "Opponent disconnected."
+        })
+        if len(room.connections) == 0:
+            del rooms[room_id]
+
+async def process_turn(room: BattleRoom):
+    try:
+        user_ids = list(room.connections.keys())
+        u1 = user_ids[0]
+        u2 = user_ids[1]
+        
+        stat1 = room.character_stats[u1]
+        stat2 = room.character_stats[u2]
+        
+        state1 = room.battle_states[u1]
+        state2 = room.battle_states[u2]
+        
+        move1 = room.selections[u1]
+        move2 = room.selections[u2]
+        
+        # 1. 선공 결정
+        first = BattleManager.determine_turn_order(stat1, state1, move1, stat2, state2, move2)
+        
+        attacker_order = []
+        if first == 1:
+            attacker_order = [(u1, u2), (u2, u1)]
+        else:
+            attacker_order = [(u2, u1), (u1, u2)]
+            
+        turn_logs = []
+        
+        # 2. 턴 진행 (순차적 리스트 생성)
+        for attacker_id, defender_id in attacker_order:
+            attacker_stat = room.character_stats[attacker_id]
+            defender_stat = room.character_stats[defender_id]
+            
+            attacker_state = room.battle_states[attacker_id]
+            defender_state = room.battle_states[defender_id]
+            
+            move_id = room.selections[attacker_id]
+            
+            if attacker_stat.health <= 0: continue
+
+            # 행동 불가 체크
+            can_move, fail_msg = BattleManager.can_move(attacker_state)
+            if not can_move:
+                turn_logs.append({
+                    "attacker": attacker_id,
+                    "defender": defender_id,
+                    "action": "immobile",
+                    "damage": 0,
+                    "message": fail_msg
+                })
+                continue
+                
+            # 데미지 계산
+            damage, is_critical = BattleManager.calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id)
+            
+            # HP 적용
+            defender_stat.health -= damage
+            if defender_stat.health < 0: defender_stat.health = 0
+            
+            effect_logs = BattleManager.apply_move_effects(move_id, attacker_state, defender_state, attacker_stat)
+            
+            log_entry = {
+                "attacker": attacker_id,
+                "defender": defender_id,
+                "move_id": move_id,
+                "damage": damage,
+                "is_critical": is_critical,
+                "defender_hp": defender_stat.health,
+                "effects": effect_logs
+            }
+            turn_logs.append(log_entry)
+            
+            if defender_stat.health <= 0: break 
+        
+        # 3. 턴 종료 시 상태 이상 데미지 처리
+        for uid in user_ids:
+            stat = room.character_stats[uid]
+            state = room.battle_states[uid]
+            if stat.health > 0:
+                dmg, msg = BattleManager.process_status_effects(stat, state)
+                if dmg > 0:
+                    stat.health -= dmg
+                    if stat.health < 0: stat.health = 0
+                    turn_logs.append({
+                         "type": "status_damage",
+                         "target": uid,
+                         "damage": dmg,
+                         "message": msg,
+                         "target_hp": stat.health
+                    })
+        
+        # 4. 결과 전송 (순차적 재생 가능하도록 리스트로 전송)
+        await room.broadcast({
+            "type": "TURN_RESULT",
+            "results": turn_logs,
+            "turn": room.turn_count
+        })
+        
+        room.turn_count += 1
+        room.reset_selections()
+        
+        # 5. 게임 종료 체크
+        winner = None
+        loser = None
+        if room.character_stats[u1].health <= 0:
+            winner = u2
+            loser = u1
+        elif room.character_stats[u2].health <= 0:
+            winner = u1
+            loser = u2
+            
+        if winner is not None:
+            # 보상 처리
+            reward_info = None
+            try:
+                async with AsyncSessionLocal() as db:
+                    reward_info = await char_service.process_battle_result(db, winner, loser)
+            except Exception as e:
+                print(f"Reward Error: {e}")
+                
+            # [Fix] 승자와 패자에게 다른 메시지 전송
+            # 승자에게: Victory + Reward
+            await room.send_to(winner, {
+                "type": "GAME_OVER",
+                "result": "WIN",
+                "winner": winner,
+                "reward": reward_info
+            })
+            
+            # 패자에게: Defeat (보상 없음)
+            await room.send_to(loser, {
+                "type": "GAME_OVER",
+                "result": "LOSE",
+                "winner": winner
+            })
+             
+    except Exception as e:
+        print(f"Turn Processing Error: {e}")
+        await room.broadcast({"type": "ERROR", "message": str(e)})
