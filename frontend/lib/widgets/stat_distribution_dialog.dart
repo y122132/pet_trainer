@@ -11,10 +11,12 @@ class StatDistributionDialog extends StatefulWidget {
   final String title;        // 다이얼로그 제목
   final String confirmLabel; // 확인 버튼 텍스트
   final String skipLabel;    // 건너뛰기 버튼 텍스트
+  final String continueLabel; // [NEW] 계속하기 버튼 라벨
   
   // 새로 획득한 보상 표시를 위한 파라미터 (선택)
   final Map<String, dynamic>? earnedReward;
   final int? earnedBonus;
+  final VoidCallback? onContinue; // [NEW] 계속하기 콜백
 
   const StatDistributionDialog({
     super.key,
@@ -25,8 +27,10 @@ class StatDistributionDialog extends StatefulWidget {
     this.title = "스탯 분배",
     this.confirmLabel = "확인",
     this.skipLabel = "나중에 하기",
+    this.continueLabel = "한 번 더 하기", // 기본값
     this.earnedReward,
     this.earnedBonus,
+    this.onContinue,
   });
 
   @override
@@ -165,28 +169,34 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
              
              const SizedBox(height: 20),
              
-             // [하단 버튼] 건너뛰기 또는 적용(확인)
-             Row(
-               children: [
-                 Expanded(
-                   child: TextButton(
-                     onPressed: widget.onSkip,
-                     child: Text(widget.skipLabel, style: const TextStyle(color: Colors.grey)),
-                   ),
-                 ),
-                 Expanded(
-                   child: ElevatedButton(
-                     style: ElevatedButton.styleFrom(
-                       backgroundColor: remainingPoints == 0 ? Colors.indigo : Colors.grey.shade400,
-                       padding: const EdgeInsets.symmetric(vertical: 15),
-                     ),
-                     // 모든 포인트를 소모해야 확인 가능하도록 설정 (선택 사항)
-                     onPressed: remainingPoints == 0 ? () => widget.onConfirm(allocated, remainingPoints) : null,
-                     child: Text(widget.confirmLabel, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                   ),
-                 ),
-               ],
-             ),
+             // 버튼 영역
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: widget.onSkip,
+                child: Text(widget.skipLabel, style: const TextStyle(color: Colors.grey)),
+              ),
+              if (widget.onContinue != null) ...[
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: widget.onContinue,
+                  child: Text(widget.continueLabel, style: const TextStyle(color: Colors.indigo)),
+                ),
+              ],
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: widget.availablePoints == 0 || remainingPoints == 0 ? () {
+                  widget.onConfirm(allocated, remainingPoints);
+                } : null, 
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: Text(widget.confirmLabel, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
            ],
          ),
        ),

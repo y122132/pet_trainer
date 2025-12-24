@@ -189,6 +189,25 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     # [Debug] 전체 탐지 로그 출력 (필수)
     print(f"[Detector] All detections: {all_detections_summary}", flush=True)
 
+    # [NEW] 교감 모드 상세 피드백 (반려동물 미감지 시)
+    if not found_pet and mode == "interaction":
+        # 사람이 있는지 확인 (class ID 0은 'person')
+        person_detected = any(obj[5] == 0 for obj in detected_objects) # detected_objects는 [nx1, ny1, nx2, ny2, conf, cls]
+        if person_detected:
+            # 사람은 있는데 펫이 없음
+            return {
+                "success": False,
+                "message": "주인님은 보이는데, 강아지는 어디 있나요?", # 구체적 피드백
+                "feedback_message": "owner_found_no_pet",
+                "keypoints": [],
+                "width": width,
+                "height": height,
+                "conf_score": best_conf,
+                "debug_max_conf": max_conf_any,
+                "debug_max_cls": max_conf_cls,
+                "bbox": detected_objects # 사람 박스는 포함됨
+            }
+
     if not found_pet:
         return {
             "success": False,
@@ -210,6 +229,17 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     # 화면에 타겟 물건이 하나라도 있는지 확인
     has_target = any(p in props_detected for p in target_props)
     
+    # [NEW] 상세 피드백: 반려동물은 찾았는데 도구(그릇/장난감)가 없는 경우
+    # has_target이 False이고 found_pet이 True일 때 실행
+    missing_prop_msg = ""
+    if found_pet and not has_target:
+        if mode == "feeding":
+            missing_prop_msg = "강아지는 보이는데, 밥그릇은 어디 있나요?"
+        elif mode == "playing":
+            missing_prop_msg = "강아지는 보이는데, 장난감(공)은 어디 있나요?"
+        elif mode == "interaction":
+            missing_prop_msg = "강아지는 보이는데, 주인님은 어디 계세요?"
+
     # 상호작용 성공 여부 판단
     is_interacting = False
     distance_msg = ""
@@ -257,11 +287,30 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
                 distance_msg = "장난감과 너무 멀어요"
                 
         elif mode == "interaction":
-            # [교감] 사람(주인)과 가까워야 함
             if min_distance < 0.3:
                 is_interacting = True
             else:
                 distance_msg = "주인님과 더 가까이!"
+    
+    # [NEW] 교감 모드 피드백 강화
+    # 타겟(주인)은 감지되었는데 반려동물이 없는 경우
+    elif mode == "interaction" and not has_target:
+        # interaction 모드의 target_props는 "person"임. 
+        # has_target이 False라면 사람이 없다는 뜻이므로 "주인님 어디 계세요?"가 맞고,
+        # has_target(사람)은 True인데 여기까지 왔다면(is_interacting 변수 범위 밖),
+        # 애초에 pet_box가 없는 경우(Detector 초입)를 처리해야 함.
+        
+        # 현재 코드 구조상 process_frame 초반에 detections를 확인해야 함.
+        # 여기는 has_target(사람있음) 일때만 진입하므로,
+        # 사람이 없어서 여기를 못 들어오는 경우 -> "주인을 찾는 중" (기본 메시지)
+        # 사람이 있는데 반려동물이 감지 안 된 경우 -> detector.py 상단에서 처리 필요.
+        pass
+    
+    # [Logic Refine] has_target 변수 자체가 "target_props(사람)가 있냐"임.
+    # 하지만 이 블록은 "반려동물(pet_box)"도 감지되었을 때만 실행됨 (detector.py 상단 로직 참조)
+    # 따라서, 반려동물이 없으면 이 블록 자체를 건너뜀.
+    
+    # 난이도 'hard'일 경우 기준 강화 (더 엄격한 판정)
     
     # 난이도 'hard'일 경우 기준 강화 (더 엄격한 판정)
     if difficulty == "hard" and is_interacting:
@@ -278,6 +327,15 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     bonus_points = 0
     message = mode_config["fail_msg"]
     feedback_message = mode_config["feedback_fail"]
+
+    # [NEW] 도구 미감지 시 메시지 덮어쓰기
+    if missing_prop_msg:
+        message = missing_prop_msg
+        feedback_message = "prop_missing"
+    # 거리 부족 시 메시지 덮어쓰기 (도구는 있는데 상호작용 실패)
+    elif distance_msg:
+        message = distance_msg
+        feedback_message = "distance_fail"
 
     # 시각화용 데이터 (스켈레톤 등)
     normalized_keypoints = []

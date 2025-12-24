@@ -158,8 +158,12 @@ class CharProvider with ChangeNotifier {
     }
   }
 
-  // 상태 메시지 업데이트
+  // 상태 메시지 업데이트 (캐릭터 대사 전용)
+  // [Fix] 시스템 로그("찾는 중..." 등)는 이 함수를 호출하면 안 됨.
   void updateStatusMessage(String msg) {
+    // 빈 문자열이나 null이 들어오면 무시 (기존 메시지 유지)
+    if (msg.isEmpty) return;
+    
     _statusMessage = msg;
     notifyListeners();
   }

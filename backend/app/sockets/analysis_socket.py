@@ -113,6 +113,10 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
         # 백그라운드 태스크 생성
         asyncio.create_task(run_llm())
 
+    # [NEW] 연결 직후 초기 인사 (Greeting)
+    # 앱 시작 시 침묵(Startup Silence) 방지
+    await trigger_llm("greeting", is_success=False)
+
     
     try:
         while True:
