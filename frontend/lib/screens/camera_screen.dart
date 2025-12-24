@@ -284,6 +284,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
            }
         }
 
+        // [Logic Restored] 이제 서버가 '중요한 메시지'만 보냄. key가 있으면 표시해도 안전함.
         if (data.containsKey('message')) {
           String msg = data['message'];
           if (_feedback.isNotEmpty && status != 'success') {
@@ -482,7 +483,9 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                               ),
                             
                             // 4. 연결 경고
-                            if (_isAnalyzing && !_socketClient.isConnected)
+                            // [Fix] 성공 후 소켓이 닫힐 때 '연결 확인 중'이 뜨는 문제 해결
+                            // 훈련 상태가 SUCCESS가 아닐 때만 경고 표시.
+                            if (_isAnalyzing && !_socketClient.isConnected && _trainingState != 'SUCCESS')
                               Container(
                                 color: Colors.black54,
                                 child: const Center(

@@ -329,13 +329,17 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     feedback_message = mode_config["feedback_fail"]
 
     # [NEW] 도구 미감지 시 메시지 덮어쓰기
+    is_specific_feedback = False
+
     if missing_prop_msg:
         message = missing_prop_msg
         feedback_message = "prop_missing"
+        is_specific_feedback = True
     # 거리 부족 시 메시지 덮어쓰기 (도구는 있는데 상호작용 실패)
     elif distance_msg:
         message = distance_msg
         feedback_message = "distance_fail"
+        is_specific_feedback = True
 
     # 시각화용 데이터 (스켈레톤 등)
     normalized_keypoints = []
@@ -345,6 +349,7 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             # [성공 판정]
             message = mode_config["success_msg"]
             feedback_message = mode_config["feedback_success"]
+            is_specific_feedback = True
             
             # 보상 설정 (스탯 증가량)
             if mode == "playing":
@@ -363,6 +368,7 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             # [실패 판정] 물건은 있으나 상호작용 안됨
             message = distance_msg if distance_msg else "더 적극적으로 움직여보세요!"
             feedback_message = "not_interacting"
+            is_specific_feedback = True # 상호작용 시도 중인 피드백이므로 중요함
             
         # [교감 모드 특수 처리] 사람 스켈레톤 추출하여 시각화 데이터로 반환
         if mode == "interaction" and (0 in prop_boxes):
@@ -395,5 +401,6 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
         "height": height,
         "conf_score": best_conf,
         "base_reward": base_reward,
-        "bonus_points": bonus_points
+        "bonus_points": bonus_points,
+        "is_specific_feedback": is_specific_feedback
     }

@@ -182,7 +182,8 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
             else: # is_success_vision is False
                 if state == "STAY":
                     # 유예 시간 (Grace Period) 체크
-                    if current_time - last_detected_time > 0.5:
+                    # [Fix] 0.5초 -> 1.5초 늘려주어 잠깐의 인식 실패나 흔들림에 관대해짐
+                    if current_time - last_detected_time > 1.5:
                         # [실패 전환]
                         state = "READY"
                         state_start_time = None
@@ -209,12 +210,14 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                 
                 # READY 상태 반복 전송 방지 (클라이언트 부하 감소)
                 if state == "READY":
-                    # 매 프레임 fail 보내지 말고, 필요할 때만 보내거나 클라이언트가 알아서 처리
-                    # 하지만 기존 로직 유지를 위해 전송하되, LLM은 호출하지 않음
-                    response.update({
-                        "status": "fail", 
-                        "message": result.get("message", "대기 중...")
-                    })
+                    # [Fix] 단순 "찾는 중" 메시지는 보내지 않음 (캐릭터 대화 방해 방지)
+                    # response는 result.copy()이므로 이미 'message'가 들어있음.
+                    # 따라서 중요하지 않으면 'message' 키를 제거해야 함.
+                    
+                    if not result.get("is_specific_feedback", False):
+                        response.pop("message", None)
+                    
+                    response.update({"status": "fail"})
                     await websocket.send_json(response)
 
             # --- 성공 상태 처리 ---
