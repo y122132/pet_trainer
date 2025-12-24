@@ -6,7 +6,9 @@ class BattleState:
     전투 중 일시적으로 유지되는 상태 (스탯 변화, 상태 이상 등)
     DB에 저장하지 않고 메모리 상에서만 존재
     """
-    def __init__(self):
+    def __init__(self, max_hp: int = 100, current_hp: int = 100):
+        self.max_hp = max_hp
+        self.current_hp = current_hp
         self.stages = {
             "strength": 0,
             "defense": 0, 
@@ -171,12 +173,12 @@ class BattleManager:
                 }
 
             if state.status_ailment == "poison":
-                damage = int(stat.health / 8)
+                damage = int(state.max_hp / 8) # Max HP 기준
                 if damage < 1: damage = 1
                 msg = "독으로 인해 피해를 입었습니다!"
                 
             elif state.status_ailment == "burn":
-                damage = int(stat.health / 8)
+                damage = int(state.max_hp / 8) # Max HP 기준
                 if damage < 1: damage = 1
                 msg = "화상으로 인해 고통스럽습니다!"
             

@@ -31,7 +31,8 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
   bool _isMyTurn = true; // 선택 가능 여부
   String _statusMessage = "Connecting to server...";
   bool _opponentSelecting = false;
-  List<String> _myStatuses = ["ATK UP", "SPD UP"]; // Example Dummy Statuses for UI Testing
+  List<String> _myStatuses = []; // Status list from server updates (Optional future work)
+  List<Map<String, dynamic>> _mySkills = []; // [New] Server-synced skills
 
   // Animation Controllers
   late AnimationController _shakeController;
@@ -147,15 +148,11 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
     final charProvider = Provider.of<CharProvider>(context);
     final myPetType = charProvider.currentPetType; 
     
-    List<int> skills = charProvider.character?.learnedSkills ?? [1]; 
-    if (skills.isEmpty) skills = [1]; 
-    
     // Ensure 4 slots for grid
-    List<int?> displaySkills = List<int?>.from(skills);
+    List<Map<String, dynamic>?> displaySkills = List<Map<String, dynamic>?>.from(_mySkills);
     while (displaySkills.length < 4) {
       displaySkills.add(null);
     }
-    if (displaySkills.length > 4) displaySkills = displaySkills.sublist(0, 4);
     if (displaySkills.length > 4) displaySkills = displaySkills.sublist(0, 4);
 
     return Scaffold(
@@ -447,9 +444,9 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildSkillButton(int? skillId) {
+  Widget _buildSkillButton(Map<String, dynamic>? skill) {
     // Empty Slot
-    if (skillId == null) {
+    if (skill == null) {
       return Container(
         decoration: BoxDecoration(
           color: Colors.grey[100],
@@ -460,9 +457,10 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
       );
     }
 
-    var skill = SKILL_DATA[skillId];
-    String name = skill?['name'] ?? "Unknown";
-    String type = skill?['type'] ?? "normal";
+    // var skill = SKILL_DATA[skillId]; -> No longer used
+    int skillId = skill['id'];
+    String name = skill['name'] ?? "Unknown";
+    String type = skill['type'] ?? "normal";
     Color typeColor = _getTypeColor(type);
     
     return GestureDetector(
@@ -580,9 +578,11 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
               _oppPetType = value['pet_type'] ?? "dog"; // 펫 타입 설정
             });
           } else {
+             final List<dynamic> skillList = value['skills'] ?? [];
              setState(() {
                _myHp = value['hp'];
                _myMaxHp = value['max_hp'];
+               _mySkills = skillList.map((e) => e as Map<String, dynamic>).toList();
              });
           }
         });

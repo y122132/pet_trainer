@@ -3,6 +3,7 @@ from typing import Dict, List
 import json
 import asyncio
 from app.game.battle_manager import BattleManager, BattleState
+from app.game.game_assets import MOVE_DATA
 from app.db.database import AsyncSessionLocal
 from app.services import char_service
 from sqlalchemy import select
@@ -28,7 +29,10 @@ class BattleRoom:
         await websocket.accept()
         self.connections[user_id] = websocket
         self.ready_status[user_id] = False 
-        self.battle_states[user_id] = BattleState() # Initialize battle state
+        self.connections[user_id] = websocket
+        self.ready_status[user_id] = False 
+        # self.battle_states[user_id] = BattleState() -> Will be initialized with HP later
+
     
     def disconnect(self, user_id: int):
         if user_id in self.connections:
@@ -89,15 +93,19 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int):
                 res_stat = await db.execute(stmt_stat)
                 stat_obj = res_stat.scalar_one_or_none()
                 
-                if stat_obj:
-                    # Store a snapshot (or reference if safe)
-                    room.character_stats[user_id] = stat_obj
-                    room.pet_types[user_id] = character_obj.pet_type
-                    # [Fix] 기존 데이터 호환성을 위해 스킬이 없으면 기본 스킬(1: 짖기) 부여
-                    room.learned_skills[user_id] = character_obj.learned_skills if character_obj.learned_skills else [1]
-                else:
-                    await websocket.close(code=4004, reason="No character stat found")
-                    return
+                    if stat_obj:
+                        # Store a snapshot (or reference if safe)
+                        room.character_stats[user_id] = stat_obj
+                        room.pet_types[user_id] = character_obj.pet_type
+                        
+                        # Initialize BattleState with current HP from DB
+                        room.battle_states[user_id] = BattleState(max_hp=stat_obj.health, current_hp=stat_obj.health)
+                        
+                        # [Fix] 기존 데이터 호환성을 위해 스킬이 없으면 기본 스킬(1: 짖기) 부여
+                        room.learned_skills[user_id] = character_obj.learned_skills if character_obj.learned_skills else [1]
+                    else:
+                        await websocket.close(code=4004, reason="No character stat found")
+                        return
             else:
                  await websocket.close(code=4004, reason="No character found")
                  return
@@ -116,14 +124,32 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int):
     
     # 4. 양쪽 다 접속했으면 배틀 시작 알림
     if room.is_full():
-        # 양측 스탯 정보 교환
+        # 양측 스탯 정보 및 스킬 정보 교환
         stats_info = {}
+        
         for uid, stat in room.character_stats.items():
+            # 스킬 ID 리스트를 상세 정보 리스트로 변환
+            skill_ids = room.learned_skills.get(uid, [])
+            skill_details = []
+            for sid in skill_ids:
+                s_data = MOVE_DATA.get(sid)
+                if s_data:
+                    skill_details.append({
+                        "id": sid,
+                        "name": s_data["name"],
+                        "type": s_data["type"],
+                        "power": s_data["power"],
+                        "desc": s_data["description"]
+                    })
+            
+            battle_state = room.battle_states[uid]
+            
             stats_info[uid] = {
-                "hp": stat.health,
-                "max_hp": stat.health, 
+                "hp": battle_state.current_hp,
+                "max_hp": battle_state.max_hp, 
                 "name": f"User {uid}",
-                "pet_type": room.pet_types.get(uid, "dog")
+                "pet_type": room.pet_types.get(uid, "dog"),
+                "skills": skill_details # [New] 상세 스킬 정보 전송
             }
             
         await room.broadcast({
@@ -218,7 +244,7 @@ async def process_turn(room: BattleRoom):
             
             move_id = room.selections[attacker_id]
             
-            if attacker_stat.health <= 0: continue
+            ifattacker_state.current_hp <= 0: continue
 
             # 행동 불가 체크
             can_move, fail_msg = BattleManager.can_move(attacker_state)
@@ -234,9 +260,9 @@ async def process_turn(room: BattleRoom):
             # 데미지 계산
             damage, is_critical = BattleManager.calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id)
             
-            # HP 적용
-            defender_stat.health -= damage
-            if defender_stat.health < 0: defender_stat.health = 0
+            # HP 적용 (BattleState 사용)
+            defender_state.current_hp -= damage
+            if defender_state.current_hp < 0: defender_state.current_hp = 0
             
             # 기술 효과 적용
             effect_logs = BattleManager.apply_move_effects(move_id, attacker_state, defender_state, attacker_stat)
@@ -249,23 +275,24 @@ async def process_turn(room: BattleRoom):
                 "move_id": move_id,
                 "damage": damage,
                 "is_critical": is_critical,
-                "defender_hp": defender_stat.health,
+                "defender_hp": defender_state.current_hp, # BattleState HP
                 "effects": effect_logs,
-                "message": f"{move_id}번 기술 사용!" # 클라이언트에서 기술 이름 매핑 권장
+                "message": f"{move_id}번 기술 사용!" 
             }
             turn_logs.append(log_entry)
             
-            if defender_stat.health <= 0: break 
+            if defender_state.current_hp <= 0: break 
         
         # 3. 턴 종료 시 상태 이상 데미지 처리
         for uid in user_ids:
-            stat = room.character_stats[uid]
+            # stat = room.character_stats[uid] -> Not used for HP anymore
             state = room.battle_states[uid]
-            if stat.health > 0:
-                dmg, msg, detail = BattleManager.process_status_effects(stat, state)
+            
+            if state.current_hp > 0:
+                dmg, msg, detail = BattleManager.process_status_effects(None, state) # stat param removed/unused in manager logic
                 if dmg > 0 or msg:
-                    stat.health -= dmg
-                    if stat.health < 0: stat.health = 0
+                    state.current_hp -= dmg
+                    if state.current_hp < 0: state.current_hp = 0
                     
                     log_data = {
                          "type": "turn_event",
@@ -273,7 +300,7 @@ async def process_turn(room: BattleRoom):
                          "target": uid,
                          "damage": dmg,
                          "message": msg,
-                         "target_hp": stat.health
+                         "target_hp": state.current_hp
                     }
                     if detail:
                         log_data.update(detail)
@@ -293,21 +320,30 @@ async def process_turn(room: BattleRoom):
         # 5. 게임 종료 체크
         winner = None
         loser = None
-        if room.character_stats[u1].health <= 0:
+        if room.battle_states[u1].current_hp <= 0:
             winner = u2
             loser = u1
-        elif room.character_stats[u2].health <= 0:
+        elif room.battle_states[u2].current_hp <= 0:
             winner = u1
             loser = u2
             
         if winner is not None:
-            # 보상 처리
-            reward_info = None
+            # [New] 최종 HP를 DB에 반영 (게임 끝날 때 1회)
             try:
                 async with AsyncSessionLocal() as db:
-                    reward_info = await char_service.process_battle_result(db, winner, loser)
+                     # Re-fetch or merge objects to update
+                     # Simple logic: update health column
+                     for uid in [u1, u2]:
+                         await db.execute(
+                             "UPDATE stats SET health = :hp WHERE character_id = (SELECT id FROM characters WHERE user_id = :uid)",
+                             {"hp": room.battle_states[uid].current_hp, "uid": uid}
+                         )
+                     await db.commit()
+                     
+                     # 보상 처리
+                     reward_info = await char_service.process_battle_result(db, winner, loser)
             except Exception as e:
-                print(f"Reward Error: {e}")
+                print(f"DB Update/Reward Error: {e}")
                 
             # [Fix] 승자와 패자에게 다른 메시지 전송
             # 승자에게: Victory + Reward
