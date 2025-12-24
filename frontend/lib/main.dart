@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
 import 'providers/char_provider.dart';
-import 'screens/menu_page.dart';
+import 'screens/title_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,8 +27,8 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      // 앱의 시작 페이지는 메뉴 페이지입니다.
-      home: const MenuPage(),
+      // 앱의 시작 페이지는 타이틀 스크린입니다.
+      home: const TitleScreen(),
     );
   }
 }

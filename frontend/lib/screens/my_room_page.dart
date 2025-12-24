@@ -1,15 +1,26 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'camera_screen.dart';
 import '../providers/char_provider.dart';
 import '../widgets/stat_distribution_dialog.dart';
 import 'package:camera/camera.dart';
+import 'customize_character_page.dart';
 
 // --- 마이룸 페이지 (MyRoomPage) ---
 // 반려동물의 상세 스탯을 확인하고, 획득한 포인트를 분배하며 휴식하는 공간입니다.
-class MyRoomPage extends StatelessWidget {
+class MyRoomPage extends StatefulWidget {
   const MyRoomPage({super.key});
+
+  @override
+  State<MyRoomPage> createState() => _MyRoomPageState();
+}
+
+class _MyRoomPageState extends State<MyRoomPage> {
+  File? _selectedImage;
 
   @override
   Widget build(BuildContext context) {
@@ -20,20 +31,20 @@ class MyRoomPage extends StatelessWidget {
           children: [
             // [헤더 영역] 상단 커스텀 앱바 (뒤로가기 버튼 포함)
             Padding(
-               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-               child: Row(
-                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                 children: [
-                   IconButton(
-                     icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black54),
-                     onPressed: () => Navigator.pop(context),
-                   ),
-                   const Text("마이룸", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                   const SizedBox(width: 48), // 중앙 정렬 유지를 위한 빈 공간
-                 ],
-               ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black54),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  const Text("마이룸", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const SizedBox(width: 48), // 중앙 정렬 유지를 위한 빈 공간
+                ],
+              ),
             ),
-            
+
             Expanded(
               child: Consumer<CharProvider>(
                 builder: (context, provider, child) {
@@ -49,9 +60,9 @@ class MyRoomPage extends StatelessWidget {
                             // [왼쪽] 캐릭터 비주얼 영역
                             Expanded(
                               flex: 4,
-                              child: _buildCharacterArea(provider),
+                              child: _buildCharacterArea(context, provider),
                             ),
-                            
+
                             // [오른쪽] 스탯 수치 및 레이더 차트 영역
                             Expanded(
                               flex: 6,
@@ -60,7 +71,7 @@ class MyRoomPage extends StatelessWidget {
                           ],
                         ),
                       ),
-                      
+
                       const SizedBox(height: 20), // 하단 여백
                     ],
                   );
@@ -99,8 +110,8 @@ class MyRoomPage extends StatelessWidget {
                   Flexible(
                     child: Text(
                       // 캐릭터 스탯 정보가 50을 넘으면 호칭 변경
-                      provider.character?.stat?.strength != null && provider.character!.stat!.strength > 50 
-                          ? "근육대장님" 
+                      provider.character?.stat?.strength != null && provider.character!.stat!.strength > 50
+                          ? "근육대장님"
                           : "초보 트레이너",
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                       overflow: TextOverflow.ellipsis,
@@ -111,14 +122,14 @@ class MyRoomPage extends StatelessWidget {
               ),
             ),
           ),
-          
+
           // 알림/메시지함 버튼
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
               boxShadow: [
-                 BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
               ],
             ),
             child: IconButton(
@@ -134,7 +145,7 @@ class MyRoomPage extends StatelessWidget {
   }
 
   // 캐릭터 영역: 캐릭터 이미지와 HP/EXP 바 표시
-  Widget _buildCharacterArea(CharProvider provider) {
+  Widget _buildCharacterArea(BuildContext context, CharProvider provider) {
     final stat = provider.character?.stat;
     final maxHealth = 100; // 최대 체력 기준값
     final currentHealth = stat?.health ?? 100;
@@ -144,16 +155,36 @@ class MyRoomPage extends StatelessWidget {
       children: [
         // 반려동물 이미지 (AnimatedSwitcher로 표정 변화 시 부드럽게 전환)
         Expanded(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 500),
-            child: Image.asset(
-              provider.character?.imageUrl ?? 'assets/images/characters/char_default.png',
-              key: ValueKey<String>(provider.character?.imageUrl ?? 'normal'),
-              fit: BoxFit.contain,
-            ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 500),
+                child: _selectedImage != null
+                    ? Image.file(
+                  _selectedImage!,
+                  key: ValueKey<String>(_selectedImage!.path),
+                  fit: BoxFit.contain,
+                )
+                    : Image.asset(
+                  provider.character?.imageUrl ?? 'assets/images/characters/char_default.png',
+                  key: ValueKey<String>(provider.character?.imageUrl ?? 'normal'),
+                  fit: BoxFit.contain,
+                ),
+              ),
+              Positioned(
+                bottom: 10,
+                right: 10,
+                child: FloatingActionButton(
+                  onPressed: () => _showImageSourceDialog(context),
+                  tooltip: '커스텀',
+                  child: const Icon(Icons.add_a_photo),
+                ),
+              )
+            ],
           ),
         ),
-        
+
         const SizedBox(height: 10),
 
         // [HP 바] 체력 상태 표시
@@ -161,40 +192,40 @@ class MyRoomPage extends StatelessWidget {
           width: 140,
           child: Column(
             children: [
-               Row(
-                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                 children: [
-                   const Text("HP", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.pinkAccent)),
-                   Text("$currentHealth/$maxHealth", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.black54)),
-                 ],
-               ),
-               const SizedBox(height: 4),
-               ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: (currentHealth / maxHealth).clamp(0.0, 1.0),
-                    backgroundColor: Colors.pink.withOpacity(0.1),
-                    color: Colors.pinkAccent,
-                    minHeight: 6,
-                  ),
-               ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("HP", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.pinkAccent)),
+                  Text("$currentHealth/$maxHealth", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.black54)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: (currentHealth / maxHealth).clamp(0.0, 1.0),
+                  backgroundColor: Colors.pink.withOpacity(0.1),
+                  color: Colors.pinkAccent,
+                  minHeight: 6,
+                ),
+              ),
             ],
           ),
         ),
 
         const SizedBox(height: 15),
-        
+
         // [정보창] 이름, 레벨, 경험치(EXP)
         Container(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
-            boxShadow: [
-               BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))
-            ]
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))
+              ]
           ),
           child: Column(
             children: [
@@ -238,7 +269,7 @@ class MyRoomPage extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                "EXP ${stat?.exp ?? 0}/100", 
+                "EXP ${stat?.exp ?? 0}/100",
                 style: TextStyle(fontSize: 8, color: Colors.grey[600]),
               )
             ],
@@ -258,11 +289,11 @@ class MyRoomPage extends StatelessWidget {
     final statsMap = {
       "STR": stat.strength,
       "INT": stat.intelligence,
-      "DEX": stat.stamina, 
+      "DEX": stat.stamina,
       "HAP": stat.happiness
     };
     final keys = statsMap.keys.toList();
-    
+
     return Container(
       margin: const EdgeInsets.fromLTRB(0, 10, 20, 10),
       padding: const EdgeInsets.all(20),
@@ -289,34 +320,35 @@ class MyRoomPage extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 8),
                 ),
                 onPressed: () {
-                   // 팝업을 띄워 원하는 스탯에 포인트 투자
-                   showDialog(
-                     context: context,
-                     builder: (context) => StatDistributionDialog(
-                       availablePoints: provider.unusedStatPoints,
-                       currentStats: {
-                          "strength": stat.strength,
-                          "intelligence": stat.intelligence,
-                          "stamina": stat.stamina,
-                          "happiness": stat.happiness,
-                          "health": stat.health,
-                       },
-                       title: "미사용 포인트 분배",
-                       confirmLabel: "적용",
-                       skipLabel: "취소",
-                       onConfirm: (allocated, remaining) {
-                          // 선택한 스탯만큼 반복해서 Provider 업데이트 호출
-                          _applyAllocated(provider, 'strength', allocated['strength']!);
-                          _applyAllocated(provider, 'intelligence', allocated['intelligence']!);
-                          _applyAllocated(provider, 'stamina', allocated['stamina']!);
-                          _applyAllocated(provider, 'happiness', allocated['happiness']!);
-                          _applyAllocated(provider, 'health', allocated['health']!);
-                          
-                          Navigator.pop(context);
-                       },
-                       onSkip: () => Navigator.pop(context),
-                     ),
-                   );
+                  // 팝업을 띄워 원하는 스탯에 포인트 투자
+                  showDialog(
+                    context: context,
+                    builder: (context) =>
+                        StatDistributionDialog(
+                          availablePoints: provider.unusedStatPoints,
+                          currentStats: {
+                            "strength": stat.strength,
+                            "intelligence": stat.intelligence,
+                            "stamina": stat.stamina,
+                            "happiness": stat.happiness,
+                            "health": stat.health,
+                          },
+                          title: "미사용 포인트 분배",
+                          confirmLabel: "적용",
+                          skipLabel: "취소",
+                          onConfirm: (allocated, remaining) {
+                            // 선택한 스탯만큼 반복해서 Provider 업데이트 호출
+                            _applyAllocated(provider, 'strength', allocated['strength']!);
+                            _applyAllocated(provider, 'intelligence', allocated['intelligence']!);
+                            _applyAllocated(provider, 'stamina', allocated['stamina']!);
+                            _applyAllocated(provider, 'happiness', allocated['happiness']!);
+                            _applyAllocated(provider, 'health', allocated['health']!);
+
+                            Navigator.pop(context);
+                          },
+                          onSkip: () => Navigator.pop(context),
+                        ),
+                  );
                 },
               ),
             ),
@@ -326,9 +358,9 @@ class MyRoomPage extends StatelessWidget {
             aspectRatio: 1.3,
             child: _buildRadarChart(statsMap),
           ),
-          
+
           const Spacer(),
-          
+
           // 3. [세부 스탯 바] 각 능력치별 진행도 표시
           ...keys.map((key) {
             return _buildStatRow(key, statsMap[key] ?? 0);
@@ -337,18 +369,18 @@ class MyRoomPage extends StatelessWidget {
       ),
     );
   }
-  
+
   // 포인트 할당 적용 로직
   void _applyAllocated(CharProvider provider, String type, int amount) {
-    for (int i=0; i<amount; i++) {
+    for (int i = 0; i < amount; i++) {
       provider.allocateStatSpecific(type); // 1포인트씩 소모하며 스탯 증가
     }
   }
-  
+
   // 레이더 차트 위젯 빌더
   Widget _buildRadarChart(Map<String, int> stats) {
     List<RadarEntry> entries = stats.values.map((v) => RadarEntry(value: v.toDouble())).toList();
-    
+
     return RadarChart(
       RadarChartData(
         radarTouchData: RadarTouchData(enabled: false),
@@ -367,10 +399,10 @@ class MyRoomPage extends StatelessWidget {
         titlePositionPercentageOffset: 0.2,
         titleTextStyle: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold),
         getTitle: (index, angle) {
-            if (index < stats.keys.length) {
-               return RadarChartTitle(text: stats.keys.elementAt(index));
-            }
-            return const RadarChartTitle(text: "");
+          if (index < stats.keys.length) {
+            return RadarChartTitle(text: stats.keys.elementAt(index));
+          }
+          return const RadarChartTitle(text: "");
         },
         tickCount: 1,
         ticksTextStyle: const TextStyle(color: Colors.transparent),
@@ -382,18 +414,18 @@ class MyRoomPage extends StatelessWidget {
   // 개별 스탯 바 위젯 빌더
   Widget _buildStatRow(String label, int value) {
     Color color = Colors.grey;
-    if (label == "STR") color = Colors.redAccent;     // 근력: 빨강
-    if (label == "INT") color = Colors.blueAccent;    // 지능: 파랑
-    if (label == "DEX") color = Colors.greenAccent;   // 민첩: 초록
-    if (label == "HAP") color = Colors.pinkAccent;    // 행복: 핑크
-    
+    if (label == "STR") color = Colors.redAccent; // 근력: 빨강
+    if (label == "INT") color = Colors.blueAccent; // 지능: 파랑
+    if (label == "DEX") color = Colors.greenAccent; // 민첩: 초록
+    if (label == "HAP") color = Colors.pinkAccent; // 행복: 핑크
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Row(
         children: [
           SizedBox(
-            width: 40, 
-            child: Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: color))
+              width: 40,
+              child: Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: color))
           ),
           Expanded(
             child: ClipRRect(
@@ -411,5 +443,75 @@ class MyRoomPage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _showImageSourceDialog(BuildContext context) async {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('이미지 소스 선택'),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                GestureDetector(
+                  child: const Text('카메라'),
+                  onTap: () {
+                    _getImage(ImageSource.camera);
+                    Navigator.of(context).pop();
+                  },
+                ),
+                const Padding(padding: EdgeInsets.all(8.0)),
+                GestureDetector(
+                  child: const Text('갤러리'),
+                  onTap: () {
+                    _getImage(ImageSource.gallery);
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _getImage(ImageSource source) async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: source);
+
+    if (pickedFile != null) {
+      CroppedFile? croppedFile = await ImageCropper().cropImage(
+        sourcePath: pickedFile.path,
+        uiSettings: [
+          AndroidUiSettings(
+              toolbarTitle: 'Cropper',
+              toolbarColor: Colors.deepOrange,
+              toolbarWidgetColor: Colors.white,
+              initAspectRatio: CropAspectRatioPreset.original,
+              lockAspectRatio: false),
+          IOSUiSettings(
+            title: 'Cropper',
+          ),
+        ],
+      );
+      if (croppedFile != null) {
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CustomizeCharacterPage(
+              imageFile: File(croppedFile.path),
+            ),
+          ),
+        );
+
+        if (result != null) {
+          setState(() {
+            _selectedImage = File(result);
+          });
+        }
+      }
+    }
   }
 }
