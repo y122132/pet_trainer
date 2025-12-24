@@ -554,7 +554,7 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
   
   String _oppPetType = "dog"; // 기본값
 
-  void _handleMessage(dynamic message) {
+  void _handleMessage(dynamic message) async {
     if (message is! String) return;
     
     final Map<String, dynamic> data = jsonDecode(message);
@@ -609,9 +609,14 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
       case "TURN_RESULT":
         setState(() {
           _opponentSelecting = false;
-          _isMyTurn = true; 
+          // _isMyTurn = true; // 연출 종료 후 true로 변경
         });
-        _processTurnResult(data['results']);
+        await _processTurnResult(data['results']);
+        if (mounted) {
+           setState(() {
+             _isMyTurn = true; 
+           });
+        }
         break;
         
       case "GAME_OVER":
@@ -652,58 +657,92 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
 
   Future<void> _processTurnResult(List<dynamic> results) async {
     for (var res in results) {
-       await Future.delayed(const Duration(milliseconds: 1000));
+       // 각 턴 사이의 간격
+       await Future.delayed(const Duration(milliseconds: 800));
        
-       if (res['type'] == 'status_damage') {
-         int target = res['target'];
-         int damage = res['damage'];
-         String msg = res['message'];
-         
-         setState(() {
-            _updateHp(target, damage);
-            _addLog(msg);
-            _triggerDamageEffect(target);
-         });
-         
-       } else {
-         int attacker = res['attacker'];
-         int defender = res['defender'];
-         String moveName = SKILL_DATA[res['move_id']]?['name'] ?? "Unknown Move";
-         int damage = res['damage'];
-         bool isCrit = res['is_critical'];
-         List<dynamic> effects = res['effects'] ?? [];
-         
-         String attackerName = (attacker == _myId) ? "You" : _oppName; // Simplified
-         
-         String log = "$attackerName used $moveName!";
-         if (isCrit) log += " Critical!";
-         if (damage == 0 && res['action'] != 'immobile') log += " No effect...";
-         
-         setState(() {
-            _addLog(log);
-         });
-         
-         await Future.delayed(const Duration(milliseconds: 500));
-         
-         if (damage > 0) {
-            setState(() {
-               _updateHp(defender, damage);
-               _addLog("Dealt $damage damage!");
-               _triggerDamageEffect(defender);
-            });
-         }
-         
-         for (var effLog in effects) {
-           await Future.delayed(const Duration(milliseconds: 300));
-           setState(() => _addLog(effLog));
-         }
-         
-         if (res['action'] == 'immobile') {
-           setState(() => _addLog(res['message']));
-         }
+       String type = res['type'] ?? 'unknown';
+       
+       if (type == 'turn_event') {
+          String eventType = res['event_type'];
+          
+          if (eventType == 'attack') {
+             // 1. 공격 선언 (로그)
+             int attacker = res['attacker'];
+             int defender = res['defender'];
+             int moveId = res['move_id'];
+             String moveName = SKILL_DATA[moveId]?['name'] ?? "Unknown Move";
+             String attackerName = (attacker == _myId) ? "You" : _oppName;
+             
+             setState(() => _addLog("$attackerName used $moveName!"));
+             
+             // 2. 공격 연출 (잠시 대기 or 애니메이션 트리거)
+             await Future.delayed(const Duration(milliseconds: 500));
+             
+             // 3. 데미지 및 피격 연출
+             int damage = res['damage'];
+             bool isCrit = res['is_critical'];
+             int defenderHp = res['defender_hp']; // 서버에서 계산된 최종 체력
+             
+             if (damage > 0) {
+                if (mounted) {
+                  setState(() {
+                    _triggerDamageEffect(defender); // 흔들림 + 붉은 효과
+                    _updateHp(defender, damage); // HP 바 감소 (애니메이션 적용됨)
+                    
+                    String dmgLog = "Dealt $damage damage!";
+                    if (isCrit) dmgLog += " (Critical!)";
+                    _addLog(dmgLog);
+                  });
+                }
+                // 피격 연출 시간 대기
+                await Future.delayed(const Duration(milliseconds: 600));
+             } else {
+                setState(() => _addLog("It had no effect..."));
+                await Future.delayed(const Duration(milliseconds: 500));
+             }
+             
+             // 4. 부가 효과 (Effects)
+             List<dynamic> effects = res['effects'] ?? [];
+             for (var effect in effects) {
+                String effMsg = effect['message'] ?? "";
+                if (activeStr(effMsg)) {
+                   setState(() => _addLog(effMsg));
+                   await Future.delayed(const Duration(milliseconds: 400));
+                }
+             }
+
+          } else if (eventType == 'immobile') {
+             // 행동 불가
+             String msg = res['message'];
+             setState(() => _addLog(msg));
+             await Future.delayed(const Duration(milliseconds: 800));
+             
+          } else if (eventType == 'status_damage' || eventType == 'status_recover') {
+             // 상태 이상 데미지 / 회복
+             int target = res['target'];
+             int damage = res['damage']; // 회복일 경우 0일 수 있음 (현재 로직상)
+             String msg = res['message'];
+             
+             setState(() => _addLog(msg));
+             
+             if (damage > 0) {
+                if (mounted) {
+                   setState(() {
+                      _triggerDamageEffect(target);
+                      _updateHp(target, damage); 
+                   });
+                }
+                await Future.delayed(const Duration(milliseconds: 500));
+             } else if (eventType == 'status_recover') {
+                // 회복 연출 등 (필요 시 추가)
+                await Future.delayed(const Duration(milliseconds: 500));
+             }
+          }
        }
     }
   }
+
+  bool activeStr(String? s) => s != null && s.isNotEmpty;
 
   void _updateHp(int userId, int damage) {
     if (userId == _myId) {

@@ -224,10 +224,9 @@ async def process_turn(room: BattleRoom):
             can_move, fail_msg = BattleManager.can_move(attacker_state)
             if not can_move:
                 turn_logs.append({
+                    "type": "turn_event",
+                    "event_type": "immobile",
                     "attacker": attacker_id,
-                    "defender": defender_id,
-                    "action": "immobile",
-                    "damage": 0,
                     "message": fail_msg
                 })
                 continue
@@ -239,16 +238,20 @@ async def process_turn(room: BattleRoom):
             defender_stat.health -= damage
             if defender_stat.health < 0: defender_stat.health = 0
             
+            # 기술 효과 적용
             effect_logs = BattleManager.apply_move_effects(move_id, attacker_state, defender_state, attacker_stat)
             
             log_entry = {
+                "type": "turn_event",
+                "event_type": "attack",
                 "attacker": attacker_id,
                 "defender": defender_id,
                 "move_id": move_id,
                 "damage": damage,
                 "is_critical": is_critical,
                 "defender_hp": defender_stat.health,
-                "effects": effect_logs
+                "effects": effect_logs,
+                "message": f"{move_id}번 기술 사용!" # 클라이언트에서 기술 이름 매핑 권장
             }
             turn_logs.append(log_entry)
             
@@ -259,17 +262,23 @@ async def process_turn(room: BattleRoom):
             stat = room.character_stats[uid]
             state = room.battle_states[uid]
             if stat.health > 0:
-                dmg, msg = BattleManager.process_status_effects(stat, state)
-                if dmg > 0:
+                dmg, msg, detail = BattleManager.process_status_effects(stat, state)
+                if dmg > 0 or msg:
                     stat.health -= dmg
                     if stat.health < 0: stat.health = 0
-                    turn_logs.append({
-                         "type": "status_damage",
+                    
+                    log_data = {
+                         "type": "turn_event",
+                         "event_type": "status_damage" if dmg > 0 else "status_recover",
                          "target": uid,
                          "damage": dmg,
                          "message": msg,
                          "target_hp": stat.health
-                    })
+                    }
+                    if detail:
+                        log_data.update(detail)
+                        
+                    turn_logs.append(log_data)
         
         # 4. 결과 전송 (순차적 재생 가능하도록 리스트로 전송)
         await room.broadcast({

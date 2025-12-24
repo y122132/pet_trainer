@@ -61,10 +61,14 @@ class BattleManager:
         final_damage = int(base_damage * crit_multiplier * random_multiplier)
         return final_damage, is_critical
 
+
+
     @staticmethod
     def apply_move_effects(move_id, attacker_state: BattleState, defender_state: BattleState, attacker_stat):
         """
         기술의 부가 효과 적용 (스탯 변화, 상태 이상)
+        Return: List[dict] 
+        Format: {"type": "stat_change"|"status"|"heal", "detail": ...}
         """
         move = MOVE_DATA.get(move_id)
         if not move: return []
@@ -86,22 +90,36 @@ class BattleManager:
                 
                 if new_stage != current_stage:
                     target_state.stages[stat_name] = new_stage
-                    change_str = "올라갔습니다" if val > 0 else "떨어졌습니다"
-                    logs.append(f"{stat_name}이(가) {change_str}.")
+                    logs.append({
+                        "type": "stat_change",
+                        "stat": stat_name,
+                        "value": val,
+                        "target": effect["target"], # self or enemy
+                        "message": f"{stat_name}이(가) {'올라갔습니다' if val > 0 else '떨어졌습니다'}."
+                    })
             
             elif effect["type"] == "status":
                 status = effect["status"]
                 # 이미 상태 이상이 있으면 적용 불가 (단순화)
                 if target_state.status_ailment is None:
                     target_state.status_ailment = status
-                    target_state.status_turns = random.randint(3, 5) # [New] 3~5턴 지속
+                    target_state.status_turns = random.randint(3, 5)
                     status_name = STATUS_DATA.get(status, {}).get("name", status)
-                    logs.append(f"{status_name} 상태가 되었습니다!")
+                    logs.append({
+                        "type": "status_apply",
+                        "status": status,
+                        "target": effect["target"],
+                        "message": f"{status_name} 상태가 되었습니다!"
+                    })
             
             elif effect["type"] == "heal":
-                # 회복 로직은 외부(BattleSocket Process)에서 처리하거나 여기서 값 리턴
-                # 여기서는 'healing_value'를 리턴해주면 호출자가 처리
-                pass
+                # 힐은 호출부에서 처리할 수도 있지만, 여기서 로깅용 데이터 리턴
+                logs.append({
+                    "type": "heal",
+                    "value": effect["value"],
+                    "target": effect["target"],
+                    "message": "체력을 회복했습니다!"
+                })
 
         return logs
 
@@ -132,10 +150,11 @@ class BattleManager:
     def process_status_effects(stat, state: BattleState):
         """
         턴 종료 시 상태 이상 데미지/효과 처리 및 지속시간 감소
-        return: (damage_taken, message)
+        return: (damage_taken, message, detail_dict)
         """
         damage = 0
         msg = None
+        detail = None
         
         if state.status_ailment:
             # 지속 턴 감소
@@ -145,7 +164,11 @@ class BattleManager:
                 prev_status = state.status_ailment
                 state.status_ailment = None
                 status_name = STATUS_DATA.get(prev_status, {}).get("name", prev_status)
-                return 0, f"{status_name} 상태에서 회복되었습니다!" # 데미지 없이 리턴
+                return 0, f"{status_name} 상태에서 회복되었습니다!", {
+                    "type": "status_recover",
+                    "status": prev_status,
+                    "message": f"{status_name} 상태에서 회복되었습니다!"
+                }
 
             if state.status_ailment == "poison":
                 damage = int(stat.health / 8)
@@ -157,7 +180,12 @@ class BattleManager:
                 if damage < 1: damage = 1
                 msg = "화상으로 인해 고통스럽습니다!"
             
-        return damage, msg
+        return damage, msg, {
+            "type": "status_damage",
+            "status": state.status_ailment,
+            "damage": damage,
+            "message": msg
+        } if msg else None
 
     @staticmethod
     def can_move(state: BattleState):
