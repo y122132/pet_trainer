@@ -261,9 +261,9 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
             if (data.containsKey('debug_max_cls')) {
               _maxConfCls = (data['debug_max_cls'] as num?)?.toInt() ?? -1;
             }
-            // LLM 메시지 처리 (data['message'])
-            if (data.containsKey('message')) {
-               Provider.of<CharProvider>(context, listen: false).updateStatusMessage(data['message']);
+            // LLM 메시지 처리 (data['char_message']) - [Change] chat_message -> char_message
+            if (data.containsKey('char_message')) {
+               Provider.of<CharProvider>(context, listen: false).updateStatusMessage(data['char_message']);
             }
           });
         }

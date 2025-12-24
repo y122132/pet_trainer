@@ -101,7 +101,8 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                     from fastapi.websockets import WebSocketState
                     if websocket.client_state == WebSocketState.CONNECTED:
                         await websocket.send_json({
-                            "message": msg,
+                            "char_message": msg,  # [Change] chat_message -> char_message
+                            "message": "AI: " + msg[:15] + "...", # 시스템 로그용 요약
                             "status": "keep" # 상태 유지
                         })
                     else:
@@ -258,7 +259,8 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                             
                             response_data = {
                                 "status": "success",
-                                "message": msg,
+                                "char_message": msg, # [Change] char_message
+                                "message": "훈련 성공!", # 시스템 메시지 고정
                                 "base_reward": result.get("base_reward", {}),
                                 "bonus_points": result.get("bonus_points", 0),
                                 "count": service_result.get("daily_count", 0),
