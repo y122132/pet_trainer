@@ -1,3 +1,4 @@
+# backend/app/api/v1/routers.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
@@ -81,3 +82,14 @@ async def update_stats(char_id: int, stat_data: StatUpdateSchema, db: AsyncSessi
 # 라우터들을 메인 API 라우터에 통합
 api_router.include_router(user_router)
 api_router.include_router(character_router)
+
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+@router.post("/register")
+async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
+    # 1. 중복 유저 체크
+    # 2. 비밀번호 암호화: hashed_pw = pwd_context.hash(user_in.password)
+    # 3. DB 저장
+    return {"message": "회원가입 성공"}

@@ -1,5 +1,7 @@
+# backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.api.v1 import auth, routers # 기존 분석 소켓용 routers
 from app.api.v1.routers import api_router
 from app.sockets.analysis_socket import router as websocket_router
 from app.db.database import init_db
@@ -43,3 +45,7 @@ async def root():
     서버 상태 확인용 루트 엔드포인트입니다.
     """
     return {"message": "Welcome to PetTrainer API"}
+
+
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(routers.router, prefix="/api/v1", tags=["analysis"])
