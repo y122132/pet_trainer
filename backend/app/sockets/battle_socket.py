@@ -410,20 +410,23 @@ async def process_turn_redis(room_id: str):
         if def_state.current_hp <= 0: break
 
     # [New] Status Effect Damage at End of Turn
+    # 양쪽 모두 살아있을 때만 상태 이상 처리를 시작하지만, 
+    # 한 명이 쓰러져도 나머지 한 명의 상태 이상 데미지(독, 화상 등)도 계산해야 공정한 무승부 판정이 가능함.
+    # 따라서 break 없이 순회합니다.
     if state1.current_hp > 0 and state2.current_hp > 0:
         for uid, state, stat in [(u1, state1, stat1), (u2, state2, stat2)]:
+            if state.current_hp <= 0: continue # 이미 죽었으면 스킵
+
             dmg, msg, detail = BattleManager.process_status_effects(stat, state)
             
             if dmg > 0:
                 state.current_hp = max(0, state.current_hp - dmg)
             
             if detail:
-                # Add target info to detail for client
                 detail["target"] = uid
                 turn_logs.append(detail)
-                
-            if state.current_hp <= 0:
-                break
+            
+            # Don't break here! Let the other player take damage too.
 
     # 4. Serialize Back & Save
     room_data["battle_states"][su1] = serialize_battle_state(state1)
