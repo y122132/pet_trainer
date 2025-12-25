@@ -8,7 +8,7 @@ class BattleCalculator:
     """
 
     @staticmethod
-    def calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id: int, defender_type: str = None):
+    def calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id: int, defender_type: str = None, field_data: dict = None):
         """
         데미지 공식: (Strength / Defense) * Power * Modifiers
         """
@@ -18,9 +18,7 @@ class BattleCalculator:
         power = move["power"]
         if power == 0: return 0, False, "normal"
 
-        # 1. 스탯 & 랭크 반영 (Agility, Strength, Defense 등)
-        # 물리 공격: Strength / 방어: Defense
-        # (추후 특수 공격 구분 시 Intelligence 사용 가능)
+        # 1. 스탯 & 랭크 반영
         atk_val = attacker_stat.strength * attacker_state.get_stage_multiplier("strength")
         def_val = defender_stat.defense * defender_state.get_stage_multiplier("defense")
 
@@ -31,15 +29,11 @@ class BattleCalculator:
         if def_val < 1: def_val = 1
         
         # 2. 기본 데미지
-        # (공격력 / 방어력) 비율에 기술 위력을 곱함 + 상수 보정
         damage = (atk_val / def_val) * power * 0.5 + 2
 
         # 3. 크리티컬 (Luck + Crit Stage 기반)
-        # 기본 5% + (Luck * 0.5)%
         base_crit = 5.0 + (attacker_stat.luck * 0.5)
         
-        # [New] Crit Stage Bonus
-        # 0: +0%, 1: +12.5%, 2: +50%, 3: +100%
         crit_stage = attacker_state.stages.get("crit_rate", 0)
         crit_bonus = 0.0
         if crit_stage == 1: crit_bonus = 12.5
@@ -47,8 +41,6 @@ class BattleCalculator:
         elif crit_stage >= 3: crit_bonus = 100.0
         
         crit_chance = base_crit + crit_bonus
-        
-        # 최대 100% 제한 (was 50)
         if crit_chance > 100: crit_chance = 100
         
         is_critical = random.uniform(0, 100) < crit_chance
@@ -59,27 +51,46 @@ class BattleCalculator:
         # 4. 랜덤 변수 (0.85 ~ 1.0)
         random_factor = random.uniform(0.85, 1.0)
 
-        # [New] 속성 상성 적용
-        from app.game.game_assets import TYPE_CHART
+        # [New] 속성 상성 및 면역(Immunity)
+        from app.game.game_assets import TYPE_CHART, FIELD_EFECTS
         type_multiplier = 1.0
-        
         move_type = move.get("type", "normal")
+        
         if defender_type:
             chart = TYPE_CHART.get(move_type, {})
             weak_list = chart.get("weak", [])
             resist_list = chart.get("resist", [])
+            immune_list = chart.get("immune", [])
             
-            if defender_type in weak_list:
+            if defender_type in immune_list:
+                type_multiplier = 0.0 # [Deep Logic] Immunity
+            elif defender_type in weak_list:
                 type_multiplier = 2.0
             elif defender_type in resist_list:
                 type_multiplier = 0.5
         
-        final_damage = int(damage * crit_multiplier * type_multiplier * random_factor)
-        if final_damage < 1: final_damage = 1
+        # [New] Field/Weather Modifiers
+        field_multiplier = 1.0
+        if field_data:
+            weather = field_data.get("weather", "clear")
+            location = field_data.get("location", "stadium")
+            
+            w_chart = FIELD_EFECTS["weather"].get(weather, {})
+            if move_type in w_chart:
+                field_multiplier *= w_chart[move_type] # e.g. Rain -> Water * 1.5
+            
+            l_chart = FIELD_EFECTS["location"].get(location, {})
+            if move_type in l_chart:
+                 field_multiplier *= l_chart[move_type] # e.g. Cave -> Rock * 1.2
+        
+        final_damage = int(damage * crit_multiplier * type_multiplier * random_factor * field_multiplier)
+        if final_damage < 1 and type_multiplier > 0: final_damage = 1
+        if type_multiplier == 0: final_damage = 0 # Ensure 0 if immune
 
         # 효과 결과 반환 (로그용)
         effectiveness = "normal"
-        if type_multiplier > 1.0: effectiveness = "super"
+        if type_multiplier == 0.0: effectiveness = "immune"
+        elif type_multiplier > 1.0: effectiveness = "super"
         elif type_multiplier < 1.0: effectiveness = "not_very"
 
         # [Important] Return correct unpacking 3 items

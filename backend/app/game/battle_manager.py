@@ -19,9 +19,15 @@ class BattleState:
             "evasion": 0,   # 회피율 랭크 (Agility와 별개로 보정 가능)
             "crit_rate": 0  # [New] 치명타율 랭크 (0~3)
         }
-        self.status_ailment = None # poison, paralysis, burn, etc.
-        self.status_turns = 0 # 지속 턴 수
-
+        self.status_ailment = None # poison, paralysis, burn
+        self.status_turns = 0 
+        
+        # [New] Deep Logic State
+        self.volatile = {} # {"flinch": 0, "protect": 0, "confusion": 3} -> Name: Turns
+        self.pp = {} # {move_id: current_pp} -> To be initialized by Socket
+        self.field_data = {} # Per-user field override? No, field is global in Room. 
+                             # But maybe individual "Tailwind" (Volatile).
+        
     def get_stage_multiplier(self, stat_name):
         stage = self.stages.get(stat_name, 0)
         return STAT_STAGES.get(stage, 1.0)
@@ -30,11 +36,11 @@ class BattleManager:
     @staticmethod
     def calculate_damage(attacker_stat, attacker_state: BattleState, 
                          defender_stat, defender_state: BattleState, 
-                         move_id: int, defender_type: str = None):
+                         move_id: int, defender_type: str = None, field_data: dict = None):
         """
         데미지 계산 위임
         """
-        return BattleCalculator.calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id, defender_type)
+        return BattleCalculator.calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id, defender_type, field_data)
 
     @staticmethod
     def apply_move_effects(move_id, attacker_state: BattleState, defender_state: BattleState, attacker_stat, 
@@ -189,6 +195,27 @@ class BattleManager:
         msg = None
         detail = None
         
+        # [New] Process Volatile Statuses First
+        # Flinch and Protect usually last 1 turn and clear automatically at END of turn (or start of next).
+        # Here we clear them if they expired? 
+        # Actually Flinch is "this turn only". So clear it.
+        if "flinch" in state.volatile:
+            del state.volatile["flinch"]
+            # No message needed for clearing flinch usually, it just wears off.
+
+        if "protect" in state.volatile:
+            del state.volatile["protect"]
+            
+        # [Fix] Confusion (Moved to Volatile in Asset, but logic might still be mixed. Let's fully migrate logic if possible)
+        # For now, handle 'confusion' in volatile dict if present.
+        if "confusion" in state.volatile:
+            state.volatile["confusion"] -= 1
+            if state.volatile["confusion"] <= 0:
+                del state.volatile["confusion"]
+                msg = "혼란이 풀렸습니다!"
+                # Append to detail if exists? 
+                # Ideally return list of messages. For now, prioritize ailment msg.
+
         if state.status_ailment:
             # [Fix] Apply Logic First (Damage), Then Decrement
             
@@ -222,17 +249,10 @@ class BattleManager:
                 
                 recover_msg = f"{status_name} 상태에서 회복되었습니다!"
                 
-                # If we took damage this turn, we ideally return damage AND recovery
-                # But the current signature returns one dict.
-                # We'll prioritize Damage for the log, and add a secondary recovery log or combine them in 'detail'
-                # For simplicity in this structure: If damage occurred, we return damage. 
-                # Recovery will be processed next turn? No, that's bad.
-                # Let's return damage, but append recovery info to message or detail.
-                
                 if msg:
                      msg += f" (그리고 {status_name} 상태에서 회복되었습니다!)"
                      detail["message"] = msg
-                     detail["is_recovered"] = True # Client trigger?
+                     detail["is_recovered"] = True 
                 else:
                      msg = recover_msg
                      detail = {
@@ -242,14 +262,20 @@ class BattleManager:
                      }
             
             return damage, msg, detail
+            
+        return damage, msg, detail
 
     @staticmethod
     def can_move(state: BattleState):
         """
         상태 이상으로 인한 행동 불가 체크
         """
-        # [Fix] 혼란 (Confusion) 체크
-        if state.status_ailment == "confusion":
+        # [New] Volatile: Flinch
+        if "flinch" in state.volatile:
+             return False, "풀죽어서 움직일 수 없습니다!"
+
+        # [Fix] 혼란 (Confusion) - Check Volatile First
+        if "confusion" in state.volatile:
             # 33% 확률로 자해
             if random.random() < 0.33:
                 # 자해 데미지 계산 (최대 체력의 10% 정도?)
@@ -267,4 +293,8 @@ class BattleManager:
                 # 25% 확률로 행동 불가
                 return False, "몸이 저려서 움직일 수 없습니다!"
         
+        # 수면 (Sleep) - Not implemented yet but placeholder
+        if state.status_ailment == "sleep":
+             return False, "쿨쿨 자고 있습니다."
+
         return True, None

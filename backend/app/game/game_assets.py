@@ -49,6 +49,16 @@ MOVE_DATA = {
         "effect": {"type": "stat_change", "stat": "strength", "value": 1, "target": "self"},
         "effect_chance": 50
     },
+    6: {
+        "name": "전광석화",
+        "power": 40,
+        "accuracy": 100,
+        "type": "normal",
+        "priority": 1, # [New] Priority Move
+        "description": "눈에 보이지 않는 속도로 먼저 공격한다.",
+        "effect": None,
+        "effect_chance": 0
+    },
     
     101: {
         "name": "할퀴기", 
@@ -128,31 +138,77 @@ PET_TYPE_MAP = {
     "bird": "flying"
 }
 
-# 3. PET_LEARNSET: 펫 종류에 따른 기술 습득 테이블
+# 3. PET_LEARNSET: 펫 종류에 따른 기술 습득 테이블 (No Change needed here, logical mapping)
 PET_LEARNSET = {
     "dog": {
-        1: [1, 2],       # 짖기, 버티기
-        5: [3, 4],       # 회복 본능, 꼬리 살랑
-        10: [5]          # 간식 발견
+        1: [1, 2],       
+        5: [3, 4],       
+        10: [5]          
     },
     "cat": {
-        1: [101, 102],   # 할퀴기, 냥점프
-        5: [103, 104],   # 신경 긁기, 급습
-        10: [105]        # 냥냥펀치
+        1: [101, 102],   
+        5: [103, 104],   
+        10: [105]        
     }
 }
 
-# 4. Status Effects Info
+# 4. Status Effects Info (Re-organized)
 STATUS_DATA = {
+    # Persistent (Ailment)
     "poison": {"name": "독", "desc": "매 턴 체력의 1/8 피해", "min_turn": 3, "max_turn": 6},
     "paralysis": {"name": "마비", "desc": "스피드 저하 및 25% 확률로 행동 불가", "min_turn": 2, "max_turn": 5},
     "burn": {"name": "화상", "desc": "매 턴 체력 피해 및 공격력 반감", "min_turn": 3, "max_turn": 6},
-    "confusion": {"name": "혼란", "desc": "33% 확률로 자해 데미지 (1~4턴 지속)", "min_turn": 1, "max_turn": 4}
+    
+    # Volatile (New) - Logic handled in Manager, Descriptions here for UI if needed
+    "confusion": {"name": "혼란", "desc": "33% 확률로 자해 데미지", "min_turn": 2, "max_turn": 5},
+    "flinch": {"name": "풀죽음", "desc": "놀라서 움직일 수 없다", "min_turn": 1, "max_turn": 1},
+    "protect": {"name": "방어", "desc": "이번 턴의 공격을 막는다", "min_turn": 1, "max_turn": 1}
 }
 
-# 5. Stat Stages Multiplier (-6 to +6)
+# 5. Stat Stages Multiplier
 STAT_STAGES = {
     -6: 2/8, -5: 2/7, -4: 2/6, -3: 2/5, -2: 2/4, -1: 2/3,
     0: 1.0,
     1: 3/2, 2: 4/2, 3: 5/2, 4: 6/2, 5: 7/2, 6: 8/2
 }
+
+# 6. [New] Type Immunity Update (Fixed Direction)
+# Key = Attacking Type, Value = List of Immune Defender Types
+TYPE_CHART["ground"]["immune"] = ["flying"]
+TYPE_CHART["ghost"]["immune"] = ["normal"] # Normal is Immune to Ghost? No, usually Normal is imm to Ghost AND Ghost imm to Normal.
+# Ghost moves -> Normal (0x)
+# Normal moves -> Ghost (0x)
+TYPE_CHART["normal"]["immune"] = ["ghost"]
+TYPE_CHART["electric"]["immune"] = ["ground"]
+TYPE_CHART["psychic"]["immune"] = ["dark"]
+TYPE_CHART["poison"]["immune"] = ["steel"]
+TYPE_CHART["dragon"]["immune"] = ["fairy"]
+# Fighting moves -> Ghost (0x)
+TYPE_CHART["fighting"]["immune"] = ["ghost"]
+
+# 7. [New] Field & Weather Modifiers
+FIELD_EFECTS = {
+    "weather": {
+        "sun": {"fire": 1.5, "water": 0.5, "name": "쾌청"},
+        "rain": {"water": 1.5, "fire": 0.5, "name": "비"},
+        "clear": {"name": "맑음"}
+    },
+    "location": {
+        "stadium": {"name": "경기장"}, # No bonus
+        "cave": {"rock": 1.2, "ground": 1.2, "name": "동굴"},
+        "forest": {"grass": 1.2, "bug": 1.2, "name": "숲"},
+        "water": {"water": 1.2, "name": "물가"}
+    }
+}
+
+# 8. [New] PP Default Injection (Monkey Patching for Safety/Convenience)
+for mid, mdata in MOVE_DATA.items():
+    if "max_pp" not in mdata:
+        # Default PP based on Power
+        p = mdata.get("power", 0)
+        if p >= 120: mdata["max_pp"] = 5
+        elif p >= 90: mdata["max_pp"] = 10
+        elif p >= 60: mdata["max_pp"] = 15
+        else: mdata["max_pp"] = 20 # Low power or status moves
+        
+    # Ensure immune key exists in ALL generic dictionary entries if referenced blindly (Optional, mostly handled in code .get)

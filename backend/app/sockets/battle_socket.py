@@ -4,7 +4,7 @@ import json
 import asyncio
 from app.game.battle_manager import BattleManager, BattleState
 from app.game.battle_calculator import BattleCalculator
-from app.game.game_assets import MOVE_DATA
+from app.game.game_assets import MOVE_DATA, PET_LEARNSET
 from app.db.database import AsyncSessionLocal
 from app.services import char_service
 from sqlalchemy import select
@@ -25,6 +25,11 @@ class BattleRoom:
         self.battle_states: Dict[int, BattleState] = {} # user_id -> BattleState
         self.selections: Dict[int, int] = {} # user_id -> move_id
         self.turn_count = 0
+        # [New] Global Field State
+        self.field_effects = {
+            "weather": "clear",   # sun, rain, clear
+            "location": "stadium" # stadium, cave, forest, water
+        }
 
     async def connect(self, websocket: WebSocket, user_id: int):
         await websocket.accept()
@@ -148,8 +153,15 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int):
             # [Fix] 스탯 랭크 초기화 (재경기 시 이전 버프 초기화)
             room.battle_states[uid].stages = {
                 "strength": 0, "defense": 0, "agility": 0, 
-                "intelligence": 0, "accuracy": 0, "evasion": 0
+                "intelligence": 0, "accuracy": 0, "evasion": 0,
+                "crit_rate": 0 # [New]
             }
+            # [New] Volatile & PP Init
+            room.battle_states[uid].volatile = {}
+            room.battle_states[uid].pp = {}
+            for mid in skill_ids:
+                 mdata = MOVE_DATA.get(mid, {})
+                 room.battle_states[uid].pp[mid] = mdata.get("max_pp", 20)
 
             stats_info[uid] = {
                 "hp": battle_state.current_hp,
@@ -279,6 +291,20 @@ async def process_turn(room: BattleRoom):
 
             # 1. 공격 선언 (Start)
             move_data = MOVE_DATA.get(move_id, {})
+            # [New] PP Check
+            current_pp = attacker_state.pp.get(move_id, 0)
+            if current_pp <= 0:
+                 turn_logs.append({
+                    "type": "turn_event",
+                    "event_type": "move_failed",
+                    "attacker": attacker_id,
+                    "message": "PP가 부족하여 기술을 쓸 수 없습니다!"
+                 })
+                 continue
+
+            # [New] PP Deduction
+            attacker_state.pp[move_id] -= 1
+            
             move_name = move_data.get("name", f"Skill {move_id}")
             move_type = move_data.get("type", "normal")
             
@@ -288,7 +314,7 @@ async def process_turn(room: BattleRoom):
                 "attacker": attacker_id,
                 "move_id": move_id,
                 "move_type": move_type, 
-                "message": f"{move_name} 발동!" # [UX] More natural message
+                "message": f"{move_name} 발동!" 
             })
             
             # 2. 명중 체크 (Hit Check)
@@ -336,7 +362,7 @@ async def process_turn(room: BattleRoom):
 
                 # 적중 -> 데미지 계산
                 damage, is_critical, effectiveness = BattleManager.calculate_damage(
-                    attacker_stat, attacker_state, defender_stat, defender_state, move_id, defender_type=def_elemental_type
+                    attacker_stat, attacker_state, defender_stat, defender_state, move_id, defender_type=def_elemental_type, field_data=room.field_effects
                 )
                 
                 # HP 적용
@@ -345,9 +371,16 @@ async def process_turn(room: BattleRoom):
                 
                 # 메시지 구성
                 hit_msg = "명중!"
-                if is_critical: hit_msg = "크리티컬 히트!"
-                if effectiveness == "super": hit_msg += " (효과가 굉장했다!)"
-                elif effectiveness == "not_very": hit_msg += " (효과가 별로인 듯하다...)"
+                if effectiveness == "immune":
+                    hit_msg = "효과가 없는 것 같다..."
+                    damage = 0 # Ensure 0 visual
+                elif is_critical: 
+                    hit_msg = "크리티컬 히트!"
+                    if effectiveness == "super": hit_msg += " (효과가 굉장했다!)"
+                    elif effectiveness == "not_very": hit_msg += " (효과가 별로인 듯하다...)"
+                else: 
+                    if effectiveness == "super": hit_msg += " (효과가 굉장했다!)"
+                    elif effectiveness == "not_very": hit_msg += " (효과가 별로인 듯하다...)"
 
                 turn_logs.append({
                     "type": "turn_event",
@@ -357,7 +390,7 @@ async def process_turn(room: BattleRoom):
                     "defender": defender_id,
                     "damage": damage,
                     "is_critical": is_critical,
-                    "effectiveness": effectiveness, # 클라이언트 연출용
+                    "effectiveness": effectiveness, 
                     "defender_hp": defender_state.current_hp,
                     "message": hit_msg
                 })
