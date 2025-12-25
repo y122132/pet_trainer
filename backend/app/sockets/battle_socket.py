@@ -10,6 +10,7 @@ from app.services import char_service
 from sqlalchemy import select
 from app.db.models.character import Character, Stat
 from dataclasses import dataclass
+from app.core.security import verify_websocket_token # [Security]
 
 router = APIRouter()
 
@@ -73,7 +74,17 @@ class BattleRoom:
 rooms: Dict[str, BattleRoom] = {}
 
 @router.websocket("/ws/battle/{room_id}/{user_id}")
-async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int):
+async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, token: str | None = None):
+    # [Security] 연결 수락 전 토큰 검증
+    # 주의: BattleRoom.connect 내부에서 accept()를 호출하므로, 여기서 미리 검증해야 함
+    try:
+        await verify_websocket_token(websocket, token)
+    except Exception as e:
+        print(f"Token verification failed: {e}")
+        # verify_websocket_token 내부에서 예외를 던지거나 여기서 닫음
+        # 만약 verify 함수가 예외를 안 던지고 False를 리턴하면 여기서 처리
+        return
+
     # 1. Room 생성 또는 조회
     if room_id not in rooms:
         rooms[room_id] = BattleRoom(room_id)

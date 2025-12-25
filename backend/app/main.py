@@ -10,10 +10,13 @@ app = FastAPI(title="PetTrainer API")
 
 # CORS (Cross-Origin Resource Sharing) 미들웨어 설정
 # 프론트엔드(Flutter/Web)가 다른 도메인에서 API를 호출할 수 있도록 허용합니다.
-# 보안상 실제 운영 환경에서는 allow_origins를 특정 도메인으로 제한하는 것이 좋습니다.
+import os
+origins_env = os.getenv("ALLOWED_ORIGINS", "*")
+origins = [origin.strip() for origin in origins_env.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 모든 출처(Origin) 허용 (개발용)
+    allow_origins=origins,  # 환경 변수 기반 설정
     allow_credentials=True,
     allow_methods=["*"],  # 모든 HTTP 메서드 허용 (GET, POST 등)
     allow_headers=["*"],  # 모든 헤더 허용

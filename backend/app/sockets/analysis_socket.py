@@ -5,6 +5,7 @@ from app.services import char_service
 from app.db.database import AsyncSessionLocal
 from app.core.pet_constants import PET_CLASS_MAP
 from app.ai_core.brain.graphs import get_character_response # [NEW] LLM 호출 함수
+from app.core.security import verify_websocket_token # [Security]
 import json
 import time
 import asyncio
@@ -12,7 +13,7 @@ import asyncio
 router = APIRouter()
 
 @router.websocket("/ws/analysis/{user_id}")
-async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "playing", pet_type: str = "none", difficulty: str = "easy"):
+async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "playing", pet_type: str = "none", difficulty: str = "easy", token: str | None = None):
     """
     실시간 분석을 위한 웹소켓 엔드포인트입니다.
     클라이언트(Flutter)로부터 실시간 카메라 프레임을 받아 AI로 분석하고 결과를 반환합니다.
@@ -23,8 +24,12 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
         mode: 훈련 모드 ('playing'=놀이, 'feeding'=식사, 'interaction'=교감)
         pet_type: 반려동물 종류 ('dog', 'cat') - YOLO 클래스 ID 매핑에 사용
         difficulty: 난이도 ('easy', 'hard') - 판정 기준 완화/강화
+        token: 보안 검증용 토큰 (Optional)
     """
     try:
+        # [Security] 연결 수락 전 토큰 검증
+        await verify_websocket_token(websocket, token)
+        
         await websocket.accept()
         print(f"[FSM_WS] 연결 수락: User {user_id}, 모드 {mode}, 펫 {pet_type}, 난이도 {difficulty}", flush=True)
     except Exception as e:
