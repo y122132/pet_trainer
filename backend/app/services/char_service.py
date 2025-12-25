@@ -57,6 +57,11 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
         elif stype == "health":     # 체력
             stat.health += val
             updated_stat_val = stat.health
+            
+        # [New] Bonus Points for User Distribution
+        bonus = yolo_result.get("bonus_points", 0)
+        if bonus > 0:
+            stat.unused_points += bonus
     else:
         # 보상 정보가 없는 경우 기본값 (안전장치)
         stat.strength += 1

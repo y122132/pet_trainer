@@ -371,18 +371,33 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             feedback_message = mode_config["feedback_success"]
             is_specific_feedback = True
             
-            # 보상 설정 (스탯 증가량)
+            # 보상 설정 (스탯 증가량 - 랜덤 다양화)
+            # Battle Stat Coverage: Str, Int, Def, Agi, Hp, Hap
+            # Playing -> Strength (70%) / Agility (30%)
             if mode == "playing":
                 action_detected = "playing_fetch"
-                base_reward = {"stat_type": "strength", "value": 3}
+                if np.random.rand() < 0.7:
+                    base_reward = {"stat_type": "strength", "value": 3}
+                else:
+                    base_reward = {"stat_type": "agility", "value": 3}
                 bonus_points = 2
+            
+            # Feeding -> Health (70%) / Defense (30%)
             elif mode == "feeding":
                 action_detected = "feeding"
-                base_reward = {"stat_type": "health", "value": 3}
+                if np.random.rand() < 0.7:
+                    base_reward = {"stat_type": "health", "value": 3}
+                else:
+                    base_reward = {"stat_type": "defense", "value": 3}
                 bonus_points = 1
+                
+            # Interaction -> Happiness (70%) / Intelligence (30%)
             elif mode == "interaction":
                 action_detected = "interaction_owner"
-                base_reward = {"stat_type": "happiness", "value": 4}
+                if np.random.rand() < 0.7:
+                    base_reward = {"stat_type": "happiness", "value": 4}
+                else:
+                    base_reward = {"stat_type": "intelligence", "value": 3}
                 bonus_points = 3
         else:
             # [실패 판정] 물건은 있으나 상호작용 안됨
