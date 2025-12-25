@@ -7,45 +7,58 @@ class BattleLogWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Show only last 3 logs for compactness
+    final displayLogs = logs.take(3).toList(); // Newest first (index 0)
+
     return ShaderMask(
       shaderCallback: (Rect bounds) {
         return const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Colors.transparent, Colors.black, Colors.black, Colors.transparent],
-          stops: [0.0, 0.1, 0.9, 1.0], // Fade top and bottom
+          colors: [Colors.black, Colors.transparent], // Fade out older messages (at bottom since we map reversed?)
+          // Wait, if it's new-on-top, we want bottom fade.
+          stops: [0.3, 1.0], 
         ).createShader(bounds);
       },
       blendMode: BlendMode.dstIn,
-      child: ListView.builder(
+      child: ListView(
         padding: EdgeInsets.zero,
-        reverse: true, // Bubbles stack up
-        itemCount: logs.length,
-        itemBuilder: (context, index) {
-          return _buildLogBubble(logs[index]);
-        },
+        physics: const NeverScrollableScrollPhysics(),
+        shrinkWrap: true,
+        children: displayLogs.map((log) => _buildLogItem(log, displayLogs.indexOf(log))).toList(),
       ),
     );
   }
 
-  Widget _buildLogBubble(String log) {
-    bool isDamage = log.contains("피해") || log.contains("damage");
-    bool isCrit = log.contains("크리티컬") || log.contains("CRITICAL");
+  Widget _buildLogItem(String log, int index) {
+    // Highlight important events
+    bool isDamage = log.contains("damage") || log.contains("피해");
+    bool isEffect = log.contains("Status") || log.contains("상태");
+    bool isCrit = log.contains("CRITICAL") || log.contains("크리티컬");
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 5),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: isCrit ? Colors.amber[800]!.withOpacity(0.9) : (isDamage ? Colors.redAccent.withOpacity(0.8) : Colors.black54),
-        borderRadius: BorderRadius.circular(15),
-        border: isCrit ? Border.all(color: Colors.yellowAccent, width: 2) : null,
-        boxShadow: isCrit ? [const BoxShadow(color: Colors.amber, blurRadius: 10)] : null,
-      ),
-      child: Text(log,
+    Color textColor = Colors.white;
+    if (isCrit) textColor = Colors.yellowAccent;
+    else if (isDamage) textColor = Colors.redAccent;
+    else if (isEffect) textColor = Colors.greenAccent;
+
+    // First item is most opaque
+    double opacity = (index == 0) ? 1.0 : (index == 1 ? 0.6 : 0.3);
+
+    return Opacity(
+      opacity: opacity,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Text(
+          log,
+          textAlign: TextAlign.center,
           style: TextStyle(
-              color: Colors.white,
-              fontSize: isCrit ? 16 : 12,
-              fontWeight: isCrit ? FontWeight.w900 : FontWeight.bold)),
+            color: textColor,
+            fontSize: index == 0 ? 14 : 12,
+            fontWeight: index == 0 ? FontWeight.bold : FontWeight.normal,
+            shadows: const [Shadow(color: Colors.black, blurRadius: 4, offset: Offset(1, 1))]
+          ),
+        ),
+      ),
     );
   }
 }

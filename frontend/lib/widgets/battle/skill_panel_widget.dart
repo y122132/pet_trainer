@@ -23,7 +23,7 @@ class SkillPanelWidget extends StatelessWidget {
     List<Map<String, dynamic>?> displaySkills = skills;
     
     return Container(
-      height: 300, // Increased height slightly
+      height: 280, 
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
@@ -32,42 +32,49 @@ class SkillPanelWidget extends StatelessWidget {
       child: Center(
         child: Container(
           constraints: const BoxConstraints(maxWidth: 600), // Layout constraint for PC
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40), // Increased padding to reduce button height
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 30), 
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("SKILLS", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
-                  Text(statusMessage, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const Text("SKILLS", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.indigo, letterSpacing: 1.0)),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isMyTurn ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(statusMessage, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isMyTurn ? Colors.green : Colors.red)),
+                  ),
                 ],
               ),
-              const SizedBox(height: 15),
-              Column(
-                children: [
-                  SizedBox(
-                    height: 80, // Fixed height for consistent look and fit
-                    child: Row(
-                      children: [
-                        Expanded(child: _buildSkillButton(context, displaySkills.length > 0 ? displaySkills[0] : null)),
-                        const SizedBox(width: 15),
-                        Expanded(child: _buildSkillButton(context, displaySkills.length > 1 ? displaySkills[1] : null)),
-                      ],
+              const SizedBox(height: 20),
+              Expanded(
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Expanded(child: _buildSkillButton(context, displaySkills.length > 0 ? displaySkills[0] : null)),
+                          const SizedBox(width: 16),
+                          Expanded(child: _buildSkillButton(context, displaySkills.length > 1 ? displaySkills[1] : null)),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 15),
-                  SizedBox(
-                    height: 80, // Fixed height for consistent look and fit
-                    child: Row(
-                      children: [
-                        Expanded(child: _buildSkillButton(context, displaySkills.length > 2 ? displaySkills[2] : null)),
-                        const SizedBox(width: 15),
-                        Expanded(child: _buildSkillButton(context, displaySkills.length > 3 ? displaySkills[3] : null)),
-                      ],
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Expanded(child: _buildSkillButton(context, displaySkills.length > 2 ? displaySkills[2] : null)),
+                          const SizedBox(width: 16),
+                          Expanded(child: _buildSkillButton(context, displaySkills.length > 3 ? displaySkills[3] : null)),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -81,9 +88,12 @@ class SkillPanelWidget extends StatelessWidget {
     if (skill == null) {
       return Container(
         decoration: BoxDecoration(
-          color: Colors.grey[200], // Darker grey for visibility
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: Colors.grey[400]!), // Darker border
+          color: Colors.grey[100], 
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.grey[300]!, width: 2),
+        ),
+        child: Center(
+          child: Icon(Icons.lock_outline, color: Colors.grey[400], size: 32),
         ),
       );
     }
@@ -92,44 +102,53 @@ class SkillPanelWidget extends StatelessWidget {
     String name = skill['name'] ?? "Unknown";
     String type = skill['type'] ?? "normal";
     Color typeColor = _getTypeColor(type);
+    bool canPress = isConnected && isMyTurn;
 
     return GestureDetector(
       onLongPress: () => _showSkillInfo(context, name, type, skill),
-      child: ElevatedButton(
-        onPressed: (isConnected && isMyTurn) ? () => onSkillSelected(skillId) : null,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: typeColor,
-          elevation: 4,
-          shadowColor: typeColor.withOpacity(0.3),
-          padding: const EdgeInsets.all(0),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(15), side: BorderSide(color: typeColor.withOpacity(0.5), width: 2)),
-        ),
-        child: Stack(
-          children: [
-            // Background Icon watermark
-            Positioned(
-              right: -10,
-              bottom: -10,
-              child: Icon(Icons.flash_on, size: 60, color: typeColor.withOpacity(0.05)),
+      child: Opacity(
+        opacity: canPress ? 1.0 : 0.6,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+               begin: Alignment.topLeft, end: Alignment.bottomRight,
+               colors: [Colors.white, typeColor.withOpacity(0.1)]
             ),
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+            boxShadow: [
+              if (canPress) BoxShadow(color: typeColor.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))
+            ],
+            border: Border.all(color: canPress ? typeColor : Colors.grey, width: 2)
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: canPress ? () => onSkillSelected(skillId) : null,
+              borderRadius: BorderRadius.circular(20),
+              child: Stack(
                 children: [
-                  Text(name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(color: typeColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                    child: Text(type.toUpperCase(),
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: typeColor)),
+                  Positioned(
+                    right: -5, bottom: -5,
+                    child: Icon(Icons.flash_on, size: 64, color: typeColor.withOpacity(0.1)),
+                  ),
+                  Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                         Text(name, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+                         const SizedBox(height: 4),
+                         Container( 
+                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                           decoration: BoxDecoration(color: typeColor, borderRadius: BorderRadius.circular(8)),
+                           child: Text(type.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+                         )
+                      ],
+                    ),
                   )
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -139,7 +158,7 @@ class SkillPanelWidget extends StatelessWidget {
     showDialog(
         context: context,
         builder: (context) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               title: Row(children: [
                 Icon(Icons.flash_on, color: _getTypeColor(type)),
                 const SizedBox(width: 8),
@@ -151,8 +170,9 @@ class SkillPanelWidget extends StatelessWidget {
                 children: [
                   _buildInfoRow("Type", type),
                   _buildInfoRow("Power", "${skill?['power'] ?? 0}"),
-                  const SizedBox(height: 10),
-                  Text(skill?['desc'] ?? "No description available.", style: const TextStyle(color: Colors.black54)),
+                  if (skill?['accuracy'] != null) _buildInfoRow("Acc", "${skill?['accuracy']}%"),
+                  const SizedBox(height: 12),
+                  Text(skill?['desc'] ?? "No description available.", style: const TextStyle(color: Colors.black54, fontSize: 14)),
                 ],
               ),
               actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("CLOSE"))],
@@ -176,8 +196,8 @@ class SkillPanelWidget extends StatelessWidget {
       case 'fire': return Colors.red;
       case 'water': return Colors.blue;
       case 'grass': return Colors.green;
-      case 'electric': return Colors.yellow[700]!;
-      case 'dark': return Colors.purple;
+      case 'electric': return Colors.amber[700]!;
+      case 'dark': return Colors.deepPurple;
       case 'psychic': return Colors.pinkAccent;
       case 'fighting': return Colors.orange;
       case 'heal': return Colors.teal;
