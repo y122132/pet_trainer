@@ -1,8 +1,39 @@
 # --- 게임 에셋 (Game Assets) ---
-# 이 파일은 배틀 시스템에서 사용하는 모든 정적 데이터를 정의합니다.
+# 이 파일은 배틀 시스템에서 사용하는 모든 정적 데이터(스킬, 속성, 종족값 등)를 정의합니다.
+# 팀원들이 쉽게 컨텐츠를 확장할 수 있도록 가이드를 참고하세요.
 
-# 1. Skill_Database: 각 스킬의 이름, 위력, 명중률, 속성, 설명, 부가 효과 등
-# effect 구조: {"type": "stat_change"|"status", "stat": str, "value": int, "target": "self"|"enemy", "status": str}
+# ==========================================
+# [GUIDE] 새로운 스킬 추가하는 법 (How to add a new Move)
+# ==========================================
+# 1. MOVE_DATA 딕셔너리에 새로운 ID를 키(Key)로 추가합니다. (예: 301)
+# 2. 다음 필드들을 정의합니다:
+#    - name (str): 스킬 이름 (UI 표시용)
+#    - type (str): 스킬 속성 ('fire', 'water', 'grass', 'normal' 등)
+#    - category (str): 데미지 분류 ('physical': 힘vs방어, 'special': 지능vs지능, 'status': 변화기)
+#    - power (int): 스킬 위력 (0이면 데미지 없음. 보통 40~120 사이)
+#    - accuracy (int): 명중률 (0~100). 100은 빗나갈 수 있음. 999는 필중.
+#    - description (str): 스킬 설명 (UI 표시용)
+#    - effect (dict, optional): 부가 효과 정의
+#      - type: 'stat_change' (스탯 변화), 'status' (상태 이상 부여), 'heal' (회복), 'field_change' (날씨 등)
+#      - target: 'self' (자신), 'enemy' (상대), 'room' (필드)
+#      - stat/status/field: 변경할 대상 속성
+#      - value: 변경할 값 (스탯은 랭크, 힐은 퍼센트 등)
+#    - effect_chance (int): 부가 효과 발동 확률 (0~100)
+#
+# [예시]
+# 999: {
+#     "name": "초강력 펀치",
+#     "type": "fighting",
+#     "category": "physical",
+#     "power": 100,
+#     "accuracy": 80,
+#     "description": "강력하지만 빗나갈 수 있는 펀치",
+#     "effect": {"type": "status", "status": "paralysis", "target": "enemy"},
+#     "effect_chance": 30 # 30% 확률로 마비
+# }
+# ==========================================
+
+# 1. Skill_Database: 각 스킬의 상세 데이터
 MOVE_DATA = {
     1: {
         "name": "짖기", 
