@@ -127,15 +127,21 @@ class BattleController extends ChangeNotifier {
         // 3. 턴 제어: 애니메이션 종료 후 내 턴 활성화
         
         bool isGameOver = data['is_game_over'] ?? false;
-        _parseStateSync(data['player_states']);
+        // 1. 상태 동기화 데이터 임시 저장 (즉시 적용 X)
+        // 나중에 _parseStateSync를 호출하여 최종 상태를 맞춥니다.
+        final pendingStates = data['player_states'];
 
         _state = _state.copyWith(isOpponentThinking: false);
         _isProcessingTurn = true;
         notifyListeners();
 
-        // 비동기 애니메이션 시퀀스 실행 (약 3~5초 소요)
+        // 2. 비동기 애니메이션 시퀀스 실행 (약 3~5초 소요)
+        // 이 과정에서 _handleHpChange가 호출되어 시각적으로 HP가 감소합니다.
         await _processTurnResult(data['results']);
 
+        // 3. 애니메이션 종료 후 최종 상태 동기화 (HP 오차 보정, 상태이상 적용 등)
+        _parseStateSync(pendingStates);
+        
         _isProcessingTurn = false;
         
         // Handle Queued Game Over logic
