@@ -42,15 +42,26 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
         elif stype == "intelligence": # 지능
             stat.intelligence += val
             updated_stat_val = stat.intelligence
-        elif stype == "stamina":    # 지구력/민첩
-            stat.stamina += val
-            updated_stat_val = stat.stamina
+        elif stype == "agility":    # 민첩
+            stat.agility += val
+            updated_stat_val = stat.agility
+        elif stype == "defense":    # 방어
+            stat.defense += val
+            updated_stat_val = stat.defense
+        elif stype == "luck":       # 운
+            stat.luck += val
+            updated_stat_val = stat.luck
         elif stype == "happiness":  # 행복도
             stat.happiness += val
             updated_stat_val = stat.happiness
         elif stype == "health":     # 체력
             stat.health += val
             updated_stat_val = stat.health
+            
+        # [New] Bonus Points for User Distribution
+        bonus = yolo_result.get("bonus_points", 0)
+        if bonus > 0:
+            stat.unused_points += bonus
     else:
         # 보상 정보가 없는 경우 기본값 (안전장치)
         stat.strength += 1
@@ -124,11 +135,19 @@ async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: 
     await db.flush() # ID 생성을 위해 flush (commit 전 ID 확보)
     
     # 4. 초기 스탯 설정 (기본값)
+    # 4. 초기 스탯 설정 (종족값 반영)
+    from app.game.game_assets import PET_BASE_STATS
+    
+    # Default to Dog (Balanced) if type not found
+    base_stats = PET_BASE_STATS.get(pet_type, PET_BASE_STATS["dog"])
+    
     new_stat = Stat(
         character_id=new_char.id, 
-        strength=10, 
-        intelligence=10, 
-        stamina=80, 
+        strength=base_stats.get("strength", 10), 
+        intelligence=base_stats.get("intelligence", 10), 
+        defense=base_stats.get("defense", 10),
+        agility=base_stats.get("agility", 10), 
+        luck=base_stats.get("luck", 10),
         happiness=70, 
         health=100
     )
@@ -154,7 +173,9 @@ async def update_character_stats(db: AsyncSession, char_id: int, stats_update: d
     # 전달된 필드만 업데이트 (Partial Update)
     if "strength" in stats_update: stat.strength = stats_update["strength"]
     if "intelligence" in stats_update: stat.intelligence = stats_update["intelligence"]
-    if "stamina" in stats_update: stat.stamina = stats_update["stamina"]
+    if "agility" in stats_update: stat.agility = stats_update["agility"]
+    if "defense" in stats_update: stat.defense = stats_update["defense"]
+    if "luck" in stats_update: stat.luck = stats_update["luck"]
     if "happiness" in stats_update: stat.happiness = stats_update["happiness"]
     if "health" in stats_update: stat.health = stats_update["health"]
     if "unused_points" in stats_update: stat.unused_points = stats_update["unused_points"]
@@ -207,11 +228,18 @@ async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int)
         stat.level += 1
         level_up_occurred = True
         
-        # 스탯 자동 증가
-        stat.strength += 2
-        stat.defense += 2
-        stat.stamina += 2
-        stat.health += 10
+        # 스탯 자동 증가 (종족값 비례 성장)
+        from app.game.game_assets import PET_BASE_STATS
+        pet_type = winner_char.pet_type.lower()
+        base_stats = PET_BASE_STATS.get(pet_type, PET_BASE_STATS["dog"])
+        
+        # Growth Formula: 20% of Base Stat (min 1)
+        # e.g. Base 10 -> +2, Base 15 -> +3, Base 5 -> +1
+        stat.strength += max(1, int(base_stats.get("strength", 10) * 0.2))
+        stat.defense += max(1, int(base_stats.get("defense", 10) * 0.2))
+        stat.agility += max(1, int(base_stats.get("agility", 10) * 0.2))
+        stat.intelligence += max(1, int(base_stats.get("intelligence", 10) * 0.2))
+        stat.health += 10 # HP is flat for now, or maybe based on durability? Let's keep flat +10 for stability.
         stat.unused_points += 1
         
         # 4. 신규 기술 습득 체크

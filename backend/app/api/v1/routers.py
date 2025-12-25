@@ -46,7 +46,9 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
             "exp": char.stat.exp,
             "strength": char.stat.strength,
             "intelligence": char.stat.intelligence, 
-            "stamina": char.stat.stamina, 
+            "agility": char.stat.agility, 
+            "defense": char.stat.defense,
+            "luck": char.stat.luck,
             "happiness": char.stat.happiness,
             "health": char.stat.health,
             "unused_points": char.stat.unused_points
@@ -68,7 +70,9 @@ class StatUpdateSchema(BaseModel):
     health: int | None = None
     strength: int | None = None
     intelligence: int | None = None
-    stamina: int | None = None
+    agility: int | None = None
+    defense: int | None = None
+    luck: int | None = None
     happiness: int | None = None
     unused_points: int | None = None
 

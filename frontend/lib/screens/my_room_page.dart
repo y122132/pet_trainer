@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'camera_screen.dart';
 import '../providers/char_provider.dart';
 import '../widgets/stat_distribution_dialog.dart';
+import '../widgets/common/stat_widgets.dart'; // [New]
 import 'package:camera/camera.dart';
 
 // --- 마이룸 페이지 (MyRoomPage) ---
@@ -147,7 +148,7 @@ class MyRoomPage extends StatelessWidget {
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 500),
             child: Image.asset(
-              provider.character?.imageUrl ?? 'assets/images/characters/char_default.png',
+              provider.character?.imageUrl ?? 'assets/images/characters/닌자옷.png',
               key: ValueKey<String>(provider.character?.imageUrl ?? 'normal'),
               fit: BoxFit.contain,
             ),
@@ -256,12 +257,14 @@ class MyRoomPage extends StatelessWidget {
 
     final stat = provider.character!.stat!;
     final statsMap = {
-      "STR": stat.strength,
-      "INT": stat.intelligence,
-      "DEX": stat.stamina, 
-      "HAP": stat.happiness
+      "strength": stat.strength,
+      "intelligence": stat.intelligence,
+      "agility": stat.agility, 
+      "defense": stat.defense,
+      "luck": stat.luck,
     };
-    final keys = statsMap.keys.toList();
+    final labels = ["STR", "INT", "DEX", "DEF", "LUK"];
+    final keys = ["strength", "intelligence", "agility", "defense", "luck"];
     
     return Container(
       margin: const EdgeInsets.fromLTRB(0, 10, 20, 10),
@@ -294,13 +297,7 @@ class MyRoomPage extends StatelessWidget {
                      context: context,
                      builder: (context) => StatDistributionDialog(
                        availablePoints: provider.unusedStatPoints,
-                       currentStats: {
-                          "strength": stat.strength,
-                          "intelligence": stat.intelligence,
-                          "stamina": stat.stamina,
-                          "happiness": stat.happiness,
-                          "health": stat.health,
-                       },
+                       currentStats: statsMap,
                        title: "미사용 포인트 분배",
                        confirmLabel: "적용",
                        skipLabel: "취소",
@@ -308,9 +305,9 @@ class MyRoomPage extends StatelessWidget {
                           // 선택한 스탯만큼 반복해서 Provider 업데이트 호출
                           _applyAllocated(provider, 'strength', allocated['strength']!);
                           _applyAllocated(provider, 'intelligence', allocated['intelligence']!);
-                          _applyAllocated(provider, 'stamina', allocated['stamina']!);
-                          _applyAllocated(provider, 'happiness', allocated['happiness']!);
-                          _applyAllocated(provider, 'health', allocated['health']!);
+                          _applyAllocated(provider, 'agility', allocated['agility']!);
+                          _applyAllocated(provider, 'defense', allocated['defense']!);
+                          _applyAllocated(provider, 'luck', allocated['luck']!);
                           
                           Navigator.pop(context);
                        },
@@ -324,15 +321,20 @@ class MyRoomPage extends StatelessWidget {
           // 2. [레이더 차트] 시각적인 능력치 밸런스 확인
           AspectRatio(
             aspectRatio: 1.3,
-            child: _buildRadarChart(statsMap),
+            child: StatRadarChart(stats: statsMap), // [New] 공용 위젯 사용
           ),
           
           const Spacer(),
           
           // 3. [세부 스탯 바] 각 능력치별 진행도 표시
-          ...keys.map((key) {
-            return _buildStatRow(key, statsMap[key] ?? 0);
-          }).toList(),
+          // Keys [strength, intelligence, agility, defense, luck]
+          // Labels [STR, INT, DEX, DEF, LUK]
+          ...List.generate(keys.length, (index) {
+             return StatProgressBar(
+                 label: labels[index], 
+                 value: statsMap[keys[index]] ?? 0
+             );
+          }),
         ],
       ),
     );
@@ -343,73 +345,5 @@ class MyRoomPage extends StatelessWidget {
     for (int i=0; i<amount; i++) {
       provider.allocateStatSpecific(type); // 1포인트씩 소모하며 스탯 증가
     }
-  }
-  
-  // 레이더 차트 위젯 빌더
-  Widget _buildRadarChart(Map<String, int> stats) {
-    List<RadarEntry> entries = stats.values.map((v) => RadarEntry(value: v.toDouble())).toList();
-    
-    return RadarChart(
-      RadarChartData(
-        radarTouchData: RadarTouchData(enabled: false),
-        dataSets: [
-          RadarDataSet(
-            fillColor: Colors.blueAccent.withOpacity(0.2),
-            borderColor: Colors.blueAccent,
-            entryRadius: 2,
-            dataEntries: entries,
-            borderWidth: 2,
-          ),
-        ],
-        radarBackgroundColor: Colors.transparent,
-        borderData: FlBorderData(show: false),
-        radarBorderData: const BorderSide(color: Colors.transparent),
-        titlePositionPercentageOffset: 0.2,
-        titleTextStyle: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold),
-        getTitle: (index, angle) {
-            if (index < stats.keys.length) {
-               return RadarChartTitle(text: stats.keys.elementAt(index));
-            }
-            return const RadarChartTitle(text: "");
-        },
-        tickCount: 1,
-        ticksTextStyle: const TextStyle(color: Colors.transparent),
-        gridBorderData: BorderSide(color: Colors.grey.withOpacity(0.1), width: 1),
-      ),
-    );
-  }
-
-  // 개별 스탯 바 위젯 빌더
-  Widget _buildStatRow(String label, int value) {
-    Color color = Colors.grey;
-    if (label == "STR") color = Colors.redAccent;     // 근력: 빨강
-    if (label == "INT") color = Colors.blueAccent;    // 지능: 파랑
-    if (label == "DEX") color = Colors.greenAccent;   // 민첩: 초록
-    if (label == "HAP") color = Colors.pinkAccent;    // 행복: 핑크
-    
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 40, 
-            child: Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: color))
-          ),
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: (value / 100).clamp(0.0, 1.0), // 100을 최대치로 가정
-                backgroundColor: Colors.grey.shade100,
-                color: color,
-                minHeight: 8,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text("$value", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
-        ],
-      ),
-    );
   }
 }
