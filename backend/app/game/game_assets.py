@@ -9,6 +9,7 @@ MOVE_DATA = {
         "power": 20, 
         "accuracy": 100, 
         "type": "normal", 
+        "category": "special", # [New] Sound based = Special
         "description": "큰 소리로 짖어 상대를 놀라게 한다.",
         "effect": {"type": "stat_change", "stat": "defense", "value": -1, "target": "enemy"},
         "effect_chance": 30
@@ -18,6 +19,7 @@ MOVE_DATA = {
         "power": 0, 
         "accuracy": 100, 
         "type": "normal", 
+        "category": "status",
         "description": "공격을 버텨내며 방어력을 높인다.",
         "effect": {"type": "stat_change", "stat": "defense", "value": 1, "target": "self"},
         "effect_chance": 100
@@ -27,8 +29,9 @@ MOVE_DATA = {
         "power": 0, 
         "accuracy": 100, 
         "type": "heal", 
+        "category": "status",
         "description": "체력을 약간 회복한다.",
-        "effect": {"type": "heal", "value": 20, "target": "self"}, # value는 % 또는 고정값 (구현 나름)
+        "effect": {"type": "heal", "value": 20, "target": "self"}, 
         "effect_chance": 100
     },
     4: {
@@ -36,6 +39,7 @@ MOVE_DATA = {
         "power": 0, 
         "accuracy": 100, 
         "type": "normal", 
+        "category": "status",
         "description": "방심하게 만들어 상대의 방어력을 낮춘다.",
         "effect": {"type": "stat_change", "stat": "defense", "value": -1, "target": "enemy"},
         "effect_chance": 100
@@ -45,6 +49,7 @@ MOVE_DATA = {
         "power": 40, 
         "accuracy": 90, 
         "type": "normal", 
+        "category": "physical",
         "description": "간식을 발견한 기쁨으로 돌진한다.",
         "effect": {"type": "stat_change", "stat": "strength", "value": 1, "target": "self"},
         "effect_chance": 50
@@ -53,8 +58,9 @@ MOVE_DATA = {
         "name": "전광석화",
         "power": 40,
         "accuracy": 100,
-        "type": "normal",
-        "priority": 1, # [New] Priority Move
+        "type": "normal", 
+        "category": "physical",
+        "priority": 1, 
         "description": "눈에 보이지 않는 속도로 먼저 공격한다.",
         "effect": None,
         "effect_chance": 0
@@ -65,6 +71,7 @@ MOVE_DATA = {
         "power": 35, 
         "accuracy": 95, 
         "type": "normal", 
+        "category": "physical",
         "description": "날카로운 발톱으로 상대를 할퀸다. (확률적 출혈/독)",
         "effect": {"type": "status", "status": "poison", "target": "enemy"},
         "effect_chance": 30
@@ -74,6 +81,7 @@ MOVE_DATA = {
         "power": 0, 
         "accuracy": 100, 
         "type": "evade", 
+        "category": "status",
         "description": "높이 점프하여 회피율(민첩성)을 높인다.",
         "effect": {"type": "stat_change", "stat": "agility", "value": 1, "target": "self"},
         "effect_chance": 100
@@ -83,6 +91,7 @@ MOVE_DATA = {
         "power": 15, 
         "accuracy": 100, 
         "type": "psychic", 
+        "category": "special",
         "description": "상대의 신경을 긁어 공격력을 낮춘다.",
         "effect": {"type": "stat_change", "stat": "strength", "value": -1, "target": "enemy"},
         "effect_chance": 100
@@ -92,6 +101,7 @@ MOVE_DATA = {
         "power": 40, 
         "accuracy": 100, 
         "type": "dark", 
+        "category": "physical",
         "description": "보이지 않는 곳에서 기습한다. (높은 크리티컬/마비)",
         "effect": {"type": "status", "status": "paralysis", "target": "enemy"},
         "effect_chance": 10
@@ -101,6 +111,7 @@ MOVE_DATA = {
         "power": 15, 
         "accuracy": 90, 
         "type": "fighting", 
+        "category": "physical",
         "description": "연속 펀치. 상대를 혼란에 빠뜨릴 수 있다.",
         "effect": {"type": "status", "status": "confusion", "target": "enemy"},
         "effect_chance": 20

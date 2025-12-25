@@ -18,12 +18,23 @@ class BattleCalculator:
         power = move["power"]
         if power == 0: return 0, False, "normal"
 
-        # 1. 스탯 & 랭크 반영
-        atk_val = attacker_stat.strength * attacker_state.get_stage_multiplier("strength")
-        def_val = defender_stat.defense * defender_state.get_stage_multiplier("defense")
+        # 1. 스탯 & 랭크 반영 (Physical/Special Split)
+        move_category = move.get("category", "physical")
+        
+        # Determine Stats based on Category
+        if move_category == "special":
+            # Special: Intelligence vs Intelligence (Sp.Def)
+            atk_val = attacker_stat.intelligence * attacker_state.get_stage_multiplier("intelligence")
+            def_val = defender_stat.intelligence * defender_state.get_stage_multiplier("intelligence") 
+        elif move_category == "status":
+            return 0, False, "normal"
+        else:
+            # Physical (Default): Strength vs Defense
+            atk_val = attacker_stat.strength * attacker_state.get_stage_multiplier("strength")
+            def_val = defender_stat.defense * defender_state.get_stage_multiplier("defense")
 
-        # 화상 상태일 경우 공격력 반감
-        if attacker_state.status_ailment == "burn":
+        # 화상 상태일 경우 (Physical Only) 공격력 반감
+        if move_category == "physical" and attacker_state.status_ailment == "burn":
             atk_val *= 0.5
             
         if def_val < 1: def_val = 1
