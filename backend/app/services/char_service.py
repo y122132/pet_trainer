@@ -134,7 +134,6 @@ async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: 
     db.add(new_char)
     await db.flush() # ID 생성을 위해 flush (commit 전 ID 확보)
     
-    # 4. 초기 스탯 설정 (기본값)
     # 4. 초기 스탯 설정 (종족값 반영)
     from app.game.game_assets import PET_BASE_STATS
     
@@ -186,76 +185,52 @@ async def update_character_stats(db: AsyncSession, char_id: int, stats_update: d
     await db.refresh(stat)
     return stat
 
-async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int):
+async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain: int) -> dict:
     """
-    전투 종료 후 승자에게 경험치를 지급하고 레벨업 및 스킬 습득을 처리합니다.
+    내부 헬퍼 함수: 캐릭터에게 경험치를 지급하고 레벨업 처리
     """
-    from app.game.game_assets import PET_LEARNSET
+    from app.game.game_assets import PET_LEARNSET, PET_BASE_STATS
     
-    # 1. 승자 캐릭터 조회
-    char_obj = await get_character_with_stats(db, winner_id) # 이미 서비스 내에 있는 함수 활용 (user_id가 아니라 char_id를 받아야 하는데...)
-    
-    # get_character_with_stats는 char_id를 받으므로, user_id로 먼저 조회해야 함.
-    # 하지만 편의상 이 함수 내에서 user_id로 조회하도록 로직 작성.
-    stmt = select(Character).where(Character.user_id == winner_id)
-    res = await db.execute(stmt)
-    winner_char = res.scalar_one_or_none()
-    
-    if not winner_char:
-        return None
-        
-    # Lazy loading 방지를 위해 Stat 재조회 혹은 위에서 옵션 로드 했다고 가정
-    # 여기서는 안전하게 Stat 직접 조회
-    stmt_stat = select(Stat).where(Stat.character_id == winner_char.id)
+    stmt_stat = select(Stat).where(Stat.character_id == character.id)
     res_stat = await db.execute(stmt_stat)
     stat = res_stat.scalar_one_or_none()
     
     if not stat:
-        return None
+        return {}
 
-    # 2. 경험치 지급
-    exp_gain = 50 # 기본 50 (레벨 차이 등 공식 적용 가능)
     stat.exp += exp_gain
     
-    # 3. 레벨업 체크
-    # 레벨업 공식: 필요 경험치 = Level * 100 (단순화)
-    # 1->2: 100, 2->3: 200 ...
     level_up_occurred = False
     new_skills = []
     
+    # 레벨업 체크
     while stat.exp >= stat.level * 100:
         stat.exp -= stat.level * 100
         stat.level += 1
         level_up_occurred = True
         
-        # 스탯 자동 증가 (종족값 비례 성장)
-        from app.game.game_assets import PET_BASE_STATS
-        pet_type = winner_char.pet_type.lower()
+        # 스탯 성장
+        pet_type = character.pet_type.lower()
         base_stats = PET_BASE_STATS.get(pet_type, PET_BASE_STATS["dog"])
         
-        # Growth Formula: 20% of Base Stat (min 1)
-        # e.g. Base 10 -> +2, Base 15 -> +3, Base 5 -> +1
         stat.strength += max(1, int(base_stats.get("strength", 10) * 0.2))
         stat.defense += max(1, int(base_stats.get("defense", 10) * 0.2))
         stat.agility += max(1, int(base_stats.get("agility", 10) * 0.2))
         stat.intelligence += max(1, int(base_stats.get("intelligence", 10) * 0.2))
-        stat.health += 10 # HP is flat for now, or maybe based on durability? Let's keep flat +10 for stability.
+        stat.health += 10 # HP Boost
         stat.unused_points += 1
         
-        # 4. 신규 기술 습득 체크
-        pet_type = winner_char.pet_type.lower()
+        # 스킬 습득
         learnset = PET_LEARNSET.get(pet_type, {})
         skills_at_level = learnset.get(stat.level, [])
-        
-        current_skills = winner_char.learned_skills or []
+        current_skills = character.learned_skills or []
         
         for skill_id in skills_at_level:
             if skill_id not in current_skills:
                 current_skills.append(skill_id)
                 new_skills.append(skill_id)
         
-        # JSONB 업데이트를 위해 새로운 리스트 할당 (SQLAlchemy 감지용)
-        winner_char.learned_skills = list(current_skills)
+        character.learned_skills = list(current_skills)
 
     await db.commit()
     
@@ -265,3 +240,32 @@ async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int)
         "level_up": level_up_occurred,
         "new_skills": new_skills
     }
+
+async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int):
+    """
+    전투 종료 후 승자에게 경험치를 지급하고 레벨업 및 스킬 습득을 처리합니다.
+    """
+    # 1. 승자 캐릭터 조회
+    stmt = select(Character).where(Character.user_id == winner_id)
+    res = await db.execute(stmt)
+    winner_char = res.scalar_one_or_none()
+    
+    if not winner_char:
+        return None
+        
+    return await _give_exp_and_levelup(db, winner_char, exp_gain=50)
+
+async def process_battle_draw(db: AsyncSession, user_id1: int, user_id2: int):
+    """
+    [NEW] 무승부 시 양쪽 모두에게 소정의 경험치 지급 (승리의 50% = 25EXP)
+    """
+    rewards = {}
+    
+    stmt = select(Character).where(Character.user_id.in_([user_id1, user_id2]))
+    result = await db.execute(stmt)
+    chars = result.scalars().all()
+    
+    for char in chars:
+        rewards[char.user_id] = await _give_exp_and_levelup(db, char, exp_gain=25)
+        
+    return rewards

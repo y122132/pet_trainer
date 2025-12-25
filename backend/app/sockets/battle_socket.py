@@ -422,11 +422,39 @@ async def process_turn_redis(room_id: str):
              winner, loser = u1, u2
              
         if winner == "DRAW":
-             await broadcast_to_room(room_id, {"type": "GAME_OVER", "result": "DRAW"})
+             # [New] 무승부 보상 로직 호출
+             draw_rewards = {}
+             try:
+                 async with AsyncSessionLocal() as db:
+                     draw_rewards = await char_service.process_battle_draw(db, u1, u2)
+             except Exception as e:
+                 print(f"DB Error (Draw): {e}")
+
+             await broadcast_to_room(room_id, {
+                 "type": "GAME_OVER", 
+                 "result": "DRAW",
+                 "rewards": draw_rewards # 클라이언트에서 이 정보를 보여줘야 함
+             })
         else:
-             # Reward Logic (Calls DB) ... omitted for brevity but should be same as before
-             await send_to_user(room_id, winner, {"type": "GAME_OVER", "result": "WIN", "winner": winner})
-             await send_to_user(room_id, loser, {"type": "GAME_OVER", "result": "LOSE", "winner": winner})
+             # [Fix] 배틀 종료 시 체력 스탯 덮어쓰기 로직 제거
+             reward_info = None
+             try:
+                 async with AsyncSessionLocal() as db:
+                      reward_info = await char_service.process_battle_result(db, winner, loser)
+             except Exception as e:
+                 print(f"DB Update/Reward Error: {e}")
+                 
+             await send_to_user(room_id, winner, {
+                 "type": "GAME_OVER",
+                 "result": "WIN",
+                 "winner": winner,
+                 "reward": reward_info
+             })
              
+             await send_to_user(room_id, loser, {
+                 "type": "GAME_OVER",
+                 "result": "LOSE",
+                 "winner": winner
+             })
         # Cleanup? 
         # await delete_room_state(room_id)
