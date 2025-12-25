@@ -504,7 +504,7 @@ async def process_turn(room: BattleRoom):
              st = room.battle_states[uid]
              player_states[str(uid)] = {
                  "hp": st.current_hp,
-                 "status": st.status_effects, # ["poison", "burn"] 등
+                 "status": [st.status_ailment] if st.status_ailment else [], # ["poison"] or []
                  "volatile": list(st.volatile.keys()) # ["flinch", "confusion"] 등
              }
 
