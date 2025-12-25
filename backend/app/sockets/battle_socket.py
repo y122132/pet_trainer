@@ -210,13 +210,27 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
                 
                 # 검증
                 known_skills = room_data["learned_skills"].get(str(user_id), [])
-                if move_id not in known_skills:
+                
+                # [New] Struggle Check (PP Check)
+                bs_dict = room_data["battle_states"].get(str(user_id))
+                bs_obj = deserialize_battle_state(bs_dict)
+                
+                all_pp_zero = True
+                for skid in known_skills:
+                    if bs_obj.pp.get(str(skid), 99) > 0: # Default non-zero if missing for now
+                        all_pp_zero = False
+                        break
+                
+                if all_pp_zero:
+                    move_id = 0 # Force Struggle
+                    # await send_to_user(room_id, user_id, {"type": "INFO", "message": "PP가 없어 발버둥을 칩니다!"})
+                
+                if move_id != 0 and move_id not in known_skills:
                    await send_to_user(room_id, user_id, {"type": "ERROR", "message": "Invalid Skill"})
                    continue
                 
                 # 행동 불가 체크
-                bs_dict = room_data["battle_states"].get(str(user_id))
-                bs_obj = deserialize_battle_state(bs_dict)
+                # bs_obj already loaded check above
                 can, fail_msg = BattleManager.can_move(bs_obj)
                 
                 # 선택 저장
@@ -346,11 +360,12 @@ async def process_turn_redis(room_id: str):
         md = MOVE_DATA.get(move_id, {})
         
         # PP Check
-        cpp = att_state.pp.get(str(move_id), 0)
-        if cpp <= 0:
-             turn_logs.append({"type":"turn_event", "message": "PP 부족!"})
-             continue
-        att_state.pp[str(move_id)] = cpp - 1
+        if move_id != 0: # [New] Skip for Struggle
+            cpp = att_state.pp.get(str(move_id), 0)
+            if cpp <= 0:
+                 turn_logs.append({"type":"turn_event", "message": "PP 부족!"})
+                 continue
+            att_state.pp[str(move_id)] = cpp - 1
         
         turn_logs.append({"type":"turn_event", "event_type":"attack_start", "attacker":att_id, "move_id":move_id, "message": f"{md.get('name')}!"})
         

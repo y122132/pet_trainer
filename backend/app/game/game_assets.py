@@ -35,6 +35,17 @@
 
 # 1. Skill_Database: 각 스킬의 상세 데이터
 MOVE_DATA = {
+    0: {
+        "name": "발버둥", 
+        "power": 35, 
+        "accuracy": 100, 
+        "type": "normal", 
+        "category": "physical",
+        "description": "PP가 없어 필사적으로 몸부림친다. (자신도 반동 피해)",
+        "max_pp": 999, # Infinite
+        "effect": {"type": "recoil", "value": 25, "target": "self"}, # 25% Recoil
+        "effect_chance": 100
+    },
     1: {
         "name": "짖기", 
         "power": 20, 
