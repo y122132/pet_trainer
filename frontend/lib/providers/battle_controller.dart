@@ -216,7 +216,25 @@ class BattleController extends ChangeNotifier {
         if (state['volatile'] != null) statuses.addAll(List<String>.from(state['volatile']));
         
         if (u == _myId) {
-           _state = _state.copyWith(myStatuses: statuses);
+           List<Map<String, dynamic>> updatedSkills = List.from(_state.mySkills);
+           
+           // [New] PP Sync
+           if (state['pp'] != null) {
+              final ppMap = state['pp']; // {"1": 19, "2": 5}
+              updatedSkills = updatedSkills.map((s) {
+                 final newS = Map<String, dynamic>.from(s);
+                 final sid = newS['id'].toString();
+                 if (ppMap[sid] != null) {
+                    newS['pp'] = ppMap[sid];
+                 }
+                 return newS;
+              }).toList();
+           }
+
+           _state = _state.copyWith(
+              myStatuses: statuses,
+              mySkills: updatedSkills
+           );
         } else {
            _state = _state.copyWith(oppStatuses: statuses);
         }

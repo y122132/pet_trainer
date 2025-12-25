@@ -258,9 +258,14 @@ async def start_battle_check(room_id: str):
         for sid in sids:
              md = MOVE_DATA.get(sid)
              if md:
+                 # [New] PP Info
+                 max_pp = md.get("max_pp", 20)
+                 current_pp = room_data["battle_states"][uid_str]["pp"].get(str(sid), max_pp)
+
                  details.append({
                      "id": sid, "name": md["name"], "type": md["type"],
-                     "power": md["power"], "desc": md["description"]
+                     "power": md["power"], "desc": md["description"],
+                     "max_pp": max_pp, "pp": current_pp # [New]
                  })
         
         bs = room_data["battle_states"][uid_str]
@@ -399,8 +404,16 @@ async def process_turn_redis(room_id: str):
     
     # 5. Broadcast Result
     player_states = {
-        su1: {"hp": state1.current_hp, "status": [state1.status_ailment] if state1.status_ailment else []},
-        su2: {"hp": state2.current_hp, "status": [state2.status_ailment] if state2.status_ailment else []}
+        su1: {
+            "hp": state1.current_hp, 
+            "status": [state1.status_ailment] if state1.status_ailment else [],
+            "pp": state1.pp # [New] Sync PP
+        },
+        su2: {
+            "hp": state2.current_hp, 
+            "status": [state2.status_ailment] if state2.status_ailment else [],
+            "pp": state2.pp
+        }
     }
     
     is_over = state1.current_hp <= 0 or state2.current_hp <= 0

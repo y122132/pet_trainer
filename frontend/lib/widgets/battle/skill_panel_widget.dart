@@ -101,8 +101,13 @@ class SkillPanelWidget extends StatelessWidget {
     int skillId = skill['id'];
     String name = skill['name'] ?? "Unknown";
     String type = skill['type'] ?? "normal";
+    
+    // [New] PP Logic
+    int currentPp = skill['pp'] ?? 20;
+    int maxPp = skill['max_pp'] ?? 20;
+    
     Color typeColor = _getTypeColor(type);
-    bool canPress = isConnected && isMyTurn;
+    bool canPress = isConnected && isMyTurn && currentPp > 0;
 
     return GestureDetector(
       onLongPress: () => _showSkillInfo(context, name, type, skill),
@@ -141,6 +146,11 @@ class SkillPanelWidget extends StatelessWidget {
                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                            decoration: BoxDecoration(color: typeColor, borderRadius: BorderRadius.circular(8)),
                            child: Text(type.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+                         ),
+                         const SizedBox(height: 4),
+                         // [New] PP Display
+                         Text("PP $currentPp/$maxPp", 
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: currentPp > 0 ? Colors.black54 : Colors.red)
                          )
                       ],
                     ),
