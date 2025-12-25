@@ -14,22 +14,25 @@ class CharProvider with ChangeNotifier {
   // --- 편의를 위한 Getters (UI에서 접근하기 쉽게) ---
   int get strength => _character?.stat?.strength ?? 0;
   int get intelligence => _character?.stat?.intelligence ?? 0;
-  int get stamina => _character?.stat?.stamina ?? 0;
+  int get agility => _character?.stat?.agility ?? 0;
+  int get defense => _character?.stat?.defense ?? 0;
+  int get luck => _character?.stat?.luck ?? 0;
   int get happiness => _character?.stat?.happiness ?? 0;
   int get health => _character?.stat?.health ?? 0;
   int get maxHealth => 100; // 최대 체력 (임시)
   int get currentExp => _character?.stat?.exp ?? 0;
   int get maxExp => 100; // 최대 경험치 (임시)
   int get level => _character?.stat?.level ?? 1;
-  String get imagePath => _character?.imageUrl ?? 'assets/images/characters/char_default.png';
+  String get imagePath => _character?.imageUrl ?? 'assets/images/characters/닌자옷.png';
   double get expPercentage => (currentExp / maxExp).clamp(0.0, 1.0); // 경험치 바(Bar)용 퍼센트
 
   // 스탯 맵 반환 (UI 차트용)
   Map<String, int> get statsMap => {
     "STR": strength,
     "INT": intelligence,
-    "DEX": stamina,
-    "HAP": happiness
+    "AGI": agility,
+    "DEF": defense,
+    "LUK": luck
   };
   
   // 현재 진행 중인 미션/메시지
@@ -82,8 +85,14 @@ class CharProvider with ChangeNotifier {
       case 'intelligence':
         _character!.stat!.intelligence += amount;
         break;
-      case 'stamina':
-        _character!.stat!.stamina += amount;
+      case 'agility':
+        _character!.stat!.agility += amount;
+        break;
+      case 'defense':
+        _character!.stat!.defense += amount;
+        break;
+      case 'luck':
+        _character!.stat!.luck += amount;
         break;
       case 'happiness':
         _character!.stat!.happiness += amount;
@@ -117,7 +126,9 @@ class CharProvider with ChangeNotifier {
       switch (statType) {
         case 'strength': _character!.stat!.strength += value; break;
         case 'intelligence': _character!.stat!.intelligence += value; break;
-        case 'stamina': _character!.stat!.stamina += value; break;
+        case 'agility': _character!.stat!.agility += value; break;
+        case 'defense': _character!.stat!.defense += value; break;
+        case 'luck': _character!.stat!.luck += value; break;
         case 'happiness': _character!.stat!.happiness += value; break;
         case 'health': _character!.stat!.health += value; break;
       }
@@ -230,7 +241,9 @@ class CharProvider with ChangeNotifier {
         body: jsonEncode({
           "strength": _character!.stat!.strength,
           "intelligence": _character!.stat!.intelligence,
-          "stamina": _character!.stat!.stamina,
+          "agility": _character!.stat!.agility,
+          "defense": _character!.stat!.defense,
+          "luck": _character!.stat!.luck,
           "happiness": _character!.stat!.happiness,
           "health": _character!.stat!.health,
           "exp": _character!.stat!.exp,
@@ -250,17 +263,27 @@ class CharProvider with ChangeNotifier {
   }
 
   // 스탯에 따라 이미지/표정 변경 로직
+  // [Fix] 사용자 요청: 행복도에 따른 변경 로직 제거. 설정된 PetType에 따라 고정된 이미지 사용.
   void _updateImage() {
     if (_character == null) return;
     
-    // 단순 예시: 행복도에 따라 이미지 경로 변경
-    int happy = _character!.stat!.happiness;
-    if (happy > 80) {
-      _character!.imageUrl = "assets/images/characters/char_happy.png"; 
-    } else if (happy < 30) {
-      _character!.imageUrl = "assets/images/characters/char_sad.png";
-    } else {
-      _character!.imageUrl = "assets/images/characters/char_default.png";
+    String type = _currentPetType.toLowerCase();
+    
+    switch (type) {
+      case 'dog': 
+        _character!.imageUrl = "assets/images/characters/멜빵옷.png"; // Dog -> Overalls
+        break;
+      case 'cat': 
+        _character!.imageUrl = "assets/images/characters/공주옷.png"; // Cat -> Princess
+        break;
+      case 'ninja':
+        _character!.imageUrl = "assets/images/characters/닌자옷.png"; // Ninja -> Ninja
+        break;
+      case 'banana':
+        _character!.imageUrl = "assets/images/characters/바나나옷.png"; // Banana -> Banana
+        break;
+      default: 
+        _character!.imageUrl = "assets/images/characters/닌자옷.png"; // Fallback
     }
   }
 }

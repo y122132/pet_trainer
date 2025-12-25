@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'common/stat_widgets.dart'; // [New]
 
 // --- 스탯 분배 다이얼로그 (StatDistributionDialog) ---
-// 훈련 보상이나 레벨업으로 얻은 보너스 포인트를 캐릭터의 능력치에 투자하는 팝업창입니다.
 class StatDistributionDialog extends StatefulWidget {
   final int availablePoints; // 분배 가능한 총 포인트
   final Map<String, int> currentStats; // 현재 캐릭터의 스탯 정보
@@ -17,7 +17,7 @@ class StatDistributionDialog extends StatefulWidget {
   final Map<String, dynamic>? earnedReward;
   final int? earnedBonus;
   final VoidCallback? onContinue; // [NEW] 계속하기 콜백
-
+  
   const StatDistributionDialog({
     super.key,
     required this.availablePoints,
@@ -27,7 +27,7 @@ class StatDistributionDialog extends StatefulWidget {
     this.title = "스탯 분배",
     this.confirmLabel = "확인",
     this.skipLabel = "나중에 하기",
-    this.continueLabel = "한 번 더 하기", // 기본값
+    this.continueLabel = "한 번 더 하기",
     this.earnedReward,
     this.earnedBonus,
     this.onContinue,
@@ -38,25 +38,24 @@ class StatDistributionDialog extends StatefulWidget {
 }
 
 class _StatDistributionDialogState extends State<StatDistributionDialog> {
-  late int remainingPoints; // 남은 포인트 (UI 표시용)
-  late Map<String, int> allocated; // 이번 팝업에서 새로 할당한 포인트들
+  late int remainingPoints;
+  late Map<String, int> allocated;
 
   @override
   void initState() {
     super.initState();
     remainingPoints = widget.availablePoints;
     
-    // 할당된 포인트 초기화 (모든 스탯 0부터 시작)
+    // 할당된 포인트 초기화
     allocated = {
       "strength": 0,
       "intelligence": 0,
-      "stamina": 0,
-      "happiness": 0,
-      "health": 0,
+      "agility": 0,
+      "defense": 0,
+      "luck": 0,
     };
   }
 
-  // [로직] 포인트 할당 (+ 버튼 클릭 시)
   void _allocate(String stat) {
     if (remainingPoints > 0) {
       setState(() {
@@ -66,7 +65,6 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
     }
   }
 
-  // [로직] 할당 취소 (버튼 길게 누르기 시)
   void _deallocate(String stat) {
     if ((allocated[stat] ?? 0) > 0) {
        setState(() {
@@ -76,10 +74,9 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
     }
   }
 
-  // 획득 보상 메시지 위젯 생성
   Widget _buildRewardInfo() {
     if (widget.earnedReward == null || widget.earnedReward!.isEmpty) {
-      return const SizedBox.shrink(); // 보상 정보 없으면 표시 안함
+      return const SizedBox.shrink();
     }
     
     final String statType = widget.earnedReward!['stat_type'] ?? '??';
@@ -108,6 +105,15 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // 실시간으로 변하는 스탯 합산
+    final currentMap = {
+      "strength": widget.currentStats["strength"]! + (allocated["strength"] ?? 0),
+      "intelligence": widget.currentStats["intelligence"]! + (allocated["intelligence"] ?? 0),
+      "luck": widget.currentStats["luck"]! + (allocated["luck"] ?? 0),
+      "defense": widget.currentStats["defense"]! + (allocated["defense"] ?? 0),
+      "agility": widget.currentStats["agility"]! + (allocated["agility"] ?? 0),
+    };
+
     return Dialog(
        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.0)),
        child: Container(
@@ -123,10 +129,8 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
              Text(widget.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.indigo)),
              const SizedBox(height: 10),
              
-             // 획득한 보상 정보 표시
              _buildRewardInfo(),
 
-             // 현재 남은 포인트 수량 표시
              Text("분배 가능 포인트: $remainingPoints", 
                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
              const SizedBox(height: 5),
@@ -135,33 +139,36 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
                style: TextStyle(fontSize: 12, color: Colors.grey)),
              const SizedBox(height: 20),
              
-             // [메인 레이아웃] 레이더 차트 + 스탯 제어 버튼 (Stack 활용)
              Expanded(
                child: Stack(
                  children: [
-                   // 1. 중앙 레이더 차트 (실시간 반영)
+                   // 1. 공용 레이더 차트 사용
                    Positioned.fill(
                      child: Padding(
-                       padding: const EdgeInsets.all(30.0), // 버튼이 배치될 공간 확보
-                       child: _buildRadarChart(),
+                       padding: const EdgeInsets.all(30.0), 
+                       child: StatRadarChart(stats: currentMap, showLabels: false), // 라벨 없이
                      ),
                    ),
-                   // 2. 각 방향별 스탯 제어 위젯
+                   // 2. 각 방향별 스탯 제어 위젯 (위치는 유지)
                    Align(
                      alignment: Alignment.topCenter,
-                     child: _buildStatCtrl("근력", "strength", Colors.redAccent),
+                     child: _buildStatCtrl("근력", "strength"),
                    ),
                    Align(
                      alignment: Alignment.centerRight,
-                     child: _buildStatCtrl("지능", "intelligence", Colors.blueAccent),
+                     child: _buildStatCtrl("지능", "intelligence"),
                    ),
                    Align(
-                     alignment: Alignment.bottomCenter,
-                     child: _buildStatCtrl("행복", "happiness", Colors.pinkAccent),
+                     alignment: Alignment.bottomRight,
+                     child: _buildStatCtrl("운", "luck"),
+                   ),
+                   Align(
+                     alignment: Alignment.bottomLeft,
+                     child: _buildStatCtrl("방어", "defense"),
                    ),
                    Align(
                      alignment: Alignment.centerLeft,
-                     child: _buildStatCtrl("체력", "stamina", Colors.green),
+                     child: _buildStatCtrl("민첩", "agility"),
                    ),
                  ],
                ),
@@ -169,7 +176,6 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
              
              const SizedBox(height: 20),
              
-             // 버튼 영역
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -203,15 +209,17 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
     );
   }
   
-  // 개별 스탯 제어 버튼 생성 위젯
-  Widget _buildStatCtrl(String label, String key, Color color) {
+  Widget _buildStatCtrl(String label, String key) {
+    // 색상은 Mapper에서 가져옴
+    Color color = StatColorMapper.getColor(key);
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(label, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 12)),
         InkWell(
            onTap: remainingPoints > 0 ? () => _allocate(key) : null,
-           onLongPress: () => _deallocate(key), // 길게 누르면 투자한 포인트 회수
+           onLongPress: () => _deallocate(key),
            child: Container(
              margin: const EdgeInsets.only(top: 2),
              decoration: BoxDecoration(
@@ -222,42 +230,8 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
              child: const Icon(Icons.add, size: 20, color: Colors.white),
            ),
         ),
-        // 이번에 몇 포인트 투자했는지 표시 (+1, +2...)
         Text("+${allocated[key] ?? 0}", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
       ],
-    );
-  }
-  
-  // 레이더 차트 위젯: 현재 스탯에 새로 투자한 포인트를 합산하여 시각화
-  Widget _buildRadarChart() {
-    final data = [
-      (widget.currentStats["strength"]! + (allocated["strength"] ?? 0)).toDouble(),
-      (widget.currentStats["intelligence"]! + (allocated["intelligence"] ?? 0)).toDouble(),
-      (widget.currentStats["happiness"]! + (allocated["happiness"] ?? 0)).toDouble(),
-      (widget.currentStats["stamina"]! + (allocated["stamina"] ?? 0)).toDouble(),
-    ];
-    
-    return RadarChart(
-      RadarChartData(
-        radarTouchData: RadarTouchData(enabled: false), // 인터랙션은 외부 버튼으로 처리
-        dataSets: [
-          RadarDataSet(
-            fillColor: Colors.indigo.withOpacity(0.2),
-            borderColor: Colors.indigo,
-            entryRadius: 2,
-            dataEntries: data.map((v) => RadarEntry(value: v)).toList(),
-            borderWidth: 2,
-          ),
-        ],
-        radarBackgroundColor: Colors.transparent,
-        borderData: FlBorderData(show: false),
-        radarBorderData: const BorderSide(color: Colors.transparent),
-        titlePositionPercentageOffset: 0.1,
-        titleTextStyle: const TextStyle(color: Colors.transparent), // 레이블은 수동으로 배치함
-        tickCount: 1,
-        ticksTextStyle: const TextStyle(color: Colors.transparent),
-        gridBorderData: BorderSide(color: Colors.grey.withOpacity(0.2), width: 1),
-      ),
     );
   }
 }

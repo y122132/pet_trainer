@@ -81,7 +81,7 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                              char_stats = {
                                 "strength": character.stat.strength,
                                 "intelligence": character.stat.intelligence,
-                                "stamina": character.stat.stamina,
+                                "agility": character.stat.agility,
                                 "happiness": character.stat.happiness,
                                 "health": character.stat.health
                             }

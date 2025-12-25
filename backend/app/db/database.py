@@ -54,43 +54,58 @@ async def init_db():
     from app.db.models.character import Character, Stat
     
     async with AsyncSessionLocal() as session:
-        # 1. 기본 사용자 확인 및 생성
-        result = await session.execute(select(User).where(User.id == 1))
-        default_user = result.scalar_one_or_none()
-        
-        if not default_user:
-            print("Seeding default user for MVP... (기본 사용자 생성)")
-            default_user = User(id=1, email="test@example.com", password="hashed_password") 
-            session.add(default_user)
-            await session.commit()
-            await session.refresh(default_user)
+        # 테스트 유저 생성 함수
+        async def create_test_user(uid, email, char_name, pet_type):
+            # 1. User
+            res = await session.execute(select(User).where(User.id == uid))
+            user = res.scalar_one_or_none()
+            if not user:
+                print(f"Creating Test User {uid}...")
+                user = User(id=uid, email=email, password="hashed_password") 
+                session.add(user)
+                await session.flush()
             
-        # 2. 기본 캐릭터 확인 및 생성
-        char_res = await session.execute(select(Character).where(Character.user_id == 1))
-        default_char = char_res.scalar_one_or_none()
+            # 2. Character
+            char_res = await session.execute(select(Character).where(Character.user_id == uid))
+            char = char_res.scalar_one_or_none()
+            if not char:
+                print(f"Creating Character for User {uid} ({pet_type})...")
+                # 초기 스킬: Dog=[1, 2], Cat=[101, 102]
+                skills = [1, 2] if pet_type == 'dog' else [101, 102]
+                
+                char = Character(
+                    user_id=uid, 
+                    name=char_name, 
+                    status="normal", 
+                    pet_type=pet_type,
+                    learned_skills=skills
+                )
+                session.add(char)
+                await session.flush()
+                
+            # 3. Stat
+            stat_res = await session.execute(select(Stat).where(Stat.character_id == char.id))
+            stat = stat_res.scalar_one_or_none()
+            if not stat:
+                print(f"Creating Stats for User {uid}...")
+                stat = Stat(
+                    character_id=char.id,
+                    strength=10,
+                    intelligence=10,
+                    agility=10,
+                    happiness=50,
+                    health=100,
+                    defense=10,    # Default
+                    luck=5,        # Default
+                    condition=100  # Default
+                )
+                session.add(stat)
         
-        if not default_char:
-            print("Seeding default character... (기본 캐릭터 생성)")
-            default_char = Character(user_id=1, name="PetTrainer", status="normal")
-            session.add(default_char)
-            await session.commit()
-            await session.refresh(default_char)
-
-        # 3. 기본 스탯 생성
-        stat_res = await session.execute(select(Stat).where(Stat.character_id == default_char.id))
-        default_stat = stat_res.scalar_one_or_none()
+        # 유저 1 (강아지)
+        await create_test_user(1, "test1@example.com", "MyDog", "dog")
+        # 유저 2 (고양이)
+        await create_test_user(2, "test2@example.com", "EnemyCat", "cat")
         
-        if not default_stat:
-            print("Seeding default stats... (기본 스탯 생성)")
-            new_stat = Stat(
-                character_id=default_char.id,
-                strength=10,
-                intelligence=10,
-                stamina=10,
-                happiness=50,
-                health=100
-            )
-            session.add(new_stat)
-            await session.commit()
+        await session.commit()
             
-        print("Default user, character, and stats verification completed. (데이터 초기화 완료)")
+        print("Test environment initialized (Users 1 & 2 created).")
