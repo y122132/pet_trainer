@@ -34,6 +34,10 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
   List<String> _myStatuses = []; // Status list from server updates (Optional future work)
   List<Map<String, dynamic>> _mySkills = []; // [New] Server-synced skills
 
+  // [Fix] Game Over Queue State
+  bool _isProcessingTurn = false;
+  Map<String, dynamic>? _pendingGameOverData;
+
   // Animation Controllers
   late AnimationController _shakeController;
   late Animation<double> _shakeAnimation;
@@ -214,7 +218,7 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
           
           // 2. Perspective: Me (Close / Bottom Left)
           Positioned(
-            bottom: 230,
+            bottom: 320, // Moved up to avoid overlap with Skills Panel (height 300)
             left: 20,
             child: Transform.scale(
               scale: 1.1,
@@ -275,7 +279,7 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
             left: 0,
             right: 0,
             child: Container(
-              height: 240, // Increased height slightly
+              height: 300, // Increased height slightly
               decoration: const BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
@@ -284,7 +288,7 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
               child: Center(
                 child: Container(
                   constraints: const BoxConstraints(maxWidth: 600), // Layout constraint for PC
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40), // Increased padding to reduce button height
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -296,20 +300,30 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
                         ],
                       ),
                       const SizedBox(height: 15),
-                      Expanded(
-                        child: GridView.builder(
-                          physics: const NeverScrollableScrollPhysics(),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            childAspectRatio: 1.8, // Squarer aspect ratio (User Request)
-                            crossAxisSpacing: 15,
-                            mainAxisSpacing: 15,
+                      Column(
+                        children: [
+                          SizedBox(
+                            height: 80, // Fixed height for consistent look and fit
+                            child: Row(
+                              children: [
+                                Expanded(child: _buildSkillButton(displaySkills[0])),
+                                const SizedBox(width: 15),
+                                Expanded(child: _buildSkillButton(displaySkills[1])),
+                              ],
+                            ),
                           ),
-                          itemCount: 4, // Fixed 4 slots
-                          itemBuilder: (context, index) {
-                            return _buildSkillButton(displaySkills[index]);
-                          },
-                        ),
+                          const SizedBox(height: 15),
+                          SizedBox(
+                            height: 80, // Fixed height for consistent look and fit
+                            child: Row(
+                              children: [
+                                Expanded(child: _buildSkillButton(displaySkills[2])),
+                                const SizedBox(width: 15),
+                                Expanded(child: _buildSkillButton(displaySkills[3])),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -362,6 +376,8 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
                  const Text("Thinking...", style: TextStyle(color: Colors.yellowAccent, fontSize: 10)),
               const SizedBox(height: 4),
               _buildHpBar(hp, maxHp),
+              const SizedBox(height: 2),
+              Text("$hp / $maxHp", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
               if (statuses.isNotEmpty) ...[
                  const SizedBox(height: 4),
                  Row(
@@ -471,11 +487,10 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
     if (skill == null) {
       return Container(
         decoration: BoxDecoration(
-          color: Colors.grey[100],
+          color: Colors.grey[200], // Darker grey for visibility
           borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: Colors.grey[300]!),
+          border: Border.all(color: Colors.grey[400]!), // Darker border
         ),
-        child: const Center(child: Icon(Icons.block, color: Colors.grey, size: 20)),
       );
     }
 
@@ -629,31 +644,35 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
         break;
         
       case "TURN_RESULT":
+        bool isGameOver = data['is_game_over'] ?? false;
+        
         setState(() {
           _opponentSelecting = false;
-          // _isMyTurn = true; // 연출 종료 후 true로 변경
+          _isProcessingTurn = true; // [Fix] Set processing flag
         });
+        
         await _processTurnResult(data['results']);
+        
         if (mounted) {
-           setState(() {
-             _isMyTurn = true; 
-           });
+           setState(() => _isProcessingTurn = false); // [Fix] Clear flag
+           
+           if (_pendingGameOverData != null) {
+              // Process queued Game Over
+              _handleGameOver(_pendingGameOverData!);
+              _pendingGameOverData = null;
+           } else if (!isGameOver) {
+               // Only enable input if game is continuing
+               setState(() => _isMyTurn = true);
+           }
         }
         break;
         
       case "GAME_OVER":
-        String result = data['result']; // WIN or LOSE
-        bool iWon = (result == "WIN");
-        
-        setState(() {
-           _statusMessage = iWon ? "Victory! 🏆" : "Defeat... 💀";
-           _addLog("Game Over: $_statusMessage");
-        });
-
-        if (iWon && data['reward'] != null) {
-          _showRewardDialog(data['reward']);
+        if (_isProcessingTurn) {
+           // Queue if animating
+           _pendingGameOverData = data;
         } else {
-          _showGameOverDialog(iWon);
+           _handleGameOver(data);
         }
         break;
         
@@ -691,31 +710,35 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
              // 1. 공격 선언 및 이동 연출 (Attack Start)
              int attacker = res['attacker'];
              int moveId = res['move_id'];
+             String moveType = res['move_type'] ?? 'normal'; // [New] Move Type
              String moveName = SKILL_DATA[moveId]?['name'] ?? "Unknown Move";
              String attackerName = (attacker == _myId) ? "You" : _oppName;
              
              setState(() => _addLog("$attackerName used $moveName!"));
              
-             // [New] Dash Animation
-             // Start Dash
-             setState(() => _attackerId = attacker);
-             
-             // Define Dash Tween based on attacker
-             if (attacker == _myId) {
-               // I dash to Right-Top (Opponent position)
-               _dashAnimation = Tween<Offset>(begin: Offset.zero, end: const Offset(50, -50)).animate(CurvedAnimation(parent: _dashController, curve: Curves.easeInOut));
+             // [Fix] Animation Branching
+             if (moveType == 'heal' || moveType == 'evade' || moveType == 'stat_change') {
+                 // Self Buff Animation (No Dash)
+                 // Simply wait or show a scale effect
+                 await Future.delayed(const Duration(milliseconds: 500));
              } else {
-               // Opponent dashes to Left-Bottom (My position)
-               _dashAnimation = Tween<Offset>(begin: Offset.zero, end: const Offset(-50, 50)).animate(CurvedAnimation(parent: _dashController, curve: Curves.easeInOut));
-             }
-             
-             if (attacker == _myId) {
-                await _dashController.forward();
-                await Future.delayed(const Duration(milliseconds: 100));
-                await _dashController.reverse();
-             } else {
-                // Simple wait for opponent move visual
-                await Future.delayed(const Duration(milliseconds: 400));
+                 // Attack Dash Animation
+                 setState(() => _attackerId = attacker);
+                 
+                 // Define Dash Tween based on attacker
+                 if (attacker == _myId) {
+                   _dashAnimation = Tween<Offset>(begin: Offset.zero, end: const Offset(50, -50)).animate(CurvedAnimation(parent: _dashController, curve: Curves.easeInOut));
+                 } else {
+                   _dashAnimation = Tween<Offset>(begin: Offset.zero, end: const Offset(-50, 50)).animate(CurvedAnimation(parent: _dashController, curve: Curves.easeInOut));
+                 }
+                 
+                 if (attacker == _myId) {
+                    await _dashController.forward();
+                    await Future.delayed(const Duration(milliseconds: 100));
+                    await _dashController.reverse();
+                 } else {
+                    await Future.delayed(const Duration(milliseconds: 400));
+                 }
              }
              
           } else if (eventType == 'hit_result') {
@@ -743,7 +766,11 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
                    setState(() {
                      _triggerDamageEffect(target); // Shake + Red Overlay
                      _updateHp(target, damage); // HP Bar Animation
-                     _addLog("$damage의 데미지를 입었습니다!");
+                      if (target == _myId) {
+                        _addLog("앗! $damage의 피해를 입었습니다... 😭");
+                      } else {
+                        _addLog("나이스! $_oppName에게 $damage의 피해를 입혔습니다! 💥");
+                      }
                    });
                  }
                  // 피격 연출 및 HP 애니메이션 대기
@@ -758,14 +785,26 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
              }
              
              if (eventType == 'heal') {
-                 int target = res['target'] == 'self' ? res['attacker'] : res['target'];
-                 int healAmount = res['value'] ?? 0; // heal value from packet
+                 // [Fix] Target Resolution
+                 var targetRaw = res['target'];
+                 int safeMyId = _myId ?? 0; // Ensure non-null int
+                 int targetId = safeMyId; 
+
+                 if (targetRaw == 'self') {
+                     targetId = (res['attacker'] as int?) ?? safeMyId;
+                 } else if (targetRaw == 'enemy') {
+                     targetId = (res['defender'] as int?) ?? _opponentId ?? safeMyId;
+                 } else if (targetRaw is int) {
+                     targetId = targetRaw;
+                 }
+
+                 int healAmount = res['value'] ?? 0;
                  
                  // HP Bar Increase Animation
-                 if (target == _myId) {
+                 if (targetId == _myId) {
                     setState(() {
                          _myHp = (_myHp + healAmount).clamp(0, _myMaxHp);
-                         _addLog("체력이 $healAmount 회복되었습니다!");
+                         _addLog("체력이 $healAmount 회복되었습니다! ✨");
                     });
                  } else {
                     setState(() {
@@ -830,6 +869,22 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
     }));
   }
   
+  void _handleGameOver(Map<String, dynamic> data) {
+      String result = data['result']; // WIN or LOSE
+      bool iWon = (result == "WIN");
+      
+      setState(() {
+         _statusMessage = iWon ? "Victory! 🏆" : "Defeat... 💀";
+         _addLog("Game Over: $_statusMessage");
+      });
+
+      if (iWon && data['reward'] != null) {
+        _showRewardDialog(data['reward']);
+      } else {
+        _showGameOverDialog(iWon);
+      }
+  }
+
   void _showRewardDialog(Map<String, dynamic> reward) {
     showDialog(
       context: context,

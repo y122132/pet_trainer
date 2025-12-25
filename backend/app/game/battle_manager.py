@@ -16,7 +16,8 @@ class BattleState:
             "agility": 0, # 구 stamina
             "intelligence": 0,
             "accuracy": 0, # 명중률 랭크 (Agility와 별개로 보정 가능)
-            "evasion": 0   # 회피율 랭크 (Agility와 별개로 보정 가능)
+            "evasion": 0,   # 회피율 랭크 (Agility와 별개로 보정 가능)
+            "crit_rate": 0  # [New] 치명타율 랭크 (0~3)
         }
         self.status_ailment = None # poison, paralysis, burn, etc.
         self.status_turns = 0 # 지속 턴 수
@@ -46,10 +47,31 @@ class BattleManager:
         if not move: return []
 
         logs = []
-        effect = move.get("effect")
+        raw_effects = move.get("effect")
         chance = move.get("effect_chance", 0)
+        
+        # [New] Multi-Effect Support
+        # Normalize to list
+        effects_list = []
+        if isinstance(raw_effects, list):
+            effects_list = raw_effects
+        elif isinstance(raw_effects, dict):
+            effects_list = [raw_effects]
+        
+        # Apply each effect if chance condition met
+        # Note: effect_chance usually applies to the *entire* set or per effect?
+        # Standard RPG: usually "Secondary effects have X% chance". 
+        # For simplicity, we roll ONCE for the whole batch if it's a "secondary effect".
+        # But for self-buffs (power 0), chance is usually 100%.
+        # Let's assume 'effect_chance' applies to the *probability of side effects occurring*.
+        
+        if not effects_list: return []
+        
+        # Roll chance once (or we could roll per effect if needed, but standard is usually all-or-nothing for secondary)
+        if random.uniform(0, 100) > chance:
+            return []
 
-        if effect and random.uniform(0, 100) < chance:
+        for effect in effects_list:
             is_self = effect["target"] == "self"
             target_state = attacker_state if is_self else defender_state
             target_name = attacker_name if is_self else defender_name
@@ -59,11 +81,19 @@ class BattleManager:
                 val = effect["value"]
                 target = effect["target"]
                 
-                # 랭크 제한 (-6 ~ 6)
+                # 랭크 제한 (-6 ~ 6), Crit Rate (0 ~ 3 or similar)
                 current_stage = target_state.stages.get(stat_name, 0)
                 
-                # [Fix] 스탯 상한선 체크 (-6 ~ +6)
-                if (val > 0 and current_stage >= 6) or (val < 0 and current_stage <= -6):
+                limit_max = 6
+                limit_min = -6
+                
+                # [Refinement] Crit Rate Limit
+                if stat_name == "crit_rate":
+                    limit_max = 3 # Typically +3 is max for crit
+                    limit_min = 0 # Can't go below 0 usually
+                
+                # [Fix] 스탯 상한선 체크
+                if (val > 0 and current_stage >= limit_max) or (val < 0 and current_stage <= limit_min):
                     logs.append({
                         "type": "stat_change",
                         "stat": stat_name,
@@ -72,7 +102,7 @@ class BattleManager:
                         "message": f"{target_name}의 {stat_name}은(는) 더 이상 변할 수 없습니다!" 
                     })
                 else:
-                    new_stage = max(-6, min(6, current_stage + val))
+                    new_stage = max(limit_min, min(limit_max, current_stage + val))
                     if new_stage != current_stage:
                         target_state.stages[stat_name] = new_stage
                         val_str = "크게 " if abs(val) > 1 else ""
@@ -109,11 +139,15 @@ class BattleManager:
             
             elif effect["type"] == "heal":
                 # [New] 힐링 로직
-                amount_pct = effect.get("amount", 50) # 기본 50%
+                amount_pct = effect.get("amount", effect.get("value", 50)) # Support both keys
                 target = effect["target"]
                 
                 if target_state.current_hp > 0:
-                    heal_amount = int(target_state.max_hp * (amount_pct / 100))
+                    heal_amount = int(target_state.max_hp * (amount_pct / 100)) # Treat val as %
+                    # If val is small (e.g. 20), treat as %. 
+                    # Note: Previous implementation used 'value' as flat or % ambiguous. 
+                    # Plan says "value: 20" in assets.
+                    
                     if heal_amount < 1: heal_amount = 1
                     
                     old_hp = target_state.current_hp
@@ -156,35 +190,58 @@ class BattleManager:
         detail = None
         
         if state.status_ailment:
-            # 지속 턴 감소
-            state.status_turns -= 1
-            if state.status_turns <= 0:
-                # 상태 회복
-                prev_status = state.status_ailment
-                state.status_ailment = None
-                status_name = STATUS_DATA.get(prev_status, {}).get("name", prev_status)
-                return 0, f"{status_name} 상태에서 회복되었습니다!", {
-                    "type": "status_recover",
-                    "status": prev_status,
-                    "message": f"{status_name} 상태에서 회복되었습니다!"
-                }
-
+            # [Fix] Apply Logic First (Damage), Then Decrement
+            
+            # 1. Calculate Damage/Effect
             if state.status_ailment == "poison":
-                damage = int(state.max_hp / 8) # Max HP 기준
+                damage = int(state.max_hp / 8)
                 if damage < 1: damage = 1
                 msg = "독으로 인해 피해를 입었습니다!"
                 
             elif state.status_ailment == "burn":
-                damage = int(state.max_hp / 8) # Max HP 기준
+                damage = int(state.max_hp / 8)
                 if damage < 1: damage = 1
                 msg = "화상으로 인해 고통스럽습니다!"
             
-        return damage, msg, {
-            "type": "status_damage",
-            "status": state.status_ailment,
-            "damage": damage,
-            "message": msg
-        } if msg else None
+            # 2. Decrement Turn
+            state.status_turns -= 1
+            
+            # 3. Prepare Return Logic
+            detail = {
+                "type": "status_damage",
+                "status": state.status_ailment,
+                "damage": damage,
+                "message": msg
+            } if msg else None
+            
+            # 4. Check Expiration
+            if state.status_turns <= 0:
+                prev_status = state.status_ailment
+                state.status_ailment = None
+                status_name = STATUS_DATA.get(prev_status, {}).get("name", prev_status)
+                
+                recover_msg = f"{status_name} 상태에서 회복되었습니다!"
+                
+                # If we took damage this turn, we ideally return damage AND recovery
+                # But the current signature returns one dict.
+                # We'll prioritize Damage for the log, and add a secondary recovery log or combine them in 'detail'
+                # For simplicity in this structure: If damage occurred, we return damage. 
+                # Recovery will be processed next turn? No, that's bad.
+                # Let's return damage, but append recovery info to message or detail.
+                
+                if msg:
+                     msg += f" (그리고 {status_name} 상태에서 회복되었습니다!)"
+                     detail["message"] = msg
+                     detail["is_recovered"] = True # Client trigger?
+                else:
+                     msg = recover_msg
+                     detail = {
+                        "type": "status_recover",
+                        "status": prev_status,
+                        "message": recover_msg
+                     }
+            
+            return damage, msg, detail
 
     @staticmethod
     def can_move(state: BattleState):

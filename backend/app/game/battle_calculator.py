@@ -34,14 +34,27 @@ class BattleCalculator:
         # (공격력 / 방어력) 비율에 기술 위력을 곱함 + 상수 보정
         damage = (atk_val / def_val) * power * 0.5 + 2
 
-        # 3. 크리티컬 (Luck 기반)
+        # 3. 크리티컬 (Luck + Crit Stage 기반)
         # 기본 5% + (Luck * 0.5)%
-        crit_chance = 5.0 + (attacker_stat.luck * 0.5)
-        # 최대 50% 제한
-        if crit_chance > 50: crit_chance = 50
+        base_crit = 5.0 + (attacker_stat.luck * 0.5)
+        
+        # [New] Crit Stage Bonus
+        # 0: +0%, 1: +12.5%, 2: +50%, 3: +100%
+        crit_stage = attacker_state.stages.get("crit_rate", 0)
+        crit_bonus = 0.0
+        if crit_stage == 1: crit_bonus = 12.5
+        elif crit_stage == 2: crit_bonus = 50.0
+        elif crit_stage >= 3: crit_bonus = 100.0
+        
+        crit_chance = base_crit + crit_bonus
+        
+        # 최대 100% 제한 (was 50)
+        if crit_chance > 100: crit_chance = 100
         
         is_critical = random.uniform(0, 100) < crit_chance
         crit_multiplier = 1.5 if is_critical else 1.0
+
+        # ... (Rest of logic) ...
 
         # 4. 랜덤 변수 (0.85 ~ 1.0)
         random_factor = random.uniform(0.85, 1.0)
@@ -69,12 +82,13 @@ class BattleCalculator:
         if type_multiplier > 1.0: effectiveness = "super"
         elif type_multiplier < 1.0: effectiveness = "not_very"
 
+        # [Important] Return correct unpacking 3 items
         return final_damage, is_critical, effectiveness
 
     @staticmethod
     def check_hit(attacker_stat, attacker_state, defender_stat, defender_state, move_id: int) -> bool:
         """
-        명중 여부 판정: Accuracy * (Atk Agility / Def Agility)
+        명중 여부 판정: Accuracy * (Atk Agility / Def Agility) * Stage Modifiers
         """
         move = MOVE_DATA.get(move_id)
         if not move: return False
@@ -82,18 +96,35 @@ class BattleCalculator:
         accuracy = move.get("accuracy", 100)
         if accuracy >= 1000: return True # 필중
 
-        # Agility 기반 보정 (명중/회피 랭크 대신 Agility 스탯 자체를 활용)
-        # 랭크업 효과는 Agility 스탯에 반영되어 있음 (BattleState via get_stage_multiplier logic needed in future refactor)
-        # 여기서는 편의상 랭크는 BattleState.stages["agility"]로 관리한다고 가정하고 보정
+        # [New] Stage Logic (Accuracy vs Evasion)
+        atk_acc_stage = attacker_state.stages.get("accuracy", 0)
+        def_eva_stage = defender_state.stages.get("evasion", 0)
         
+        # Combine stages: (Attacker Acc - Defender Eva)
+        # Standard table: -6 to +6 maps to multipliers
+        # Formula:
+        # If stage >= 0: (3 + stage) / 3
+        # If stage < 0:  3 / (3 + abs(stage))
+        
+        net_stage = atk_acc_stage - def_eva_stage
+        net_stage = max(-6, min(6, net_stage)) # clamp
+        
+        stage_multiplier = 1.0
+        if net_stage >= 0:
+            stage_multiplier = (3.0 + net_stage) / 3.0
+        else:
+            stage_multiplier = 3.0 / (3.0 + abs(net_stage))
+
+        # Agility 기반 보정 (Still keep Agility as base factor?)
+        # Yes, Plan says: accuracy * (atk_agi / def_agi) * stage_multiplier
         atk_agi = attacker_stat.agility * attacker_state.get_stage_multiplier("agility")
-        def_agi = defender_stat.agility * defender_state.get_stage_multiplier("agility") # Agility affects evasion effectively
+        def_agi = defender_stat.agility * defender_state.get_stage_multiplier("agility") 
         
-        # Accuracy 랭크가 별도로 존재한다면 반영 (현재는 Agility 통합)
         if atk_agi < 1: atk_agi = 1
         if def_agi < 1: def_agi = 1
-
-        hit_chance = accuracy * (atk_agi / def_agi)
+        
+        # Calculation
+        hit_chance = accuracy * (atk_agi / def_agi) * stage_multiplier
         
         # 최소/최대 보정
         if hit_chance < 20: hit_chance = 20

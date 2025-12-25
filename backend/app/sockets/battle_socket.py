@@ -246,12 +246,15 @@ async def process_turn(room: BattleRoom):
             attacker_stat = room.character_stats[attacker_id]
             defender_stat = room.character_stats[defender_id]
             
+            # [Fix] Refresh states to ensure latest HP is used (crucial for 2nd attacker in loop)
             attacker_state = room.battle_states[attacker_id]
             defender_state = room.battle_states[defender_id]
             
             move_id = room.selections[attacker_id]
             
-            if attacker_state.current_hp <= 0: continue
+            # [Fix] 0 HP Check: Ensure dead/fainted pets do not act
+            if attacker_state.current_hp <= 0:
+                continue
 
             # 행동 불가 체크 (Immobile)
             can_move, fail_msg = BattleManager.can_move(attacker_state)
@@ -262,19 +265,58 @@ async def process_turn(room: BattleRoom):
                     "attacker": attacker_id,
                     "message": fail_msg
                 })
+                # [Fix] Corpse Beating Prevention
+                # If attacker killed themselves (confusion), stop the turn immediately
+                if attacker_state.current_hp <= 0:
+                     continue
+                
+                continue
+            
+            # [Fix] Additional Corpse Check before attacking
+            # If the opponent died from some pre-attack effect (not applicable yet, but good safety)
+            if defender_state.current_hp <= 0:
                 continue
 
             # 1. 공격 선언 (Start)
+            move_data = MOVE_DATA.get(move_id, {})
+            move_name = move_data.get("name", f"Skill {move_id}")
+            move_type = move_data.get("type", "normal")
+            
             turn_logs.append({
                 "type": "turn_event",
                 "event_type": "attack_start",
                 "attacker": attacker_id,
                 "move_id": move_id,
-                "message": f"{move_id}번 기술 시전!"
+                "move_type": move_type, 
+                "message": f"{move_name} 발동!" # [UX] More natural message
             })
             
             # 2. 명중 체크 (Hit Check)
-            is_hit = BattleCalculator.check_hit(attacker_stat, attacker_state, defender_stat, defender_state, move_id)
+            # [Fix] Self-target or Heal moves should ALWAYS hit (bypass check_hit)
+            effect = move_data.get("effect", {})
+            # effect can be list or dict now. Check if any effect target is self.
+            # Simplify: If move_type is heal or field buff (not implemented), auto-hit.
+            # Or checks if ANY effect targets 'enemy'.
+            
+            # Robust Target Check
+            target_type = "enemy"
+            if isinstance(effect, dict):
+                 target_type = effect.get("target", "enemy")
+            elif isinstance(effect, list) and effect:
+                 # If any effect targets enemy, we need hit check? 
+                 # Usually buffs are auto-hit. 
+                 # Let's check move_type.
+                 pass
+
+            is_hit = False
+            if move_type == "heal" or move_type == "buff": 
+                 # Heals/Buffs always work (unless logic changes)
+                 is_hit = True
+            elif target_type == "self": 
+                 is_hit = True
+            else:
+                 # Standard Attack
+                 is_hit = BattleCalculator.check_hit(attacker_stat, attacker_state, defender_stat, defender_state, move_id)
             
             if not is_hit:
                 # 빗나감
@@ -293,7 +335,6 @@ async def process_turn(room: BattleRoom):
                 def_elemental_type = PET_TYPE_MAP.get(def_pet_type, "normal")
 
                 # 적중 -> 데미지 계산
-                # [Fix] defender_type 전달 및 effectiveness 수신
                 damage, is_critical, effectiveness = BattleManager.calculate_damage(
                     attacker_stat, attacker_state, defender_stat, defender_state, move_id, defender_type=def_elemental_type
                 )
@@ -330,12 +371,45 @@ async def process_turn(room: BattleRoom):
                         "target_hp": defender_state.current_hp,
                         "message": f"{damage}의 데미지를 입었습니다!"
                     })
+                     
+                     # [New] Recoil & Drain Logic
+                     recoil_pct = move_data.get("recoil_pct", 0)
+                     drain_pct = move_data.get("drain_pct", 0)
+                     
+                     if recoil_pct > 0:
+                         recoil_damage = int(damage * (recoil_pct / 100))
+                         if recoil_damage < 1: recoil_damage = 1
+                         
+                         attacker_state.current_hp -= recoil_damage
+                         if attacker_state.current_hp < 0: attacker_state.current_hp = 0
+                         
+                         turn_logs.append({
+                            "type": "turn_event",
+                            "event_type": "recoil_damage",
+                            "target": attacker_id,
+                            "damage": recoil_damage,
+                            "target_hp": attacker_state.current_hp,
+                            "message": f"반동으로 {recoil_damage}의 피해를 입었습니다!"
+                         })
+                         
+                     if drain_pct > 0:
+                         drain_amount = int(damage * (drain_pct / 100))
+                         if drain_amount < 1: drain_amount = 1
+                         
+                         attacker_state.current_hp = min(attacker_state.max_hp, attacker_state.current_hp + drain_amount)
+                         
+                         turn_logs.append({
+                            "type": "turn_event", # Use custom event or heal
+                            "event_type": "heal",
+                            "target": attacker_id,
+                            "value": drain_amount,
+                            "target_hp": attacker_state.current_hp,
+                            "message": f"체력을 {drain_amount} 흡수했습니다!"
+                         })
 
                 # 3. 부가 효과 적용 (Effects)
                 if defender_state.current_hp > 0:
-                    attacker_name = f"User {attacker_id}" # or fetch from room.character_stats[attacker_id].name if available, but currently it's just User ID in stats_info struct. 
-                    # Actually stats_info is local in BATTLE_START. Let's use simple ID or check if we can get better name.
-                    # In BATTLE_START logic: "name": f"User {uid}" so let's use that convention.
+                    attacker_name = f"User {attacker_id}" 
                     defender_name = f"User {defender_id}"
                     
                     effect_logs = BattleManager.apply_move_effects(
@@ -347,82 +421,75 @@ async def process_turn(room: BattleRoom):
                         defender_name
                     )
                     for eff in effect_logs:
-                        eff["event_type"] = "effect_apply" # 클라이언트 식별용
-                        eff["type"] = "turn_event" # turn_event 타입 유지
+                        raw_type = eff.get("type", "effect_apply")
+                        if raw_type == "status_apply":
+                            eff["event_type"] = "status_ailment"
+                        else:
+                            eff["event_type"] = raw_type
+                            
+                        eff["type"] = "turn_event"
+                        eff["attacker"] = attacker_id 
+                        eff["defender"] = defender_id
                         turn_logs.append(eff)
             
-            if defender_state.current_hp <= 0: break 
-        
-        # 3. 턴 종료 시 상태 이상 데미지 처리
-        for uid in user_ids:
-            # stat = room.character_stats[uid] -> Not used for HP anymore
-            state = room.battle_states[uid]
-            
-            if state.current_hp > 0:
-                dmg, msg, detail = BattleManager.process_status_effects(None, state) # stat param removed/unused in manager logic
-                if dmg > 0 or msg:
-                    state.current_hp -= dmg
-                    if state.current_hp < 0: state.current_hp = 0
-                    
-                    log_data = {
-                         "type": "turn_event",
-                         "event_type": "status_damage" if dmg > 0 else "status_recover",
-                         "target": uid,
-                         "damage": dmg,
-                         "message": msg,
-                         "target_hp": state.current_hp
-                    }
-                    if detail:
-                        log_data.update(detail)
-                        
-                    turn_logs.append(log_data)
-        
-        # 4. 결과 전송 (순차적 재생 가능하도록 리스트로 전송)
-        await room.broadcast({
-            "type": "TURN_RESULT",
-            "results": turn_logs,
-            "turn": room.turn_count
-        })
-        
-        room.turn_count += 1
-        room.reset_selections()
-        
-        # 5. 게임 종료 체크
+            if defender_state.current_hp <= 0: break
+
+        # 4. 게임 종료 체크 (미리 계산)
         winner = None
         loser = None
-        if room.battle_states[u1].current_hp <= 0:
+        
+        # [Fix] Draw Bias Logic (Simultaneous KO)
+        if room.battle_states[u1].current_hp <= 0 and room.battle_states[u2].current_hp <= 0:
+            # Draw Condition
+            winner = "DRAW"
+            loser = "DRAW"
+        elif room.battle_states[u1].current_hp <= 0:
             winner = u2
             loser = u1
         elif room.battle_states[u2].current_hp <= 0:
             winner = u1
             loser = u2
-            
+
+        # 5. 결과 전송 (순차적 재생 가능하도록 리스트로 전송)
+        await room.broadcast({
+            "type": "TURN_RESULT",
+            "results": turn_logs,
+            "turn": room.turn_count,
+            "is_game_over": (winner is not None) 
+        })
+        
+        room.turn_count += 1
+        room.reset_selections()
+        
+        # 6. 게임 종료 처리
         if winner is not None:
-            # [Fix] 배틀 종료 시 체력 스탯 덮어쓰기 로직 제거 (Stat Loss Bug Fix)
-            # 이제 승리 보상만 처리하고, health 스탯은 건드리지 않음
-            reward_info = None
-            try:
-                async with AsyncSessionLocal() as db:
-                     # 보상 처리
-                     reward_info = await char_service.process_battle_result(db, winner, loser)
-            except Exception as e:
-                print(f"DB Update/Reward Error: {e}")
+            if winner == "DRAW":
+                await room.broadcast({
+                    "type": "GAME_OVER",
+                    "result": "DRAW",
+                    "winner": None
+                })
+            else:
+                # [Fix] 배틀 종료 시 체력 스탯 덮어쓰기 로직 제거
+                reward_info = None
+                try:
+                    async with AsyncSessionLocal() as db:
+                         reward_info = await char_service.process_battle_result(db, winner, loser)
+                except Exception as e:
+                    print(f"DB Update/Reward Error: {e}")
+                    
+                await room.send_to(winner, {
+                    "type": "GAME_OVER",
+                    "result": "WIN",
+                    "winner": winner,
+                    "reward": reward_info
+                })
                 
-            # [Fix] 승자와 패자에게 다른 메시지 전송
-            # 승자에게: Victory + Reward
-            await room.send_to(winner, {
-                "type": "GAME_OVER",
-                "result": "WIN",
-                "winner": winner,
-                "reward": reward_info
-            })
-            
-            # 패자에게: Defeat (보상 없음)
-            await room.send_to(loser, {
-                "type": "GAME_OVER",
-                "result": "LOSE",
-                "winner": winner
-            })
+                await room.send_to(loser, {
+                    "type": "GAME_OVER",
+                    "result": "LOSE",
+                    "winner": winner
+                })
             
             # [Refinement] 배틀 종료 시 스탯 랭크 초기화 (메모리 상태 정리)
             for uid in [u1, u2]:
