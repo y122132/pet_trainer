@@ -32,6 +32,7 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
   String _statusMessage = "Connecting to server...";
   bool _opponentSelecting = false;
   List<String> _myStatuses = []; // Status list from server updates (Optional future work)
+  List<String> _oppStatuses = []; // [New] Opponent Statuses
   List<Map<String, dynamic>> _mySkills = []; // [New] Server-synced skills
 
   // [Fix] Game Over Queue State
@@ -46,16 +47,29 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
   late AnimationController _dashController;
   late Animation<Offset> _dashAnimation;
   int? _attackerId; // Who is attacking?
+
+  // Idle Animation (Breathing)
+  late AnimationController _idleController;
+  late Animation<double> _idleAnimation;
+
+  // Floating Texts
+  final List<FloatingTextItem> _floatingTexts = [];
+  int _floatingTextIdCounter = 0;
   
   @override
   void initState() {
     super.initState();
     // Shake
     _shakeController = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
-    _shakeAnimation = Tween<double>(begin: 0, end: 10).chain(CurveTween(curve: Curves.elasticIn)).animate(_shakeController);
+    _shakeAnimation = Tween<double>(begin: 0, end: 24).chain(CurveTween(curve: Curves.elasticIn)).animate(_shakeController);
     _shakeController.addStatusListener((status) {
        if (status == AnimationStatus.completed) _shakeController.reset();
     });
+
+    // Idle (Breathing)
+    _idleController = AnimationController(vsync: this, duration: const Duration(seconds: 2));
+    _idleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(CurvedAnimation(parent: _idleController, curve: Curves.easeInOut));
+    _idleController.repeat(reverse: true); // Breathe in and out endlessly
 
     // Dash
     _dashController = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
@@ -71,6 +85,7 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
     _channel?.sink.close();
     _shakeController.dispose();
     _dashController.dispose(); // Dispose dash
+    _idleController.dispose(); // Dispose idle
     super.dispose();
   }
 
@@ -134,12 +149,29 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
              _buildInfoRow("Type", type),
              _buildInfoRow("Power", "${skill?['power'] ?? 0}"),
              const SizedBox(height: 10),
-             Text(skill?['description'] ?? "No description available.", style: const TextStyle(color: Colors.black54)),
+             Text(skill?['desc'] ?? "No description available.", style: const TextStyle(color: Colors.black54)),
            ],
          ),
          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("CLOSE"))],
        )
      );
+  }
+
+  void _showFloatingText(String text, bool isCrit, int targetId, {bool isHeal = false}) {
+    if (!mounted) return;
+    int id = _floatingTextIdCounter++;
+    setState(() {
+      _floatingTexts.add(FloatingTextItem(id: id, text: text, isCrit: isCrit, targetId: targetId, isHeal: isHeal));
+    });
+
+    // Auto remove after animation duration
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (mounted) {
+        setState(() {
+          _floatingTexts.removeWhere((item) => item.id == id);
+        });
+      }
+    });
   }
 
   Widget _buildInfoRow(String label, String value) {
@@ -210,7 +242,8 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
                   petType: _oppPetType, 
                   isMe: false,
                   damageOpacity: _oppDamageOpacity,
-                  isThinking: _opponentSelecting
+                  isThinking: _opponentSelecting,
+                  statuses: _oppStatuses // [New] Pass statuses
                 ),
               ),
             ),
@@ -411,7 +444,11 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
                ),
              ),
              // Image
-             _buildCharImage(petType, damageOpacity, 160, customPath: customImagePath),
+             ScaleTransition(
+               scale: _idleAnimation,
+               alignment: Alignment.bottomCenter,
+               child: _buildCharImage(petType, damageOpacity, 160, customPath: customImagePath),
+             ),
            ],
         )
       ],
@@ -459,25 +496,23 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
     bool isCrit = log.contains("크리티컬");
     
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.all(10),
+      margin: const EdgeInsets.only(bottom: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.85),
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(15), 
-          topRight: Radius.circular(15), 
-          bottomRight: Radius.circular(15), 
-          bottomLeft: Radius.circular(4)
-        ),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(2, 2))],
+        color: isCrit ? Colors.amber[800]!.withOpacity(0.9) : (isDamage ? Colors.redAccent.withOpacity(0.8) : Colors.black54),
+        borderRadius: BorderRadius.circular(15),
+        border: isCrit ? Border.all(color: Colors.yellowAccent, width: 2) : null,
+        boxShadow: isCrit ? [const BoxShadow(color: Colors.amber, blurRadius: 10)] : null,
       ),
       child: Text(
         log, 
         style: TextStyle(
-          fontSize: 12, 
-          color: isDamage ? Colors.red[800] : Colors.black87,
-          fontWeight: isCrit ? FontWeight.bold : FontWeight.w500
+            color: Colors.white, 
+            fontSize: isCrit ? 16 : 12, 
+            fontWeight: isCrit ? FontWeight.w900 : FontWeight.bold
         )
+      ),
+    );
       ),
     );
   }
@@ -646,6 +681,23 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
       case "TURN_RESULT":
         bool isGameOver = data['is_game_over'] ?? false;
         
+        // [New] State Sync Parse
+        if (data['player_states'] != null) {
+           final pStates = data['player_states'] as Map<String, dynamic>;
+           pStates.forEach((uid, state) {
+              int u = int.parse(uid);
+              List<String> statuses = [];
+              if (state['status'] != null) statuses.addAll(List<String>.from(state['status']));
+              if (state['volatile'] != null) statuses.addAll(List<String>.from(state['volatile']));
+              
+              if (u == _myId) {
+                  _myStatuses = statuses;
+              } else {
+                  _oppStatuses = statuses;
+              }
+           });
+        }
+
         setState(() {
           _opponentSelecting = false;
           _isProcessingTurn = true; // [Fix] Set processing flag
@@ -746,11 +798,19 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
              String result = res['result']; // 'hit' or 'miss'
              
              if (result == 'miss') {
+                 // [New] Miss Floating Text
+                 int defenderId = res['defender'] ?? (_attackerId == _myId ? _opponentId : _myId);
+                 if (defenderId != null) _showFloatingText("MISS", false, defenderId);
+
                  setState(() => _addLog("공격이 빗나갔습니다!"));
                  await Future.delayed(const Duration(milliseconds: 500));
              } else {
                  bool isCrit = res['is_critical'] ?? false;
                  if (isCrit) {
+                     // [New] Crit Text
+                     int defenderId = res['defender'] ?? (_attackerId == _myId ? _opponentId : _myId); 
+                     if (defenderId != null) _showFloatingText("CRITICAL!", true, defenderId);
+
                      setState(() => _addLog("크리티컬 히트!!!"));
                      await Future.delayed(const Duration(milliseconds: 300));
                  }
@@ -766,6 +826,10 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
                    setState(() {
                      _triggerDamageEffect(target); // Shake + Red Overlay
                      _updateHp(target, damage); // HP Bar Animation
+                     
+                     // [New] Damage Floating Text
+                     _showFloatingText(damage.toString(), false, target);
+
                       if (target == _myId) {
                         _addLog("앗! $damage의 피해를 입었습니다... 😭");
                       } else {
@@ -804,11 +868,13 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
                  if (targetId == _myId) {
                     setState(() {
                          _myHp = (_myHp + healAmount).clamp(0, _myMaxHp);
+                         _showFloatingText("+$healAmount", false, targetId, isHeal: true);
                          _addLog("체력이 $healAmount 회복되었습니다! ✨");
                     });
                  } else {
                     setState(() {
                          _oppHp = (_oppHp + healAmount).clamp(0, _oppMaxHp);
+                         _showFloatingText("+$healAmount", false, targetId, isHeal: true);
                     });
                  }
                  await Future.delayed(const Duration(milliseconds: 500));
@@ -953,4 +1019,20 @@ class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
       default: return Colors.grey;
     }
   }
+}
+
+class FloatingTextItem {
+  final int id;
+  final String text;
+  final bool isCrit;
+  final bool isHeal;
+  final int targetId; 
+
+  FloatingTextItem({
+    required this.id, 
+    required this.text, 
+    required this.isCrit, 
+    required this.targetId,
+    this.isHeal = false,
+  });
 }

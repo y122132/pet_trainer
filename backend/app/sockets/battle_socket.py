@@ -498,9 +498,20 @@ async def process_turn(room: BattleRoom):
             loser = u2
 
         # 5. 결과 전송 (순차적 재생 가능하도록 리스트로 전송)
+        # [New] State Sync: 클라이언트가 상태를 확실히 동기화하도록 현재 상태 전송
+        player_states = {}
+        for uid in user_ids:
+             st = room.battle_states[uid]
+             player_states[str(uid)] = {
+                 "hp": st.current_hp,
+                 "status": st.status_effects, # ["poison", "burn"] 등
+                 "volatile": list(st.volatile.keys()) # ["flinch", "confusion"] 등
+             }
+
         await room.broadcast({
             "type": "TURN_RESULT",
             "results": turn_logs,
+            "player_states": player_states, # [New] 상태 동기화 데이터
             "turn": room.turn_count,
             "is_game_over": (winner is not None) 
         })
