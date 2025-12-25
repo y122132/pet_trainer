@@ -33,12 +33,24 @@ class BattleState:
         return STAT_STAGES.get(stage, 1.0)
 
 class BattleManager:
+    """
+    [Battle System Core]
+    전투의 흐름(Flow)을 제어하는 클래스입니다.
+    상태(State)를 직접 저장하지 않고, 외부에서 주입받은 BattleState를 조작합니다.
+    
+    주요 역할:
+    1. 데미지 계산 위임 (to BattleCalculator)
+    2. 스킬의 부가 효과 적용 (apply_move_effects)
+    3. 턴 순서 결정 (determine_turn_order)
+    4. 턴 종료 시 상태 이상 처리 (process_status_effects)
+    """
+
     @staticmethod
     def calculate_damage(attacker_stat, attacker_state: BattleState, 
                          defender_stat, defender_state: BattleState, 
                          move_id: int, defender_type: str = None, field_data: dict = None):
         """
-        데미지 계산 위임
+        데미지 계산 공식은 복잡하므로 BattleCalculator로 위임합니다.
         """
         return BattleCalculator.calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id, defender_type, field_data)
 
@@ -46,8 +58,14 @@ class BattleManager:
     def apply_move_effects(move_id, attacker_state: BattleState, defender_state: BattleState, attacker_stat, 
                            attacker_name: str, defender_name: str):
         """
-        기술의 부가 효과 적용 (스탯 변화, 상태 이상, 힐링)
-        Return: List[dict] 
+        [Logic: 효과 적용]
+        스킬 DB(game_assets.py)에 정의된 'effect' 항목을 처리합니다.
+        
+        처리 과정:
+        1. effect 필드를 리스트로 변환 (단일 효과도 리스트로 처리)
+        2. 확률(effect_chance) 체크 (실패 시 빈 리스트 반환)
+        3. 각 효과 타입(stat_change, status, field_change, heal)에 따라 분기 처리
+        4. 처리 결과를 로그용 Dictionary 리스트로 반환
         """
         move = MOVE_DATA.get(move_id)
         if not move: return []

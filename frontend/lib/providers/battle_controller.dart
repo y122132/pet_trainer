@@ -91,26 +91,41 @@ class BattleController extends ChangeNotifier {
     final data = jsonDecode(message);
     final String type = data['type'];
 
+    // [Socket Event Flow]
+    // 서버로부터 오는 메시지를 처리하는 중앙 라우터입니다.
     switch (type) {
       case "JOIN":
+        // 상대방 입장 알림
         _addLog(data['message']);
         break;
+        
       case "BATTLE_START":
+        // [초기화] 캐릭터 데이터(Hp, Name) 세팅 및 턴 시작
         _handleBattleStart(data);
         break;
+        
       case "WAITING":
+        // 턴 대기 메시지 (예: "Waiting for opponent...")
         _state = _state.copyWith(
           statusMessage: data['message'],
           isMyTurn: false
         );
         notifyListeners();
         break;
+        
       case "OPPONENT_SELECTING":
+        // [UI] 상대방 생각 중 말풍선 표시
         _state = _state.copyWith(isOpponentThinking: true);
         _addLog("Opponent is thinking...");
         notifyListeners();
         break;
+        
       case "TURN_RESULT":
+        // [CORE] 턴 결과 처리 (가장 중요)
+        // 1. 서버 상태 동기화 (_parseStateSync): 상태이상/버프 즉시 반영
+        // 2. 애니메이션 재생 (_processTurnResult): 공격/히트/데미지 순차 재생 (Delay)
+        // 3. 턴 제어: 애니메이션 종료 후 내 턴 활성화
+        
         bool isGameOver = data['is_game_over'] ?? false;
         _parseStateSync(data['player_states']);
 
@@ -118,6 +133,7 @@ class BattleController extends ChangeNotifier {
         _isProcessingTurn = true;
         notifyListeners();
 
+        // 비동기 애니메이션 시퀀스 실행 (약 3~5초 소요)
         await _processTurnResult(data['results']);
 
         _isProcessingTurn = false;
@@ -131,17 +147,21 @@ class BattleController extends ChangeNotifier {
            notifyListeners();
         }
         break;
+        
       case "GAME_OVER":
+        // 승리/패배 다이얼로그 출력 (보상 처리 포함)
         if (_isProcessingTurn) {
           _pendingGameOverData = data;
         } else {
           _handleGameOver(data);
         }
         break;
+        
       case "LEAVE":
         _addLog(data['message']);
         _updateStatus("Opponent Left");
         break;
+        
       case "ERROR":
         _addLog("Error: ${data['message']}");
         _state = _state.copyWith(isMyTurn: true); // Recover Input
