@@ -212,7 +212,53 @@ FIELD_EFECTS = {
     }
 }
 
-# 8. [New] PP Default Injection (Monkey Patching for Safety/Convenience)
+# 8. [New] Species Base Stats (종족값)
+PET_BASE_STATS = {
+    "dog": {"strength": 10, "intelligence": 10, "defense": 10, "agility": 10, "luck": 10}, # Balanced
+    "cat": {"strength": 9, "intelligence": 12, "defense": 8, "agility": 14, "luck": 12},  # Fast Special Attacker
+    "bird": {"strength": 9, "intelligence": 9, "defense": 8, "agility": 15, "luck": 10},  # Fast Mixed
+    "bear": {"strength": 15, "intelligence": 5, "defense": 14, "agility": 6, "luck": 10}, # Physical Tank
+    "robot": {"strength": 12, "intelligence": 12, "defense": 12, "agility": 8, "luck": 10} # Durable Mixed
+}
+
+# 9. Additional Moves Injection (Elemental & Strategic)
+# Fire
+MOVE_DATA[201] = {"name": "불꽃세례", "type": "fire", "category": "special", "power": 40, "accuracy": 100, "description": "작은 불꽃을 발사한다.", "effect": {"type": "status", "status": "burn", "target": "enemy"}, "effect_chance": 10}
+MOVE_DATA[202] = {"name": "화염방사", "type": "fire", "category": "special", "power": 90, "accuracy": 100, "description": "강렬한 불꽃을 내뿜는다.", "effect": {"type": "status", "status": "burn", "target": "enemy"}, "effect_chance": 10}
+MOVE_DATA[203] = {"name": "불꽃엄니", "type": "fire", "category": "physical", "power": 65, "accuracy": 95, "description": "불꽃을 머금은 이빨로 문다.", "effect": {"type": "status", "status": "burn", "target": "enemy"}, "effect_chance": 10}
+MOVE_DATA[204] = {"name": "도깨비불", "type": "fire", "category": "status", "power": 0, "accuracy": 85, "description": "도깨비불로 상대를 화상 입힌다.", "effect": {"type": "status", "status": "burn", "target": "enemy"}, "effect_chance": 100}
+
+# Water
+MOVE_DATA[211] = {"name": "물대포", "type": "water", "category": "special", "power": 40, "accuracy": 100, "description": "물을 발사한다.", "effect": None, "effect_chance": 0}
+MOVE_DATA[212] = {"name": "하이드로펌프", "type": "water", "category": "special", "power": 110, "accuracy": 80, "description": "고압의 물을 발사한다.", "effect": None, "effect_chance": 0}
+MOVE_DATA[213] = {"name": "폭포오르기", "type": "water", "category": "physical", "power": 80, "accuracy": 100, "description": "기세 좋게 돌진한다. (풀죽음)", "effect": {"type": "status", "status": "flinch", "target": "enemy"}, "effect_chance": 20}
+
+# Electric
+MOVE_DATA[221] = {"name": "전기쇼크", "type": "electric", "category": "special", "power": 40, "accuracy": 100, "description": "전기를 흘려보낸다.", "effect": {"type": "status", "status": "paralysis", "target": "enemy"}, "effect_chance": 10}
+MOVE_DATA[222] = {"name": "10만볼트", "type": "electric", "category": "special", "power": 90, "accuracy": 100, "description": "강력한 전류를 발사한다.", "effect": {"type": "status", "status": "paralysis", "target": "enemy"}, "effect_chance": 10}
+MOVE_DATA[223] = {"name": "번개엄니", "type": "electric", "category": "physical", "power": 65, "accuracy": 95, "description": "전류가 흐르는 이빨로 문다.", "effect": {"type": "status", "status": "paralysis", "target": "enemy"}, "effect_chance": 10}
+MOVE_DATA[224] = {"name": "전기자석파", "type": "electric", "category": "status", "power": 0, "accuracy": 90, "description": "약학 전기로 마비시킨다.", "effect": {"type": "status", "status": "paralysis", "target": "enemy"}, "effect_chance": 100}
+
+# Grass
+MOVE_DATA[231] = {"name": "덩굴채찍", "type": "grass", "category": "physical", "power": 45, "accuracy": 100, "description": "덩굴로 후려친다.", "effect": None, "effect_chance": 0}
+MOVE_DATA[232] = {"name": "에너지볼", "type": "grass", "category": "special", "power": 90, "accuracy": 100, "description": "자연의 힘을 모아 발사한다.", "effect": {"type": "stat_change", "stat": "defense", "value": -1, "target": "enemy"}, "effect_chance": 10}
+
+# Fighting/Ground/Rock
+MOVE_DATA[241] = {"name": "인파이트", "type": "fighting", "category": "physical", "power": 120, "accuracy": 100, "description": "방어를 포기하고 맹공격한다.", "effect": {"type": "stat_change", "stat": "defense", "value": -1, "target": "self"}, "effect_chance": 100}
+MOVE_DATA[242] = {"name": "지진", "type": "ground", "category": "physical", "power": 100, "accuracy": 100, "description": "땅을 흔들어 공격한다.", "effect": None, "effect_chance": 0}
+MOVE_DATA[243] = {"name": "스톤샤워", "type": "rock", "category": "physical", "power": 75, "accuracy": 90, "description": "바위를 떨어뜨린다. (풀죽음)", "effect": {"type": "status", "status": "flinch", "target": "enemy"}, "effect_chance": 30}
+
+# Strategic Status Matches
+MOVE_DATA[251] = {"name": "칼춤", "type": "normal", "category": "status", "power": 0, "accuracy": 100, "description": "전투 춤을 추어 공격력을 크게 올린다.", "effect": {"type": "stat_change", "stat": "strength", "value": 2, "target": "self"}, "effect_chance": 100}
+MOVE_DATA[252] = {"name": "명상", "type": "psychic", "category": "status", "power": 0, "accuracy": 100, "description": "정신을 통일하여 특수공격(지능)을 올린다.", "effect": {"type": "stat_change", "stat": "intelligence", "value": 1, "target": "self"}, "effect_chance": 100}
+MOVE_DATA[253] = {"name": "방어", "type": "normal", "category": "status", "power": 0, "accuracy": 100, "description": "이번 턴 공격을 막는다. (우선도 높음)", "priority": 4, "effect": {"type": "status", "status": "protect", "target": "self"}, "effect_chance": 100}
+
+# Update Learnsets
+# Spread new moves somewhat randomly/thematically for testing
+PET_LEARNSET["dog"].update({1: [1, 2, 6], 3: [203, 223], 5: [3, 4, 104], 10: [5, 241, 242]})
+PET_LEARNSET["cat"].update({1: [101, 102], 3: [103, 204], 5: [104, 252], 10: [105, 202, 222]})
+
+# 10. [New] PP Default Injection (Monkey Patching for Safety/Convenience)
 for mid, mdata in MOVE_DATA.items():
     if "max_pp" not in mdata:
         # Default PP based on Power

@@ -130,11 +130,19 @@ async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: 
     await db.flush() # ID 생성을 위해 flush (commit 전 ID 확보)
     
     # 4. 초기 스탯 설정 (기본값)
+    # 4. 초기 스탯 설정 (종족값 반영)
+    from app.game.game_assets import PET_BASE_STATS
+    
+    # Default to Dog (Balanced) if type not found
+    base_stats = PET_BASE_STATS.get(pet_type, PET_BASE_STATS["dog"])
+    
     new_stat = Stat(
         character_id=new_char.id, 
-        strength=10, 
-        intelligence=10, 
-        agility=80, 
+        strength=base_stats.get("strength", 10), 
+        intelligence=base_stats.get("intelligence", 10), 
+        defense=base_stats.get("defense", 10),
+        agility=base_stats.get("agility", 10), 
+        luck=base_stats.get("luck", 10),
         happiness=70, 
         health=100
     )
