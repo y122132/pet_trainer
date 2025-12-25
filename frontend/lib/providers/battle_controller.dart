@@ -315,6 +315,31 @@ class BattleController extends ChangeNotifier {
           } else if (res['message'] != null) {
               _addLog(res['message']);
           }
+       } else if (type == 'status_damage') {
+           // [New] Status Damage Handler
+           int target = res['target'] ?? _myId; // Default fallback
+           int damage = res['damage'] ?? 0;
+           String msg = res['message'] ?? "Took damage from status!";
+           
+           _addLog(msg);
+           
+           if (damage > 0) {
+               _eventController.add(BattleEvent(type: BattleEventType.shake, targetId: target));
+               _eventController.add(BattleEvent(type: BattleEventType.damage, targetId: target, value: damage));
+               _handleHpChange(target, -damage);
+               await Future.delayed(const Duration(milliseconds: 600));
+           }
+           
+           if (res['is_recovered'] == true) {
+               // If recovered flag is present in damage (combo)
+               // Already logged in msg
+           }
+
+       } else if (type == 'status_recover') {
+           // [New] Status Recover Handler
+           String msg = res['message'] ?? "Recovered from status!";
+           _addLog(msg);
+           await Future.delayed(const Duration(milliseconds: 500));
        }
     }
   }

@@ -394,6 +394,22 @@ async def process_turn_redis(room_id: str):
 
         if def_state.current_hp <= 0: break
 
+    # [New] Status Effect Damage at End of Turn
+    if state1.current_hp > 0 and state2.current_hp > 0:
+        for uid, state, stat in [(u1, state1, stat1), (u2, state2, stat2)]:
+            dmg, msg, detail = BattleManager.process_status_effects(stat, state)
+            
+            if dmg > 0:
+                state.current_hp = max(0, state.current_hp - dmg)
+            
+            if detail:
+                # Add target info to detail for client
+                detail["target"] = uid
+                turn_logs.append(detail)
+                
+            if state.current_hp <= 0:
+                break
+
     # 4. Serialize Back & Save
     room_data["battle_states"][su1] = serialize_battle_state(state1)
     room_data["battle_states"][su2] = serialize_battle_state(state2)
