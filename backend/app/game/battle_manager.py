@@ -36,7 +36,8 @@ class BattleManager:
         return BattleCalculator.calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id, defender_type)
 
     @staticmethod
-    def apply_move_effects(move_id, attacker_state: BattleState, defender_state: BattleState, attacker_stat):
+    def apply_move_effects(move_id, attacker_state: BattleState, defender_state: BattleState, attacker_stat, 
+                           attacker_name: str, defender_name: str):
         """
         기술의 부가 효과 적용 (스탯 변화, 상태 이상, 힐링)
         Return: List[dict] 
@@ -49,7 +50,9 @@ class BattleManager:
         chance = move.get("effect_chance", 0)
 
         if effect and random.uniform(0, 100) < chance:
-            target_state = attacker_state if effect["target"] == "self" else defender_state
+            is_self = effect["target"] == "self"
+            target_state = attacker_state if is_self else defender_state
+            target_name = attacker_name if is_self else defender_name
             
             if effect["type"] == "stat_change":
                 stat_name = effect["stat"]
@@ -66,7 +69,7 @@ class BattleManager:
                         "stat": stat_name,
                         "value": 0,
                         "target": target,
-                        "message": f"{target_name} {stat_name}은(는) 더 이상 변할 수 없습니다!" 
+                        "message": f"{target_name}의 {stat_name}은(는) 더 이상 변할 수 없습니다!" 
                     })
                 else:
                     new_stage = max(-6, min(6, current_stage + val))
@@ -80,7 +83,7 @@ class BattleManager:
                             "stat": stat_name,
                             "value": val,
                             "target": target, 
-                            "message": f"{target_name} {stat_name}이(가) {val_str}{direction}."
+                            "message": f"{target_name}의 {stat_name}이(가) {val_str}{direction}."
                         })
             
             elif effect["type"] == "status":

@@ -333,7 +333,19 @@ async def process_turn(room: BattleRoom):
 
                 # 3. 부가 효과 적용 (Effects)
                 if defender_state.current_hp > 0:
-                    effect_logs = BattleManager.apply_move_effects(move_id, attacker_state, defender_state, attacker_stat)
+                    attacker_name = f"User {attacker_id}" # or fetch from room.character_stats[attacker_id].name if available, but currently it's just User ID in stats_info struct. 
+                    # Actually stats_info is local in BATTLE_START. Let's use simple ID or check if we can get better name.
+                    # In BATTLE_START logic: "name": f"User {uid}" so let's use that convention.
+                    defender_name = f"User {defender_id}"
+                    
+                    effect_logs = BattleManager.apply_move_effects(
+                        move_id, 
+                        attacker_state, 
+                        defender_state, 
+                        attacker_stat,
+                        attacker_name,
+                        defender_name
+                    )
                     for eff in effect_logs:
                         eff["event_type"] = "effect_apply" # 클라이언트 식별용
                         eff["type"] = "turn_event" # turn_event 타입 유지

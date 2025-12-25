@@ -13,10 +13,10 @@ class BattleCalculator:
         데미지 공식: (Strength / Defense) * Power * Modifiers
         """
         move = MOVE_DATA.get(move_id)
-        if not move: return 0, False
+        if not move: return 0, False, "normal"
 
         power = move["power"]
-        if power == 0: return 0, False
+        if power == 0: return 0, False, "normal"
 
         # 1. 스탯 & 랭크 반영 (Agility, Strength, Defense 등)
         # 물리 공격: Strength / 방어: Defense
