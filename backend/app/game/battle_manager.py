@@ -143,6 +143,26 @@ class BattleManager:
                         "message": f"{status_name} 상태가 되었습니다!"
                     })
             
+            # [New] Field Change
+            elif effect["type"] == "field_change":
+                field_name = effect.get("field", "weather")  # weather or location
+                val = effect.get("value", "clear")
+                # Message
+                if field_name == "weather":
+                    label = "날씨"
+                    if val == "sun": label = "햇살이 강해졌습니다!"
+                    elif val == "rain": label = "비가 내리기 시작했습니다!"
+                    elif val == "clear": label = "날씨가 맑아졌습니다!"
+                else:
+                    label = f"{field_name} 환경이 변했습니다!"
+                
+                logs.append({
+                    "type": "field_update",
+                    "field": field_name,
+                    "value": val,
+                    "message": label
+                })
+
             elif effect["type"] == "heal":
                 # [New] 힐링 로직
                 amount_pct = effect.get("amount", effect.get("value", 50)) # Support both keys

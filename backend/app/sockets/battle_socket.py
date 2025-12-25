@@ -455,6 +455,20 @@ async def process_turn(room: BattleRoom):
                     )
                     for eff in effect_logs:
                         raw_type = eff.get("type", "effect_apply")
+                        
+                        # [New] Field Update Intercept
+                        if raw_type == "field_update":
+                            field_name = eff.get("field")
+                            val = eff.get("value")
+                            # Update Room State
+                            if field_name in room.field_effects:
+                                room.field_effects[field_name] = val
+                            
+                            # Append to turn log
+                            eff["event_type"] = "field_effect" # Client handling
+                            turn_logs.append(eff)
+                            continue
+
                         if raw_type == "status_apply":
                             eff["event_type"] = "status_ailment"
                         else:

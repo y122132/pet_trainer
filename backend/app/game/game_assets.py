@@ -253,6 +253,10 @@ MOVE_DATA[251] = {"name": "칼춤", "type": "normal", "category": "status", "pow
 MOVE_DATA[252] = {"name": "명상", "type": "psychic", "category": "status", "power": 0, "accuracy": 100, "description": "정신을 통일하여 특수공격(지능)을 올린다.", "effect": {"type": "stat_change", "stat": "intelligence", "value": 1, "target": "self"}, "effect_chance": 100}
 MOVE_DATA[253] = {"name": "방어", "type": "normal", "category": "status", "power": 0, "accuracy": 100, "description": "이번 턴 공격을 막는다. (우선도 높음)", "priority": 4, "effect": {"type": "status", "status": "protect", "target": "self"}, "effect_chance": 100}
 
+# Field Control
+MOVE_DATA[261] = {"name": "쾌청", "type": "fire", "category": "status", "power": 0, "accuracy": 100, "description": "햇살을 강하게 만들어 불꽃 위력을 올린다.", "effect": {"type": "field_change", "field": "weather", "value": "sun", "target": "room"}, "effect_chance": 100}
+MOVE_DATA[262] = {"name": "비바라기", "type": "water", "category": "status", "power": 0, "accuracy": 100, "description": "비를 내리게 하여 물 위력을 올린다.", "effect": {"type": "field_change", "field": "weather", "value": "rain", "target": "room"}, "effect_chance": 100}
+
 # Update Learnsets
 # Spread new moves somewhat randomly/thematically for testing
 PET_LEARNSET["dog"].update({1: [1, 2, 6], 3: [203, 223], 5: [3, 4, 104], 10: [5, 241, 242]})

@@ -223,11 +223,18 @@ async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int)
         stat.level += 1
         level_up_occurred = True
         
-        # 스탯 자동 증가
-        stat.strength += 2
-        stat.defense += 2
-        stat.agility += 2
-        stat.health += 10
+        # 스탯 자동 증가 (종족값 비례 성장)
+        from app.game.game_assets import PET_BASE_STATS
+        pet_type = winner_char.pet_type.lower()
+        base_stats = PET_BASE_STATS.get(pet_type, PET_BASE_STATS["dog"])
+        
+        # Growth Formula: 20% of Base Stat (min 1)
+        # e.g. Base 10 -> +2, Base 15 -> +3, Base 5 -> +1
+        stat.strength += max(1, int(base_stats.get("strength", 10) * 0.2))
+        stat.defense += max(1, int(base_stats.get("defense", 10) * 0.2))
+        stat.agility += max(1, int(base_stats.get("agility", 10) * 0.2))
+        stat.intelligence += max(1, int(base_stats.get("intelligence", 10) * 0.2))
+        stat.health += 10 # HP is flat for now, or maybe based on durability? Let's keep flat +10 for stability.
         stat.unused_points += 1
         
         # 4. 신규 기술 습득 체크
