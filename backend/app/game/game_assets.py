@@ -65,7 +65,7 @@ MOVE_DATA = {
         "accuracy": 100, 
         "type": "evade", 
         "description": "높이 점프하여 회피율(민첩성)을 높인다.",
-        "effect": {"type": "stat_change", "stat": "stamina", "value": 1, "target": "self"},
+        "effect": {"type": "stat_change", "stat": "agility", "value": 1, "target": "self"},
         "effect_chance": 100
     },
     103: {
@@ -97,10 +97,35 @@ MOVE_DATA = {
     }
 }
 
-# 2. Type_Chart: 속성 상성
+# 2. Type_Chart: 속성 상성 (공격 타입 기준)
+# weak: 2배 데미지를 입히는 방어 타입
+# resist: 0.5배 데미지를 입히는 방어 타입 (반감)
 TYPE_CHART = {
-    "normal": {"weak": ["fighting"], "resist": []},
-    # 추후 확장
+    "normal": {"weak": [], "resist": ["rock", "steel"]},
+    "fighting": {"weak": ["normal", "rock", "steel", "ice", "dark"], "resist": ["flying", "poison", "bug", "psychic", "fairy"]},
+    "flying": {"weak": ["fighting", "bug", "grass"], "resist": ["rock", "steel", "electric"]},
+    "poison": {"weak": ["grass", "fairy"], "resist": ["poison", "ground", "rock", "ghost"]},
+    "ground": {"weak": ["poison", "rock", "steel", "fire", "electric"], "resist": ["bug", "grass"]},
+    "rock": {"weak": ["flying", "bug", "fire", "ice"], "resist": ["fighting", "ground", "steel"]},
+    "bug": {"weak": ["grass", "psychic", "dark"], "resist": ["fighting", "flying", "poison", "ghost", "steel", "fire", "fairy"]},
+    "ghost": {"weak": ["ghost", "psychic"], "resist": ["dark"]},
+    "steel": {"weak": ["rock", "ice", "fairy"], "resist": ["steel", "fire", "water", "electric"]},
+    "fire": {"weak": ["bug", "steel", "grass", "ice"], "resist": ["rock", "fire", "water", "dragon"]},
+    "water": {"weak": ["ground", "rock", "fire"], "resist": ["water", "grass", "dragon"]},
+    "grass": {"weak": ["ground", "rock", "water"], "resist": ["flying", "poison", "bug", "steel", "fire", "grass", "dragon"]},
+    "electric": {"weak": ["flying", "water"], "resist": ["grass", "electric", "dragon"]},
+    "psychic": {"weak": ["fighting", "poison"], "resist": ["steel", "psychic"]},
+    "ice": {"weak": ["flying", "ground", "grass", "dragon"], "resist": ["steel", "fire", "water", "ice"]},
+    "dragon": {"weak": ["dragon"], "resist": ["steel"]},
+    "dark": {"weak": ["ghost", "psychic"], "resist": ["fighting", "dark", "fairy"]},
+    "fairy": {"weak": ["fighting", "dragon", "dark"], "resist": ["poison", "steel", "fire"]}
+}
+
+# [New] 펫 종류별 속성 매핑 (임시)
+PET_TYPE_MAP = {
+    "dog": "normal",
+    "cat": "normal", # 테스트를 위해 fighting으로 변경 가능
+    "bird": "flying"
 }
 
 # 3. PET_LEARNSET: 펫 종류에 따른 기술 습득 테이블
@@ -119,10 +144,10 @@ PET_LEARNSET = {
 
 # 4. Status Effects Info
 STATUS_DATA = {
-    "poison": {"name": "독", "desc": "매 턴 체력의 1/8 피해"},
-    "paralysis": {"name": "마비", "desc": "스피드 저하 및 25% 확률로 행동 불가"},
-    "burn": {"name": "화상", "desc": "매 턴 체력 피해 및 공격력 반감"},
-    "confusion": {"name": "혼란", "desc": "33% 확률로 자해 데미지 (1~4턴 지속)"}
+    "poison": {"name": "독", "desc": "매 턴 체력의 1/8 피해", "min_turn": 3, "max_turn": 6},
+    "paralysis": {"name": "마비", "desc": "스피드 저하 및 25% 확률로 행동 불가", "min_turn": 2, "max_turn": 5},
+    "burn": {"name": "화상", "desc": "매 턴 체력 피해 및 공격력 반감", "min_turn": 3, "max_turn": 6},
+    "confusion": {"name": "혼란", "desc": "33% 확률로 자해 데미지 (1~4턴 지속)", "min_turn": 1, "max_turn": 4}
 }
 
 # 5. Stat Stages Multiplier (-6 to +6)

@@ -147,7 +147,7 @@ class MyRoomPage extends StatelessWidget {
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 500),
             child: Image.asset(
-              provider.character?.imageUrl ?? 'assets/images/characters/char_default.png',
+              provider.character?.imageUrl ?? 'assets/images/characters/닌자옷.png',
               key: ValueKey<String>(provider.character?.imageUrl ?? 'normal'),
               fit: BoxFit.contain,
             ),
@@ -258,7 +258,9 @@ class MyRoomPage extends StatelessWidget {
     final statsMap = {
       "STR": stat.strength,
       "INT": stat.intelligence,
-      "DEX": stat.stamina, 
+      "DEX": stat.agility, 
+      "DEF": stat.defense,
+      "LUK": stat.luck,
       "HAP": stat.happiness
     };
     final keys = statsMap.keys.toList();
@@ -297,9 +299,9 @@ class MyRoomPage extends StatelessWidget {
                        currentStats: {
                           "strength": stat.strength,
                           "intelligence": stat.intelligence,
-                          "stamina": stat.stamina,
-                          "happiness": stat.happiness,
-                          "health": stat.health,
+                          "agility": stat.agility,
+                          "defense": stat.defense,
+                          "luck": stat.luck,
                        },
                        title: "미사용 포인트 분배",
                        confirmLabel: "적용",
@@ -308,9 +310,9 @@ class MyRoomPage extends StatelessWidget {
                           // 선택한 스탯만큼 반복해서 Provider 업데이트 호출
                           _applyAllocated(provider, 'strength', allocated['strength']!);
                           _applyAllocated(provider, 'intelligence', allocated['intelligence']!);
-                          _applyAllocated(provider, 'stamina', allocated['stamina']!);
-                          _applyAllocated(provider, 'happiness', allocated['happiness']!);
-                          _applyAllocated(provider, 'health', allocated['health']!);
+                          _applyAllocated(provider, 'agility', allocated['agility']!);
+                          _applyAllocated(provider, 'defense', allocated['defense']!);
+                          _applyAllocated(provider, 'luck', allocated['luck']!);
                           
                           Navigator.pop(context);
                        },

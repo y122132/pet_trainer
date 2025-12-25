@@ -47,7 +47,7 @@ def generate_message(state: AgentState):
     user_title = "주인님" # 기본 호칭
     strength = stats.get("strength", 0)
     intelligence = stats.get("intelligence", 0)
-    stamina = stats.get("stamina", 0)
+    agility = stats.get("agility", 0)
     happiness = stats.get("happiness", 0)
     
     # 스탯이 높으면 호칭을 변경하여 성장을 체감하게 함

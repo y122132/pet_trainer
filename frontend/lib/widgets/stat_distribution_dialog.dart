@@ -50,9 +50,9 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
     allocated = {
       "strength": 0,
       "intelligence": 0,
-      "stamina": 0,
-      "happiness": 0,
-      "health": 0,
+      "agility": 0,
+      "defense": 0,
+      "luck": 0,
     };
   }
 
@@ -146,7 +146,7 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
                        child: _buildRadarChart(),
                      ),
                    ),
-                   // 2. 각 방향별 스탯 제어 위젯
+                   // 2. 각 방향별 스탯 제어 위젯 (5각형 배치)
                    Align(
                      alignment: Alignment.topCenter,
                      child: _buildStatCtrl("근력", "strength", Colors.redAccent),
@@ -156,12 +156,16 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
                      child: _buildStatCtrl("지능", "intelligence", Colors.blueAccent),
                    ),
                    Align(
-                     alignment: Alignment.bottomCenter,
-                     child: _buildStatCtrl("행복", "happiness", Colors.pinkAccent),
+                     alignment: Alignment.bottomRight,
+                     child: _buildStatCtrl("운", "luck", Colors.amber),
+                   ),
+                   Align(
+                     alignment: Alignment.bottomLeft,
+                     child: _buildStatCtrl("방어", "defense", Colors.grey),
                    ),
                    Align(
                      alignment: Alignment.centerLeft,
-                     child: _buildStatCtrl("체력", "stamina", Colors.green),
+                     child: _buildStatCtrl("민첩", "agility", Colors.green),
                    ),
                  ],
                ),
@@ -233,8 +237,9 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
     final data = [
       (widget.currentStats["strength"]! + (allocated["strength"] ?? 0)).toDouble(),
       (widget.currentStats["intelligence"]! + (allocated["intelligence"] ?? 0)).toDouble(),
-      (widget.currentStats["happiness"]! + (allocated["happiness"] ?? 0)).toDouble(),
-      (widget.currentStats["stamina"]! + (allocated["stamina"] ?? 0)).toDouble(),
+      (widget.currentStats["luck"]! + (allocated["luck"] ?? 0)).toDouble(),
+      (widget.currentStats["defense"]! + (allocated["defense"] ?? 0)).toDouble(),
+      (widget.currentStats["agility"]! + (allocated["agility"] ?? 0)).toDouble(),
     ];
     
     return RadarChart(

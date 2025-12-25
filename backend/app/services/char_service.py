@@ -42,9 +42,15 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
         elif stype == "intelligence": # 지능
             stat.intelligence += val
             updated_stat_val = stat.intelligence
-        elif stype == "stamina":    # 지구력/민첩
-            stat.stamina += val
-            updated_stat_val = stat.stamina
+        elif stype == "agility":    # 민첩
+            stat.agility += val
+            updated_stat_val = stat.agility
+        elif stype == "defense":    # 방어
+            stat.defense += val
+            updated_stat_val = stat.defense
+        elif stype == "luck":       # 운
+            stat.luck += val
+            updated_stat_val = stat.luck
         elif stype == "happiness":  # 행복도
             stat.happiness += val
             updated_stat_val = stat.happiness
@@ -128,7 +134,7 @@ async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: 
         character_id=new_char.id, 
         strength=10, 
         intelligence=10, 
-        stamina=80, 
+        agility=80, 
         happiness=70, 
         health=100
     )
@@ -154,7 +160,9 @@ async def update_character_stats(db: AsyncSession, char_id: int, stats_update: d
     # 전달된 필드만 업데이트 (Partial Update)
     if "strength" in stats_update: stat.strength = stats_update["strength"]
     if "intelligence" in stats_update: stat.intelligence = stats_update["intelligence"]
-    if "stamina" in stats_update: stat.stamina = stats_update["stamina"]
+    if "agility" in stats_update: stat.agility = stats_update["agility"]
+    if "defense" in stats_update: stat.defense = stats_update["defense"]
+    if "luck" in stats_update: stat.luck = stats_update["luck"]
     if "happiness" in stats_update: stat.happiness = stats_update["happiness"]
     if "health" in stats_update: stat.health = stats_update["health"]
     if "unused_points" in stats_update: stat.unused_points = stats_update["unused_points"]
@@ -210,7 +218,7 @@ async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int)
         # 스탯 자동 증가
         stat.strength += 2
         stat.defense += 2
-        stat.stamina += 2
+        stat.agility += 2
         stat.health += 10
         stat.unused_points += 1
         

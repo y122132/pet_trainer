@@ -4,7 +4,9 @@
 class Stat {
   int strength;      // 근력 (빨간색)
   int intelligence;  // 지능 (파란색)
-  int stamina;       // 지구력/민첩 (초록색)
+  int agility;       // 민첩 (구 Stamina) (초록색)
+  int defense;       // 방어력
+  int luck;          // 운
   int happiness;     // 행복도 (핑크색)
   int health;        // 현재 체력
   int exp;           // 현재 경험치
@@ -14,7 +16,9 @@ class Stat {
   Stat({
     required this.strength,
     required this.intelligence,
-    required this.stamina,
+    required this.agility,
+    required this.defense,
+    required this.luck,
     required this.happiness,
     required this.health,
     this.exp = 0,
@@ -27,7 +31,9 @@ class Stat {
     return Stat(
       strength: json['strength'] ?? 0,
       intelligence: json['intelligence'] ?? 0,
-      stamina: json['stamina'] ?? 0,
+      agility: json['agility'] ?? 0,
+      defense: json['defense'] ?? 10, // Def default
+      luck: json['luck'] ?? 5,        // Luck default
       happiness: json['happiness'] ?? 0,
       health: json['health'] ?? 100,
       exp: json['exp'] ?? 0,
@@ -51,7 +57,7 @@ class Character {
     required this.id,
     required this.userId,
     required this.name,
-    this.imageUrl = 'assets/images/characters/char_default.png', 
+    this.imageUrl = 'assets/images/characters/닌자옷.png', 
     this.petType = 'dog', // 기본값
     this.learnedSkills = const [],
     this.stat,
@@ -64,7 +70,7 @@ class Character {
       userId: json['user_id'] ?? 0,
       name: json['name'] ?? 'Unknown',
       // 이미지 URL이 없으면 기본 이미지 사용
-      imageUrl: json['image_url'] ?? 'assets/images/characters/char_default.png',
+      imageUrl: json['image_url'] ?? 'assets/images/characters/닌자옷.png',
       petType: json['pet_type'] ?? 'dog', // 서버 데이터 반영
       learnedSkills: json['learned_skills'] != null 
           ? List<int>.from(json['learned_skills']) 

@@ -535,7 +535,7 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
                               // 캐릭터 이미지
                               Expanded(
                                 child: Image.asset(
-                                  provider.character?.imageUrl ?? "assets/images/characters/char_default.png",
+                                  provider.character?.imageUrl ?? "assets/images/characters/닌자옷.png",
                                   fit: BoxFit.contain,
                                 ),
                               ),
@@ -603,7 +603,9 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
         final currentStats = {
           "strength": provider.character?.stat?.strength ?? 0,
           "intelligence": provider.character?.stat?.intelligence ?? 0,
-          "stamina": provider.character?.stat?.stamina ?? 0,
+          "agility": provider.character?.stat?.agility ?? 0,
+          "defense": provider.character?.stat?.defense ?? 0,
+          "luck": provider.character?.stat?.luck ?? 0,
           "happiness": provider.character?.stat?.happiness ?? 0,
           "health": provider.character?.stat?.health ?? 0,
         };
@@ -619,9 +621,9 @@ class _CameraScreenState extends State<CameraScreen> with TickerProviderStateMix
           onConfirm: (allocated, remaining) {
              if (allocated['strength']! > 0) _applyAllocated('strength', allocated['strength']!, provider);
              if (allocated['intelligence']! > 0) _applyAllocated('intelligence', allocated['intelligence']!, provider);
-             if (allocated['stamina']! > 0) _applyAllocated('stamina', allocated['stamina']!, provider);
-             if (allocated['happiness']! > 0) _applyAllocated('happiness', allocated['happiness']!, provider);
-             if (allocated['health']! > 0) _applyAllocated('health', allocated['health']!, provider);
+             if (allocated['agility']! > 0) _applyAllocated('agility', allocated['agility']!, provider);
+             if (allocated['defense']! > 0) _applyAllocated('defense', allocated['defense']!, provider);
+             if (allocated['luck']! > 0) _applyAllocated('luck', allocated['luck']!, provider);
              _goToMyRoom();
           },
           onSkip: () {

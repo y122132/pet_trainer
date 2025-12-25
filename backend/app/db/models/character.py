@@ -40,7 +40,7 @@ class Stat(Base):
     level: Mapped[int] = mapped_column(Integer, default=1)         # 레벨
     strength: Mapped[int] = mapped_column(Integer, default=10)     # 근력
     intelligence: Mapped[int] = mapped_column(Integer, default=10) # 지능
-    stamina: Mapped[int] = mapped_column(Integer, default=10)      # 지구력
+    agility: Mapped[int] = mapped_column(Integer, default=10)      # 민첩 (구 Stamina)
     defense: Mapped[int] = mapped_column(Integer, default=10)      # 방어력
     luck: Mapped[int] = mapped_column(Integer, default=5)          # 운
     personality: Mapped[str] = mapped_column(String, default="기본") # 성격

@@ -13,7 +13,7 @@ class BattlePage extends StatefulWidget {
   State<BattlePage> createState() => _BattlePageState();
 }
 
-class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateMixin {
+class _BattlePageState extends State<BattlePage> with TickerProviderStateMixin {
   WebSocketChannel? _channel;
   bool _isConnected = false;
   List<String> _battleLogs = [];
@@ -38,19 +38,25 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
   late AnimationController _shakeController;
   late Animation<double> _shakeAnimation;
   
+  // Dash Animation (New)
+  late AnimationController _dashController;
+  late Animation<Offset> _dashAnimation;
+  int? _attackerId; // Who is attacking?
+  
   @override
   void initState() {
     super.initState();
-    // Shake Animation Setup
+    // Shake
     _shakeController = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
     _shakeAnimation = Tween<double>(begin: 0, end: 10).chain(CurveTween(curve: Curves.elasticIn)).animate(_shakeController);
-    
     _shakeController.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _shakeController.reset();
-      }
+       if (status == AnimationStatus.completed) _shakeController.reset();
     });
 
+    // Dash
+    _dashController = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _dashAnimation = Tween<Offset>(begin: Offset.zero, end: Offset.zero).animate(_dashController);
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _connectSocket();
     });
@@ -60,6 +66,7 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
   void dispose() {
     _channel?.sink.close();
     _shakeController.dispose();
+    _dashController.dispose(); // Dispose dash
     super.dispose();
   }
 
@@ -182,14 +189,25 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
             right: 40,
             child: Transform.scale(
               scale: 0.8, // Make it look further away
-              child: _buildCharacterObject(
-                name: _oppName, 
-                hp: _oppHp, 
-                maxHp: _oppMaxHp, 
-                petType: _oppPetType, 
-                isMe: false,
-                damageOpacity: _oppDamageOpacity,
-                isThinking: _opponentSelecting
+              child: AnimatedBuilder(
+                animation: _dashAnimation,
+                builder: (context, child) {
+                    // Check if Opponent is dashing
+                    Offset dashOffset = (_attackerId == _opponentId && _opponentId != null) ? _dashAnimation.value : Offset.zero;
+                    return Transform.translate(
+                        offset: dashOffset, // Only dash, no shake for now (or add shake later)
+                        child: child,
+                    );
+                },
+                child: _buildCharacterObject(
+                  name: _oppName, 
+                  hp: _oppHp, 
+                  maxHp: _oppMaxHp, 
+                  petType: _oppPetType, 
+                  isMe: false,
+                  damageOpacity: _oppDamageOpacity,
+                  isThinking: _opponentSelecting
+                ),
               ),
             ),
           ),
@@ -200,12 +218,16 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
             left: 20,
             child: Transform.scale(
               scale: 1.1,
-              child: AnimatedBuilder(
-                animation: _shakeAnimation,
-                builder: (context, child) => Transform.translate(
-                  offset: Offset(_shakeAnimation.value, 0),
-                  child: child,
-                ),
+            child: AnimatedBuilder(
+                animation: Listenable.merge([_shakeAnimation, _dashAnimation]),
+                builder: (context, child) {
+                    // Check if I am the one dashing
+                    Offset dashOffset = (_attackerId == _myId) ? _dashAnimation.value : Offset.zero;
+                    return Transform.translate(
+                        offset: Offset(_shakeAnimation.value, 0) + dashOffset,
+                        child: child,
+                    );
+                },
                 child: _buildCharacterObject(
                   name: "YOU", 
                   hp: _myHp, 
@@ -657,59 +679,102 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
 
   Future<void> _processTurnResult(List<dynamic> results) async {
     for (var res in results) {
-       // 각 턴 사이의 간격
-       await Future.delayed(const Duration(milliseconds: 800));
+       // 각 턴 사이의 간격 (약간 줄임)
+       await Future.delayed(const Duration(milliseconds: 600));
        
        String type = res['type'] ?? 'unknown';
        
        if (type == 'turn_event') {
           String eventType = res['event_type'];
           
-          if (eventType == 'attack') {
-             // 1. 공격 선언 (로그)
+          if (eventType == 'attack_start') {
+             // 1. 공격 선언 및 이동 연출 (Attack Start)
              int attacker = res['attacker'];
-             int defender = res['defender'];
              int moveId = res['move_id'];
              String moveName = SKILL_DATA[moveId]?['name'] ?? "Unknown Move";
              String attackerName = (attacker == _myId) ? "You" : _oppName;
              
              setState(() => _addLog("$attackerName used $moveName!"));
              
-             // 2. 공격 연출 (잠시 대기 or 애니메이션 트리거)
-             await Future.delayed(const Duration(milliseconds: 500));
+             // [New] Dash Animation
+             // Start Dash
+             setState(() => _attackerId = attacker);
              
-             // 3. 데미지 및 피격 연출
+             // Define Dash Tween based on attacker
+             if (attacker == _myId) {
+               // I dash to Right-Top (Opponent position)
+               _dashAnimation = Tween<Offset>(begin: Offset.zero, end: const Offset(50, -50)).animate(CurvedAnimation(parent: _dashController, curve: Curves.easeInOut));
+             } else {
+               // Opponent dashes to Left-Bottom (My position)
+               _dashAnimation = Tween<Offset>(begin: Offset.zero, end: const Offset(-50, 50)).animate(CurvedAnimation(parent: _dashController, curve: Curves.easeInOut));
+             }
+             
+             if (attacker == _myId) {
+                await _dashController.forward();
+                await Future.delayed(const Duration(milliseconds: 100));
+                await _dashController.reverse();
+             } else {
+                // Simple wait for opponent move visual
+                await Future.delayed(const Duration(milliseconds: 400));
+             }
+             
+          } else if (eventType == 'hit_result') {
+             // 2. 명중 결과 판정 (Hit/Miss)
+             String result = res['result']; // 'hit' or 'miss'
+             
+             if (result == 'miss') {
+                 setState(() => _addLog("공격이 빗나갔습니다!"));
+                 await Future.delayed(const Duration(milliseconds: 500));
+             } else {
+                 bool isCrit = res['is_critical'] ?? false;
+                 if (isCrit) {
+                     setState(() => _addLog("크리티컬 히트!!!"));
+                     await Future.delayed(const Duration(milliseconds: 300));
+                 }
+             }
+
+          } else if (eventType == 'damage_apply') {
+             // 3. 데미지 적용 (Damage Apply)
+             int target = res['target'];
              int damage = res['damage'];
-             bool isCrit = res['is_critical'];
-             int defenderHp = res['defender_hp']; // 서버에서 계산된 최종 체력
              
              if (damage > 0) {
-                if (mounted) {
-                  setState(() {
-                    _triggerDamageEffect(defender); // 흔들림 + 붉은 효과
-                    _updateHp(defender, damage); // HP 바 감소 (애니메이션 적용됨)
-                    
-                    String dmgLog = "Dealt $damage damage!";
-                    if (isCrit) dmgLog += " (Critical!)";
-                    _addLog(dmgLog);
-                  });
-                }
-                // 피격 연출 시간 대기
-                await Future.delayed(const Duration(milliseconds: 600));
-             } else {
-                setState(() => _addLog("It had no effect..."));
-                await Future.delayed(const Duration(milliseconds: 500));
+                 if (mounted) {
+                   setState(() {
+                     _triggerDamageEffect(target); // Shake + Red Overlay
+                     _updateHp(target, damage); // HP Bar Animation
+                     _addLog("$damage의 데미지를 입었습니다!");
+                   });
+                 }
+                 // 피격 연출 및 HP 애니메이션 대기
+                 await Future.delayed(const Duration(milliseconds: 600));
+             }
+
+          } else if (eventType == 'effect_apply' || eventType == 'stat_change' || eventType == 'status_ailment' || eventType == 'heal') {
+             // 4. 부가 효과 (Effect / Stat / Status / Heal)
+             String msg = res['message'];
+             if (activeStr(msg)) {
+                setState(() => _addLog(msg));
              }
              
-             // 4. 부가 효과 (Effects)
-             List<dynamic> effects = res['effects'] ?? [];
-             for (var effect in effects) {
-                String effMsg = effect['message'] ?? "";
-                if (activeStr(effMsg)) {
-                   setState(() => _addLog(effMsg));
-                   await Future.delayed(const Duration(milliseconds: 400));
-                }
+             if (eventType == 'heal') {
+                 int target = res['target'] == 'self' ? res['attacker'] : res['target'];
+                 int healAmount = res['value'] ?? 0; // heal value from packet
+                 
+                 // HP Bar Increase Animation
+                 if (target == _myId) {
+                    setState(() {
+                         _myHp = (_myHp + healAmount).clamp(0, _myMaxHp);
+                         _addLog("체력이 $healAmount 회복되었습니다!");
+                    });
+                 } else {
+                    setState(() {
+                         _oppHp = (_oppHp + healAmount).clamp(0, _oppMaxHp);
+                    });
+                 }
+                 await Future.delayed(const Duration(milliseconds: 500));
              }
+             await Future.delayed(const Duration(milliseconds: 400));
 
           } else if (eventType == 'immobile') {
              // 행동 불가
@@ -718,9 +783,9 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
              await Future.delayed(const Duration(milliseconds: 800));
              
           } else if (eventType == 'status_damage' || eventType == 'status_recover') {
-             // 상태 이상 데미지 / 회복
+             // 턴 종료 시 상태 데미지
              int target = res['target'];
-             int damage = res['damage']; // 회복일 경우 0일 수 있음 (현재 로직상)
+             int damage = res['damage']; 
              String msg = res['message'];
              
              setState(() => _addLog(msg));
@@ -732,9 +797,6 @@ class _BattlePageState extends State<BattlePage> with SingleTickerProviderStateM
                       _updateHp(target, damage); 
                    });
                 }
-                await Future.delayed(const Duration(milliseconds: 500));
-             } else if (eventType == 'status_recover') {
-                // 회복 연출 등 (필요 시 추가)
                 await Future.delayed(const Duration(milliseconds: 500));
              }
           }

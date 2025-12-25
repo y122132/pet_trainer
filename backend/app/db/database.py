@@ -92,7 +92,7 @@ async def init_db():
                     character_id=char.id,
                     strength=10,
                     intelligence=10,
-                    stamina=10,
+                    agility=10,
                     happiness=50,
                     health=100,
                     defense=10,    # Default

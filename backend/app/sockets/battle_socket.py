@@ -3,6 +3,7 @@ from typing import Dict, List
 import json
 import asyncio
 from app.game.battle_manager import BattleManager, BattleState
+from app.game.battle_calculator import BattleCalculator
 from app.game.game_assets import MOVE_DATA
 from app.db.database import AsyncSessionLocal
 from app.services import char_service
@@ -93,19 +94,19 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int):
                 res_stat = await db.execute(stmt_stat)
                 stat_obj = res_stat.scalar_one_or_none()
                 
-                    if stat_obj:
-                        # Store a snapshot (or reference if safe)
-                        room.character_stats[user_id] = stat_obj
-                        room.pet_types[user_id] = character_obj.pet_type
-                        
-                        # Initialize BattleState with current HP from DB
-                        room.battle_states[user_id] = BattleState(max_hp=stat_obj.health, current_hp=stat_obj.health)
-                        
-                        # [Fix] 기존 데이터 호환성을 위해 스킬이 없으면 기본 스킬(1: 짖기) 부여
-                        room.learned_skills[user_id] = character_obj.learned_skills if character_obj.learned_skills else [1]
-                    else:
-                        await websocket.close(code=4004, reason="No character stat found")
-                        return
+                if stat_obj:
+                    # Store a snapshot (or reference if safe)
+                    room.character_stats[user_id] = stat_obj
+                    room.pet_types[user_id] = character_obj.pet_type
+                    
+                    # Initialize BattleState with current HP from DB
+                    room.battle_states[user_id] = BattleState(max_hp=stat_obj.health, current_hp=stat_obj.health)
+                    
+                    # [Fix] 기존 데이터 호환성을 위해 스킬이 없으면 기본 스킬(1: 짖기) 부여
+                    room.learned_skills[user_id] = character_obj.learned_skills if character_obj.learned_skills else [1]
+                else:
+                    await websocket.close(code=4004, reason="No character stat found")
+                    return
             else:
                  await websocket.close(code=4004, reason="No character found")
                  return
@@ -144,6 +145,12 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int):
             
             battle_state = room.battle_states[uid]
             
+            # [Fix] 스탯 랭크 초기화 (재경기 시 이전 버프 초기화)
+            room.battle_states[uid].stages = {
+                "strength": 0, "defense": 0, "agility": 0, 
+                "intelligence": 0, "accuracy": 0, "evasion": 0
+            }
+
             stats_info[uid] = {
                 "hp": battle_state.current_hp,
                 "max_hp": battle_state.max_hp, 
@@ -244,9 +251,9 @@ async def process_turn(room: BattleRoom):
             
             move_id = room.selections[attacker_id]
             
-            ifattacker_state.current_hp <= 0: continue
+            if attacker_state.current_hp <= 0: continue
 
-            # 행동 불가 체크
+            # 행동 불가 체크 (Immobile)
             can_move, fail_msg = BattleManager.can_move(attacker_state)
             if not can_move:
                 turn_logs.append({
@@ -256,30 +263,81 @@ async def process_turn(room: BattleRoom):
                     "message": fail_msg
                 })
                 continue
-                
-            # 데미지 계산
-            damage, is_critical = BattleManager.calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id)
-            
-            # HP 적용 (BattleState 사용)
-            defender_state.current_hp -= damage
-            if defender_state.current_hp < 0: defender_state.current_hp = 0
-            
-            # 기술 효과 적용
-            effect_logs = BattleManager.apply_move_effects(move_id, attacker_state, defender_state, attacker_stat)
-            
-            log_entry = {
+
+            # 1. 공격 선언 (Start)
+            turn_logs.append({
                 "type": "turn_event",
-                "event_type": "attack",
+                "event_type": "attack_start",
                 "attacker": attacker_id,
-                "defender": defender_id,
                 "move_id": move_id,
-                "damage": damage,
-                "is_critical": is_critical,
-                "defender_hp": defender_state.current_hp, # BattleState HP
-                "effects": effect_logs,
-                "message": f"{move_id}번 기술 사용!" 
-            }
-            turn_logs.append(log_entry)
+                "message": f"{move_id}번 기술 시전!"
+            })
+            
+            # 2. 명중 체크 (Hit Check)
+            is_hit = BattleCalculator.check_hit(attacker_stat, attacker_state, defender_stat, defender_state, move_id)
+            
+            if not is_hit:
+                # 빗나감
+                turn_logs.append({
+                    "type": "turn_event",
+                    "event_type": "hit_result",
+                    "result": "miss",
+                    "attacker": attacker_id,
+                    "defender": defender_id,
+                    "message": "공격이 빗나갔습니다!"
+                })
+            else:
+                # [New] 방어자 속성 조회
+                from app.game.game_assets import PET_TYPE_MAP
+                def_pet_type = room.pet_types.get(defender_id, "dog")
+                def_elemental_type = PET_TYPE_MAP.get(def_pet_type, "normal")
+
+                # 적중 -> 데미지 계산
+                # [Fix] defender_type 전달 및 effectiveness 수신
+                damage, is_critical, effectiveness = BattleManager.calculate_damage(
+                    attacker_stat, attacker_state, defender_stat, defender_state, move_id, defender_type=def_elemental_type
+                )
+                
+                # HP 적용
+                defender_state.current_hp -= damage
+                if defender_state.current_hp < 0: defender_state.current_hp = 0
+                
+                # 메시지 구성
+                hit_msg = "명중!"
+                if is_critical: hit_msg = "크리티컬 히트!"
+                if effectiveness == "super": hit_msg += " (효과가 굉장했다!)"
+                elif effectiveness == "not_very": hit_msg += " (효과가 별로인 듯하다...)"
+
+                turn_logs.append({
+                    "type": "turn_event",
+                    "event_type": "hit_result",
+                    "result": "hit",
+                    "attacker": attacker_id,
+                    "defender": defender_id,
+                    "damage": damage,
+                    "is_critical": is_critical,
+                    "effectiveness": effectiveness, # 클라이언트 연출용
+                    "defender_hp": defender_state.current_hp,
+                    "message": hit_msg
+                })
+
+                if damage > 0:
+                     turn_logs.append({
+                        "type": "turn_event",
+                        "event_type": "damage_apply",
+                        "target": defender_id,
+                        "damage": damage,
+                        "target_hp": defender_state.current_hp,
+                        "message": f"{damage}의 데미지를 입었습니다!"
+                    })
+
+                # 3. 부가 효과 적용 (Effects)
+                if defender_state.current_hp > 0:
+                    effect_logs = BattleManager.apply_move_effects(move_id, attacker_state, defender_state, attacker_stat)
+                    for eff in effect_logs:
+                        eff["event_type"] = "effect_apply" # 클라이언트 식별용
+                        eff["type"] = "turn_event" # turn_event 타입 유지
+                        turn_logs.append(eff)
             
             if defender_state.current_hp <= 0: break 
         
@@ -328,18 +386,11 @@ async def process_turn(room: BattleRoom):
             loser = u2
             
         if winner is not None:
-            # [New] 최종 HP를 DB에 반영 (게임 끝날 때 1회)
+            # [Fix] 배틀 종료 시 체력 스탯 덮어쓰기 로직 제거 (Stat Loss Bug Fix)
+            # 이제 승리 보상만 처리하고, health 스탯은 건드리지 않음
+            reward_info = None
             try:
                 async with AsyncSessionLocal() as db:
-                     # Re-fetch or merge objects to update
-                     # Simple logic: update health column
-                     for uid in [u1, u2]:
-                         await db.execute(
-                             "UPDATE stats SET health = :hp WHERE character_id = (SELECT id FROM characters WHERE user_id = :uid)",
-                             {"hp": room.battle_states[uid].current_hp, "uid": uid}
-                         )
-                     await db.commit()
-                     
                      # 보상 처리
                      reward_info = await char_service.process_battle_result(db, winner, loser)
             except Exception as e:
@@ -360,6 +411,14 @@ async def process_turn(room: BattleRoom):
                 "result": "LOSE",
                 "winner": winner
             })
+            
+            # [Refinement] 배틀 종료 시 스탯 랭크 초기화 (메모리 상태 정리)
+            for uid in [u1, u2]:
+                if uid in room.battle_states:
+                    room.battle_states[uid].stages = {
+                        "strength": 0, "defense": 0, "agility": 0, 
+                        "intelligence": 0, "accuracy": 0, "evasion": 0
+                    }
              
     except Exception as e:
         print(f"Turn Processing Error: {e}")
