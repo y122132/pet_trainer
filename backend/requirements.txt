@@ -13,3 +13,4 @@ ultralytics
 langchain
 langgraph
 langchain_openai
+redis

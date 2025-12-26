@@ -78,3 +78,25 @@ PET_BEHAVIORS = {
 # 기본 행동 설정 (알 수 없는 동물이 감지되었을 때 강아지 로직 사용)
 DEFAULT_BEHAVIOR = PET_BEHAVIORS[16]
 
+# [NEW] 탐지 민감도 및 판정 로직 설정
+DETECTION_SETTINGS = {
+    # 1. 신뢰도 임계값 (Confidence Threshold)
+    "logic_conf": {
+        "easy": 0.4,
+        "hard": 0.6
+    },
+    
+    # 2. 상호작용 거리 임계값 (Min Distance for Interaction)
+    # 화면 대각선 기준 비율 (0.0 ~ 1.0)
+    "min_distance": {
+        "playing": { "easy": 0.25, "hard": 0.15 },
+        "feeding": { "easy": 0.15, "hard": 0.10 },
+        "interaction": { "easy": 0.30, "hard": 0.20 }
+    },
+    
+    # 3. 겹침 비율 임계값 (Overlap Ratio for Feeding)
+    "max_overlap": {
+        "easy": 0.1,    # 살짝 겹쳐도 인정
+        "hard": 0.3     # 많이 겹쳐야 인정
+    }
+}

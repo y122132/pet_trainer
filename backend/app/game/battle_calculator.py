@@ -3,14 +3,28 @@ from app.game.game_assets import MOVE_DATA
 
 class BattleCalculator:
     """
-    배틀의 모든 수치를 계산하는 핵심 엔진 (고도화 버전)
-    7대 스탯 활용: Health, Strength, Agility, Intelligence, Defense, Luck
+    [Battle Math Engine]
+    전투의 모든 수치 계산(데미지, 명중률, 선공권)을 담당합니다.
+    
+    [데미지 계산 공식 가이드]
+    1. 공격력(A) / 방어력(D) 계산
+       - 물리(Physical): Strength vs Defense
+       - 특수(Special): Intelligence vs Intelligence
+       - 랭크(Rank) 반영: -6 ~ +6 단계에 따라 보정 (2/8 ~ 8/2)
+    2. 화상(Burn) 페널티: 물리 기술일 경우 공격력 50% 반감
+    3. 기본 데미지: (A / D) * 위력(Power) * 0.5 + 2
+    4. 크리티컬(Critical): (Luck * 0.5 + 5)% 확률로 1.5배 보정
+    5. 랜덤 난수(Random): 0.85 ~ 1.0 사이의 값 곱연산
+    6. 속성 상성(Type): 효과가 좋음(2.0), 보통(1.0), 별로(0.5), 무효(0.0)
+    7. 필드 보정(Field): 날씨(Weather), 장소(Location)에 따른 타입 위력 보정
     """
 
     @staticmethod
     def calculate_damage(attacker_stat, attacker_state, defender_stat, defender_state, move_id: int, defender_type: str = None, field_data: dict = None):
         """
-        데미지 공식: (Strength / Defense) * Power * Modifiers
+        [Logic: 데미지 계산]
+        위의 공식 가이드에 따라 최종 데미지를 산출합니다.
+        Return: (final_damage, is_critical, effectiveness_string)
         """
         move = MOVE_DATA.get(move_id)
         if not move: return 0, False, "normal"
