@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
 import 'providers/char_provider.dart';
 import 'screens/menu_page.dart';
+import 'screens/login_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +29,7 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
       ),
       // 앱의 시작 페이지는 메뉴 페이지입니다.
-      home: const MenuPage(),
+      home: LoginScreen(),
     );
   }
 }

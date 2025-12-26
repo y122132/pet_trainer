@@ -55,23 +55,28 @@ async def init_db():
     
     async with AsyncSessionLocal() as session:
         # 1. 기본 사용자 확인 및 생성
-        result = await session.execute(select(User).where(User.id == 1))
+        result = await session.execute(select(User).where(User.username == "test_admin"))
         default_user = result.scalar_one_or_none()
         
         if not default_user:
             print("Seeding default user for MVP... (기본 사용자 생성)")
-            default_user = User(id=1, email="test@example.com", password="hashed_password") 
+            default_user = User(
+                id=1000,
+                username = "test_admin",
+                email="test@example.com",
+                password="hashed_password"
+                ) 
             session.add(default_user)
             await session.commit()
             await session.refresh(default_user)
             
         # 2. 기본 캐릭터 확인 및 생성
-        char_res = await session.execute(select(Character).where(Character.user_id == 1))
+        char_res = await session.execute(select(Character).where(Character.user_id == 1000))
         default_char = char_res.scalar_one_or_none()
         
         if not default_char:
             print("Seeding default character... (기본 캐릭터 생성)")
-            default_char = Character(user_id=1, name="PetTrainer", status="normal")
+            default_char = Character(user_id=1000, name="PetTrainer", status="normal")
             session.add(default_char)
             await session.commit()
             await session.refresh(default_char)
