@@ -109,7 +109,7 @@ cd frontend
 # 2. 패키지 설치
 flutter pub get
 
-# 3. 설정 파일 확인 (lib/config.dart)
+# 3. 설정 파일 확인 (lib/api_config.dart)
 # 서버 IP 주소에 맞게 baseUrl 수정 필요
 
 # 4. 앱 실행

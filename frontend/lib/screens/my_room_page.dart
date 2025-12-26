@@ -5,7 +5,7 @@ import 'camera_screen.dart';
 import '../providers/char_provider.dart';
 import '../widgets/stat_distribution_dialog.dart';
 import '../widgets/common/stat_widgets.dart';
-import '../widgets/chat_bubble.dart'; // Import ChatBubble
+import '../widgets/char_message_bubble.dart'; // Import ChatBubble
 import '../config/theme.dart'; // Import AppTheme
 
 class MyRoomPage extends StatefulWidget {

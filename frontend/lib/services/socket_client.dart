@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import 'package:pet_trainer_frontend/config.dart';
+import 'package:pet_trainer_frontend/api_config.dart';
+
+import 'package:pet_trainer_frontend/services/auth_service.dart'; // [추가]
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SocketClient {
   WebSocketChannel? _channel;
@@ -26,8 +29,12 @@ class SocketClient {
     if (_isConnected) return; // 이미 연결되어 있으면 무시
 
     try {
-      // URL 쿼리 파라미터 구성 (사용자 ID는 1로 고정 - 추후 인증 연동 필요)
-      final uri = Uri.parse('$_wsUrl/1?pet_type=$petType&difficulty=$difficulty&mode=$mode');
+      // [추가] 기기에 저장된 실제 유저 ID 가져오기
+      final storage = FlutterSecureStorage();
+      final String? userId = await storage.read(key: 'user_id');
+
+      // URL 쿼리 파라미터 구성 (하드코딩된 /1 대신 /$userId 사용)
+      final uri = Uri.parse('$_wsUrl/$userId?pet_type=$petType&difficulty=$difficulty&mode=$mode');
       print("Socket Connecting to: $uri");
       
       _channel = WebSocketChannel.connect(uri);

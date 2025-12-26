@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:ui'; // For ImageFilter
 import 'package:provider/provider.dart';
-import 'package:pet_trainer_frontend/config.dart';
+import 'package:pet_trainer_frontend/api_config.dart';
 import 'package:pet_trainer_frontend/providers/char_provider.dart';
 import 'package:pet_trainer_frontend/providers/battle_provider.dart';
 import 'package:pet_trainer_frontend/models/battle_state.dart';

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pet_trainer_frontend/config.dart';
+import 'package:pet_trainer_frontend/api_config.dart';
 import 'package:pet_trainer_frontend/models/battle_state.dart';
 import 'package:pet_trainer_frontend/services/battle_socket_service.dart';
 import 'package:pet_trainer_frontend/game/battle_animation_manager.dart';
@@ -71,10 +71,10 @@ class BattleProvider extends ChangeNotifier {
 
     _socketService.messageStream.listen(_handleMessage);
 
-    // [Revert] Use static Room ID for Matchmaking (Dev)
     final String roomId = "arena_1";
+    // AppConfig.battleSocketUrl 뒤에 실제 유저 ID가 붙어 경로가 구성됨
     final String url = "${AppConfig.battleSocketUrl}/$roomId/$_myId";
-    
+
     _socketService.connect(url);
   }
 

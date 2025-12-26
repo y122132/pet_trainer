@@ -1,4 +1,5 @@
 from passlib.context import CryptContext
+import os
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from typing import Optional
@@ -8,7 +9,8 @@ from fastapi import WebSocket, HTTPException, status
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT 설정
-SECRET_KEY = "your-secret-key-very-secret" 
+# JWT 설정
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-very-secret") 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1일
 

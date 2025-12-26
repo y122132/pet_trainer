@@ -40,7 +40,16 @@ async def authenticate_user(db: AsyncSession, user_in):
         return None # 검증 실패 시 None 반환 (라우터에서 예외 처리)
     
     # 3. JWT 토큰 생성
-    access_token = create_access_token(data={"sub": str(user.id)})
+    # 3. JWT 토큰 생성
+    # ACCESS_TOKEN_EXPIRE_MINUTES를 security 모듈에서 가져와야 함 (import 필요)
+    from datetime import timedelta
+    from app.core.security import ACCESS_TOKEN_EXPIRE_MINUTES
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": str(user.id)}, 
+        expires_delta=access_token_expires
+    )
     return {
         "access_token": access_token, 
         "token_type": "bearer", 

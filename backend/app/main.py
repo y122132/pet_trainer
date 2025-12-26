@@ -1,6 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
+from dotenv import load_dotenv
+
+from pathlib import Path
+
+# 현재 파일(main.py)의 위치: backend/app/main.py
+# 루트 .env 위치: backend/app/../../.env -> Project Root
+env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 from app.api.v1.routers import api_router
 from app.sockets.analysis_socket import router as websocket_router

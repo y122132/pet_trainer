@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:pet_trainer_frontend/models/character.dart';
+import 'package:pet_trainer_frontend/models/character_model.dart';
 import 'package:pet_trainer_frontend/models/pet_config.dart';
 
-import 'package:pet_trainer_frontend/config.dart';
+import 'package:pet_trainer_frontend/api_config.dart';
+
+import 'package:pet_trainer_frontend/services/auth_service.dart'; // [추가] AuthService 임포트
 
 class CharProvider with ChangeNotifier {
   // 캐릭터 상태 데이터 (Private 변수)
@@ -185,8 +187,16 @@ class CharProvider with ChangeNotifier {
   // [id]: 캐릭터 ID (기본값 1)
   Future<void> fetchCharacter([int id = 1]) async {
     try {
+      final token = await AuthService().getToken();
       // API 호출: GET /v1/characters/{id}
-      final response = await http.get(Uri.parse('$_baseUrl/v1/characters/$id'));
+      final response = await http.get(
+        Uri.parse('$_baseUrl/v1/characters/$id'),
+        headers: {
+          "Authorization": "Bearer $token", // [추가] 인증 헤더
+          "Content-Type": "application/json",
+        },
+      );
+
       if (response.statusCode == 200) {
         if (response.bodyBytes.isEmpty) {
            throw Exception("Empty response body");
@@ -234,10 +244,15 @@ class CharProvider with ChangeNotifier {
   Future<void> syncStatToBackend() async {
     if (_character == null) return;
     try {
+      // [추가] 기기에 저장된 JWT 토큰 가져오기
+      final token = await AuthService().getToken();
       // API 호출: PUT /v1/characters/{id}/stats
       await http.put(
         Uri.parse('$_baseUrl/v1/characters/${_character!.id}/stats'),
-        headers: {"Content-Type": "application/json"},
+        headers: {
+          "Authorization": "Bearer $token", // [추가] 인증 헤더
+          "Content-Type": "application/json",
+        },
         body: jsonEncode({
           "strength": _character!.stat!.strength,
           "intelligence": _character!.stat!.intelligence,
