@@ -37,12 +37,29 @@ Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
     }
   }
   
-  // Resize (Maintain Aspect Ratio)
-  // resizing to width 640. height is auto-calculated.
-  img.Image resizedImage = img.copyResize(yuvImage, width: 640);
+  // Rotation Angle
+  final int rotationAngle = data['rotationAngle'] ?? 0;
+  
+  // Resize Logic (Optimized for Portrait/YOLO)
+  // Ensure we don't shrink the width too much before rotation.
+  bool willRotate = (rotationAngle == 90 || rotationAngle == 270);
+  int? targetWidth;
+  int? targetHeight;
+  
+  if (willRotate) {
+      targetHeight = 640; 
+  } else {
+      targetWidth = 640;
+  }
+
+  img.Image resizedImage = img.copyResize(
+      yuvImage, 
+      width: targetWidth, 
+      height: targetHeight, 
+      interpolation: img.Interpolation.linear
+  );
 
   // Rotation
-  final int rotationAngle = data['rotationAngle'] ?? 0;
   if (rotationAngle != 0) {
     resizedImage = img.copyRotate(resizedImage, angle: rotationAngle);
   }
