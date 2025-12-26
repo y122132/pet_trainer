@@ -206,24 +206,22 @@ class TrainingController extends ChangeNotifier {
 
        // Success Handling
        if (statusStr == 'success') {
-          if (data.containsKey('base_reward') && onSuccessCallback != null) {
+          if (data.containsKey('base_reward')) {
              final base = data['base_reward'];
              final bonus = data['bonus_points'] ?? 0;
-             onSuccessCallback?.call(); // Notify View
              
-             // Update Provider Reward
+             // [Fix] Store reward data BEFORE notifying the view
+             lastReward = {'base': base, 'bonus': bonus};
+
+             // Update Provider Reward (Stats)
              _charProvider?.gainReward(base, bonus); 
              
-             stopTraining(); // Stop Loop
+             // Notify View to show dialog
+             if (onSuccessCallback != null) {
+                onSuccessCallback?.call(); 
+             }
              
-             // Pass reward data to callback indirectly or store in state?
-             // Actually, View might need the reward data.
-             // We can fire a separate event or just let the View read it from Controller?
-             // For simplicity, I will store 'lastReward' in Controller or pass it via callback.
-             // I'll update callback signature to accept reward.
-             // But Dart's VoidCallback doesn't take args. 
-             // I will set a `lastReward` property.
-             lastReward = {'base': base, 'bonus': bonus};
+             stopTraining(); // Stop Loop
           }
        }
        
