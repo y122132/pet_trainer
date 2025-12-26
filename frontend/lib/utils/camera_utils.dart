@@ -40,23 +40,23 @@ Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
   // Rotation Angle
   final int rotationAngle = data['rotationAngle'] ?? 0;
   
-  // Resize Logic (Optimized for Portrait/YOLO)
-  // Ensure we don't shrink the width too much before rotation.
-  bool willRotate = (rotationAngle == 90 || rotationAngle == 270);
-  int? targetWidth;
-  int? targetHeight;
-  
-  if (willRotate) {
-      targetHeight = 640; 
+  // Resize Logic: Maintain Aspect Ratio, Longest Side = 640px
+  int targetWidth, targetHeight;
+  final double aspectRatio = width / height;
+
+  if (width > height) {
+    targetWidth = 640;
+    targetHeight = (640 / aspectRatio).round();
   } else {
-      targetWidth = 640;
+    targetHeight = 640;
+    targetWidth = (640 * aspectRatio).round();
   }
 
   img.Image resizedImage = img.copyResize(
       yuvImage, 
       width: targetWidth, 
       height: targetHeight, 
-      interpolation: img.Interpolation.linear
+      interpolation: img.Interpolation.cubic
   );
 
   // Rotation

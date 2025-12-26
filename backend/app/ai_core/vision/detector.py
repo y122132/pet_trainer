@@ -110,6 +110,10 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     logic_conf_setting = DETECTION_SETTINGS["logic_conf"]
     LOGIC_CONF = logic_conf_setting.get(difficulty, logic_conf_setting["easy"])
     
+    # [Debug] Save input frame to verify aspect ratio/distortion
+    # This helps confirm if the frontend resize logic is working as expected (no squeeze).
+    cv2.imwrite("debug_input.jpg", frame)
+
     # [Critical Fix] BGR -> RGB 변환
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
@@ -133,10 +137,9 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
             
-            # [Coordinate Normalization: Refined]
-            # Use xyxyn (normalized 0-1) directly from YOLO to ensure accurate
-            # letterbox padding correction (gain/pad calculation) matching the inference.
-            # This accounts for the aspect ratio difference between input (WxH) and model (640x640).
+            # [Coordinate Normalization]
+            # xyxyn returns normalized coordinates (0-1) relative to the ORIGINAL image.
+            # Ultralytics handles the undoing of letterbox padding automatically.
             x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
             
             # Clamp securely to avoid float precision overshooting
