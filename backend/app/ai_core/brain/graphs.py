@@ -2,6 +2,7 @@ import os
 import random
 import time
 import pickle # [New] Serialization
+import base64 # [New] Base64 for Redis string compatibility
 from typing import Annotated, TypedDict, Optional, Literal
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END, START
@@ -216,7 +217,8 @@ async def get_character_response(
     try:
         data = await client.get(redis_key)
         if data:
-            saved_state = pickle.loads(data)
+            # Base64 decode string to bytes, then unpickle
+            saved_state = pickle.loads(base64.b64decode(data))
             last_ts = saved_state.get("last_interaction_timestamp", 0)
             if last_ts > 0 and (time.time() - last_ts > 86400):
                 is_long_absence = True
@@ -245,7 +247,9 @@ async def get_character_response(
     # 4. Redis에 최신 상태 저장
     try:
         # 결과 전체를 저장 (Result는 AgentState 구조)
-        await client.set(redis_key, pickle.dumps(result))
+        # Pickle bytes -> Base64 bytes -> String
+        serialized_data = base64.b64encode(pickle.dumps(result)).decode('utf-8')
+        await client.set(redis_key, serialized_data)
     except Exception as e:
         print(f"[Brain] Redis Save Error: {e}")
     
