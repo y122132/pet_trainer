@@ -40,12 +40,9 @@ class BattleController extends ChangeNotifier {
     _state = _state.copyWith(statusMessage: "Connecting to server...");
     notifyListeners();
 
-    // [Dynamic Room ID]
-    // Generate a unique room ID to ensure a fresh session.
-    final String roomId = "arena_${DateTime.now().millisecondsSinceEpoch}";
-    
-    // Note: In a real game, this ID should be shared between players (e.g. via Lobby or Matchmaking).
-    // For now, this effectively creates a "Solo/PvE" instance or requires manual coord if P2P.
+    // [Revert] Use static Room ID for Matchmaking (Dev)
+    final String roomId = "arena_1";
+    // final String roomId = "arena_${DateTime.now().millisecondsSinceEpoch}"; // Caused matchmaking split
     final String url = "${AppConfig.battleSocketUrl}/$roomId/$_myId";
     
     try {
@@ -284,8 +281,16 @@ class BattleController extends ChangeNotifier {
                  _eventController.add(BattleEvent(type: BattleEventType.miss, targetId: target));
                  _addLog("Missed!");
               } else {
+                 int target = res['defender'] ?? (_opponentId);
+                 int damage = res['damage'] ?? 0;
+                 
+                 if (damage > 0) {
+                     _eventController.add(BattleEvent(type: BattleEventType.shake, targetId: target));
+                     _eventController.add(BattleEvent(type: BattleEventType.damage, targetId: target, value: damage));
+                     _handleHpChange(target, -damage);
+                 }
+
                  if (res['is_critical'] == true) {
-                    int target = res['defender'] ?? (_opponentId);
                     _eventController.add(BattleEvent(type: BattleEventType.crit, targetId: target));
                     _addLog("CRITICAL HIT!");
                  }

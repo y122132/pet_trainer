@@ -416,12 +416,16 @@ async def process_turn_redis(room_id: str):
              
              # Effects
              if def_state.current_hp > 0:
-                 elog = BattleManager.apply_move_effects(move_id, att_state, def_state, att_stat, f"User {att_id}", f"User {def_id}")
-                 for l in elog:
-                     # Field intercept
-                     if l.get("type") == "field_update":
-                         room_data["field_effects"][l.get("field")] = l.get("value")
-                     turn_logs.append(l)
+                elog = BattleManager.apply_move_effects(move_id, att_state, def_state, att_stat, f"User {att_id}", f"User {def_id}")
+                for l in elog:
+                    # [Fix] Inject Context for Frontend Target Resolution
+                    l["attacker"] = att_id
+                    l["defender"] = def_id
+                    
+                    # Field intercept
+                    if l.get("type") == "field_update":
+                        room_data["field_effects"][l.get("field")] = l.get("value")
+                    turn_logs.append(l)
 
         if def_state.current_hp <= 0: break
 
