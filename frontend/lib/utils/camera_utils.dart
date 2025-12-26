@@ -3,7 +3,7 @@ import 'package:image/image.dart' as img;
 
 // --- Top-level function for compute() ---
 // Must be top-level or static.
-Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
+Uint8List resizeAndCompressImage(Map<String, dynamic> data) {
   final int width = data['width'];
   final int height = data['height'];
   // sensorOrientation is not directly used for YUV->RGB but for rotation decision logic passed via rotationAngle
