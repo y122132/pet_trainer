@@ -123,6 +123,10 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
     await trigger_llm("greeting", is_success=False)
 
     
+    # [Optimization] 프레임 스킵 카운터
+    frame_count = 0
+    PROCESS_INTERVAL = 3  # 3프레임마다 1번 처리
+
     try:
         while True:
             # 타임아웃을 두어 receive_bytes가 무한정 막히지 않게 할 수도 있지만,
@@ -135,6 +139,8 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
             except Exception:
                 break
             
+            frame_count += 1
+
             # 1. Idle 체크 (매 프레임마다 시간 비교)
             # 마지막 상호작용(성공, 실패, 감지 등)으로부터 20초 경과 시
             if time.time() - last_interaction_time > 20.0:
@@ -155,7 +161,18 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
             current_time = time.time()
             
             # 비전 처리 (CPU/GPU)
-            result = await run_in_threadpool(detector.process_frame, image_bytes, mode, target_class_id, difficulty)
+            result = await run_in_threadpool(
+                detector.process_frame, 
+                image_bytes, 
+                mode, 
+                target_class_id, 
+                difficulty,
+                frame_index=frame_count,
+                process_interval=PROCESS_INTERVAL
+            )
+
+            if result.get("skipped", False):
+                continue
             is_success_vision = result.get("success", False)
 
             # --- FSM 로직 ---
