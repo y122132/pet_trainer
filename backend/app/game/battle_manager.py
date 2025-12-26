@@ -213,6 +213,48 @@ class BattleManager:
                             "message": "체력이 이미 가득 찼습니다!"
                         })
 
+
+
+            elif effect["type"] == "recoil":
+                # [New] Recoil Logic (for Struggle)
+                # value is % of Max HP
+                pct = effect.get("value", 25)
+                target = effect["target"] # should be 'self' usually
+                
+                recoil_dmg = int(target_state.max_hp * (pct / 100))
+                if recoil_dmg < 1: recoil_dmg = 1
+                
+                old_hp = target_state.current_hp
+                target_state.current_hp = max(0, target_state.current_hp - recoil_dmg)
+                real_dmg = old_hp - target_state.current_hp
+                
+                logs.append({
+                    "type": "damage", # Treat as generic damage for visual shake? Or new type? 
+                    # Use 'damage_apply' style or specific recoil? 
+                    # Existing frontend handles 'damage_apply' well. Let's map it to that or create equivalent log.
+                    # Frontend parses 'turn_event' -> 'damage_apply'. 
+                    # Here we are in 'apply_move_effects', strictly returning 'logs' list.
+                    # The caller (socket) appends these to turn_logs. 
+                    # Let's return a log that socket checks? Or just a message? 
+                    # Standard Move Effect just returns logs for display usually. 
+                    # But Damage IS State Change.
+                    # Let's use a type that BattleSocket/Frontend understands or map it.
+                    # 'damage_apply' in socket requires 'target' as int ID. Here we have 'target' as 'self' string.
+                    # Socket converts 'self'/'enemy'. 
+                    # So we can use 'damage_apply' format here if we fit the schema.
+                    "type": "turn_event", # Wrapper? No, apply_move_effects returns list of dicts.
+                    # Socket iterates and appends.
+                    # Socket log schema: {type: turn_event, event_type: damage_apply, damage: X, target: Y}
+                    # Wait, BattleManager usually returns simplified logs for Stats/Status.
+                    # Socket lines 389: for l in elog: ... turn_logs.append(l)
+                    # So we should match socket schema.
+                    "type": "turn_event",
+                    "event_type": "damage_apply",
+                    "damage": real_dmg,
+                    "target": target, # 'self' or 'enemy'
+                    "message": "반동으로 데미지를 입었습니다!"
+                })
+
         return logs
 
     @staticmethod
@@ -307,10 +349,11 @@ class BattleManager:
     def can_move(state: BattleState):
         """
         상태 이상으로 인한 행동 불가 체크
+        Return: (can_move: bool, message: str, self_damage: int)
         """
         # [New] Volatile: Flinch
         if "flinch" in state.volatile:
-             return False, "풀죽어서 움직일 수 없습니다!"
+             return False, "풀죽어서 움직일 수 없습니다!", 0
 
         # [Fix] 혼란 (Confusion) - Check Volatile First
         if "confusion" in state.volatile:
@@ -323,16 +366,16 @@ class BattleManager:
                 state.current_hp -= self_damage
                 if state.current_hp < 0: state.current_hp = 0
                 
-                return False, f"혼란에 빠져 자신을 공격했습니다! (피해: {self_damage})"
+                return False, f"혼란에 빠져 자신을 공격했습니다!", self_damage
 
         # 마비 (Paralysis) 체크
         if state.status_ailment == "paralysis":
             if random.random() < 0.25:
                 # 25% 확률로 행동 불가
-                return False, "몸이 저려서 움직일 수 없습니다!"
+                return False, "몸이 저려서 움직일 수 없습니다!", 0
         
         # 수면 (Sleep) - Not implemented yet but placeholder
         if state.status_ailment == "sleep":
-             return False, "쿨쿨 자고 있습니다."
+             return False, "쿨쿨 자고 있습니다.", 0
 
-        return True, None
+        return True, None, 0

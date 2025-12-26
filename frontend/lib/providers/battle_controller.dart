@@ -40,7 +40,9 @@ class BattleController extends ChangeNotifier {
     _state = _state.copyWith(statusMessage: "Connecting to server...");
     notifyListeners();
 
+    // [Revert] Use static Room ID for Matchmaking (Dev)
     final String roomId = "arena_1";
+    // final String roomId = "arena_${DateTime.now().millisecondsSinceEpoch}"; // Caused matchmaking split
     final String url = "${AppConfig.battleSocketUrl}/$roomId/$_myId";
     
     try {
@@ -127,15 +129,21 @@ class BattleController extends ChangeNotifier {
         // 3. 턴 제어: 애니메이션 종료 후 내 턴 활성화
         
         bool isGameOver = data['is_game_over'] ?? false;
-        _parseStateSync(data['player_states']);
+        // 1. 상태 동기화 데이터 임시 저장 (즉시 적용 X)
+        // 나중에 _parseStateSync를 호출하여 최종 상태를 맞춥니다.
+        final pendingStates = data['player_states'];
 
         _state = _state.copyWith(isOpponentThinking: false);
         _isProcessingTurn = true;
         notifyListeners();
 
-        // 비동기 애니메이션 시퀀스 실행 (약 3~5초 소요)
+        // 2. 비동기 애니메이션 시퀀스 실행 (약 3~5초 소요)
+        // 이 과정에서 _handleHpChange가 호출되어 시각적으로 HP가 감소합니다.
         await _processTurnResult(data['results']);
 
+        // 3. 애니메이션 종료 후 최종 상태 동기화 (HP 오차 보정, 상태이상 적용 등)
+        _parseStateSync(pendingStates);
+        
         _isProcessingTurn = false;
         
         // Handle Queued Game Over logic
@@ -210,9 +218,31 @@ class BattleController extends ChangeNotifier {
         if (state['volatile'] != null) statuses.addAll(List<String>.from(state['volatile']));
         
         if (u == _myId) {
-           _state = _state.copyWith(myStatuses: statuses);
+           List<Map<String, dynamic>> updatedSkills = List.from(_state.mySkills);
+           
+           // [New] PP Sync
+           if (state['pp'] != null) {
+              final ppMap = state['pp']; // {"1": 19, "2": 5}
+              updatedSkills = updatedSkills.map((s) {
+                 final newS = Map<String, dynamic>.from(s);
+                 final sid = newS['id'].toString();
+                 if (ppMap[sid] != null) {
+                    newS['pp'] = ppMap[sid];
+                 }
+                 return newS;
+              }).toList();
+           }
+
+           _state = _state.copyWith(
+              myStatuses: statuses,
+              mySkills: updatedSkills,
+              myHp: state['hp']
+           );
         } else {
-           _state = _state.copyWith(oppStatuses: statuses);
+           _state = _state.copyWith(
+               oppStatuses: statuses,
+               oppHp: state['hp']
+           );
         }
      });
      // Note: We don't notify here, we might do it after animation or immediately. 
@@ -225,7 +255,7 @@ class BattleController extends ChangeNotifier {
        
        String type = res['type'] ?? 'unknown';
        if (type == 'turn_event') {
-          String eventType = res['event_type'];
+          String eventType = res['event_type'] ?? '';
           
           if (eventType == 'attack_start') {
               int attacker = res['attacker'];
@@ -250,10 +280,21 @@ class BattleController extends ChangeNotifier {
                  int target = res['defender'] ?? (_opponentId); // Fallback
                  _eventController.add(BattleEvent(type: BattleEventType.miss, targetId: target));
                  _addLog("Missed!");
-              } else if (res['is_critical'] == true) {
+              } else {
                  int target = res['defender'] ?? (_opponentId);
-                 _eventController.add(BattleEvent(type: BattleEventType.crit, targetId: target));
-                 _addLog("CRITICAL HIT!");
+                 int damage = res['damage'] ?? 0;
+                 
+                 if (damage > 0) {
+                     _eventController.add(BattleEvent(type: BattleEventType.shake, targetId: target));
+                     _eventController.add(BattleEvent(type: BattleEventType.damage, targetId: target, value: damage));
+                     _handleHpChange(target, -damage);
+                 }
+
+                 if (res['is_critical'] == true) {
+                    _eventController.add(BattleEvent(type: BattleEventType.crit, targetId: target));
+                    _addLog("CRITICAL HIT!");
+                 }
+                 if (res['message'] != null) _addLog(res['message']);
               }
               await Future.delayed(const Duration(milliseconds: 500));
 
@@ -279,18 +320,46 @@ class BattleController extends ChangeNotifier {
                  await Future.delayed(const Duration(milliseconds: 600));
               }
 
-          } else if (eventType == 'heal') {
-              int target = _resolveTarget(res);
-              int amount = res['value'] ?? 0;
-              
-              _handleHpChange(target, amount);
-              _eventController.add(BattleEvent(type: BattleEventType.heal, targetId: target, value: amount));
-              _addLog("Recovered $amount HP!");
-              await Future.delayed(const Duration(milliseconds: 500));
-
           } else if (res['message'] != null) {
               _addLog(res['message']);
           }
+       } else if (type == 'heal') {
+           int target = _resolveTarget(res);
+           int amount = res['value'] ?? 0;
+           
+           _handleHpChange(target, amount);
+           _eventController.add(BattleEvent(type: BattleEventType.heal, targetId: target, value: amount));
+           
+           if (res['message'] != null) _addLog(res['message']);
+           else _addLog("Recovered $amount HP!");
+           
+           await Future.delayed(const Duration(milliseconds: 500));
+
+       } else if (type == 'status_damage') {
+           // [New] Status Damage Handler
+           int target = res['target'] ?? _myId; // Default fallback
+           int damage = res['damage'] ?? 0;
+           String msg = res['message'] ?? "Took damage from status!";
+           
+           _addLog(msg);
+           
+           if (damage > 0) {
+               _eventController.add(BattleEvent(type: BattleEventType.shake, targetId: target));
+               _eventController.add(BattleEvent(type: BattleEventType.damage, targetId: target, value: damage));
+               _handleHpChange(target, -damage);
+               await Future.delayed(const Duration(milliseconds: 600));
+           }
+           
+           if (res['is_recovered'] == true) {
+               // If recovered flag is present in damage (combo)
+               // Already logged in msg
+           }
+
+       } else if (type == 'status_recover') {
+           // [New] Status Recover Handler
+           String msg = res['message'] ?? "Recovered from status!";
+           _addLog(msg);
+           await Future.delayed(const Duration(milliseconds: 500));
        }
     }
   }

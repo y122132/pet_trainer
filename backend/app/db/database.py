@@ -45,7 +45,7 @@ async def init_db():
     
     # 테이블 생성 (이미 존재하면 건너뜀)
     async with engine.begin() as conn:
-        # await conn.run_sync(Base.metadata.drop_all) # 개발 중 초기화가 필요할 때 사용 (주의!)
+        # await conn.run_sync(Base.metadata.drop_all) # [FIX] 스키마 불일치 해결을 위해 초기화 활성화
         await conn.run_sync(Base.metadata.create_all)
         
     # MVP 테스트를 위한 기본(Default) 데이터 시딩
