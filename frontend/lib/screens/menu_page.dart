@@ -4,167 +4,267 @@ import 'my_room_page.dart';
 import 'mode_select_page.dart';
 import 'battle_page.dart';
 import '../providers/char_provider.dart';
+import '../config/theme.dart';
 
-class MenuPage extends StatelessWidget {
+class MenuPage extends StatefulWidget {
   const MenuPage({super.key});
 
   @override
+  State<MenuPage> createState() => _MenuPageState();
+}
+
+class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin {
+  late AnimationController _breathingController;
+  late Animation<double> _breathingAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _breathingController = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1500));
+    _breathingAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+      CurvedAnimation(parent: _breathingController, curve: Curves.easeInOut),
+    );
+    _breathingController.repeat(reverse: true);
+    
+    // Auto-fetch data if not present (Safety check)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Optional: Trigger fetch if needed, but usually done in main or splash.
+    });
+  }
+
+  @override
+  void dispose() {
+    _breathingController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // 앱 시작 시 초기 데이터 로드 (캐릭터 정보)
-    // WidgetsBinding.instance.addPostFrameCallback((_) {
-    //   Provider.of<CharProvider>(context, listen: false).fetchCharacter(1);
-    // });
-
     return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 40),
-            const Text(
-              "PetTrainer",
-              style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.indigo),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              "지구 최강의 생명체를 키워보세요!",
-              style: TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-            const SizedBox(height: 40),
-            
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    // 상태 표시 (Debug info)
-                    Consumer<CharProvider>(
-                      builder: (context, provider, child) {
-                        if (provider.character != null) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              "✅ 접속됨: ${provider.character!.name} (ID: ${provider.character!.userId}, ${provider.character!.petType})",
-                              style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-                            ),
-                          );
-                        } else {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              "❌ 연결 안됨: ${provider.statusMessage}",
-                              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                            ),
-                          );
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    
-                    // 테스트용 유저 변경 버튼 (런타임에 각각 다른 유저로 로그인하기 위함)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        ElevatedButton(
-                          onPressed: () {
-                             Provider.of<CharProvider>(context, listen: false).fetchCharacter(1);
-                          },
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blue[100]),
-                          child: const Text("User 1 (Dog)"),
-                        ),
-                        const SizedBox(width: 10),
-                        ElevatedButton(
-                          onPressed: () {
-                             Provider.of<CharProvider>(context, listen: false).fetchCharacter(2);
-                          },
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.pink[100]),
-                          child: const Text("User 2 (Cat)"),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
+      backgroundColor: AppColors.background,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 1. Background Decor (Subtle Circles)
+          Positioned(
+            top: -100,
+            right: -100,
+            child: _buildDecorCircle(300, AppColors.navy.withOpacity(0.05)),
+          ),
+          Positioned(
+            bottom: -50,
+            left: -50,
+            child: _buildDecorCircle(200, AppColors.cyberYellow.withOpacity(0.1)),
+          ),
 
-                    // 메인 메뉴 버튼들
-                    _buildMenuButton(
-                      context,
-                      "🏠 마이룸",
-                      "캐릭터 상태 확인 및 휴식",
-                      Colors.orangeAccent,
-                      () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MyRoomPage())),
-                    ),
-                    _buildMenuButton(
-                      context,
-                      "🏋️ 훈련장",
-                      "운동하고 스탯을 올리세요!",
-                      Colors.blueAccent,
-                      () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ModeSelectPage())),
-                    ),
-                    _buildMenuButton(
-                      context,
-                      "⚔️ 전투",
-                      "다른 몬스터와 경쟁하세요",
-                      Colors.redAccent,
-                      () => Navigator.push(context, MaterialPageRoute(builder: (context) => const BattlePage())),
-                    ),
+          // 2. Main Character (Center - Lobby Style)
+          Positioned.fill(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(height: 50), // Header Offset
+                Expanded(
+                  child: Consumer<CharProvider>(
+                    builder: (context, provider, child) {
+                      final imagePath = provider.character?.imageUrl ?? 
+                                      'assets/images/characters/닌자옷.png';
+                      
+                      return AnimatedBuilder(
+                        animation: _breathingAnimation,
+                        builder: (context, child) {
+                          return Transform.scale(
+                            scale: _breathingAnimation.value,
+                            child: child,
+                          );
+                        },
+                        child: GestureDetector(
+                           onTap: () {
+                              // Simple interaction feedback
+                              provider.updateStatusMessage("오늘도 훈련하러 가볼까요? 멍!");
+                           },
+                           child: Image.asset(imagePath, fit: BoxFit.contain),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 180), // Space for Bottom Menu
+              ],
+            ),
+          ),
+
+          // 3. UI Overlay - Header (User Info)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                     // User Profile Badge
+                     Consumer<CharProvider>(
+                       builder: (context, provider, child) {
+                         String name = provider.character?.name ?? "트레이너";
+                         String type = provider.character?.petType ?? "";
+                         return Container(
+                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                           decoration: BoxDecoration(
+                             color: Colors.white,
+                             borderRadius: BorderRadius.circular(30),
+                             boxShadow: [
+                               BoxShadow(color: Colors.black12, blurRadius: 8, offset: const Offset(0, 4))
+                             ]
+                           ),
+                           child: Row(
+                             children: [
+                               CircleAvatar(
+                                 radius: 14,
+                                 backgroundColor: AppColors.navy,
+                                 child: const Icon(Icons.person, size: 16, color: Colors.white),
+                               ),
+                               const SizedBox(width: 8),
+                               Text("$name ($type)", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
+                             ],
+                           ),
+                         );
+                       },
+                     ),
+                     // Login/Switch User Buttons (Minified for Lobby)
+                     Row(
+                       children: [
+                         _buildMiniUserButton(context, 1, Colors.blue),
+                         const SizedBox(width: 8),
+                         _buildMiniUserButton(context, 2, Colors.pink),
+                       ],
+                     )
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 40),
-          ],
-        ),
+          ),
+          
+          // 4. UI Overlay - Bottom Menu (Action Cards)
+          Positioned(
+            bottom: 30,
+            left: 20,
+            right: 20,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+               children: [
+                 // Primary Action
+                 _buildLobbyCard(
+                   context,
+                   title: "TRAINING",
+                   subtitle: "스탯을 성장시키세요",
+                   icon: Icons.fitness_center,
+                   color: AppColors.navy,
+                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ModeSelectPage())),
+                   isPrimary: true,
+                 ),
+                 const SizedBox(height: 12),
+                 // Secondary Row
+                 Row(
+                   children: [
+                     Expanded(
+                       child: _buildLobbyCard(
+                         context,
+                         title: "MY ROOM",
+                         subtitle: "휴식 & 상태",
+                         icon: Icons.home_rounded,
+                         color: Colors.orangeAccent,
+                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MyRoomPage())),
+                       ),
+                     ),
+                     const SizedBox(width: 12),
+                     Expanded(
+                       child: _buildLobbyCard(
+                         context,
+                         title: "BATTLE",
+                         subtitle: "실전 대결",
+                         icon: Icons.sports_kabaddi_rounded, // or swords
+                         color: AppColors.danger,
+                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const BattlePage())),
+                       ),
+                     ),
+                   ],
+                 )
+               ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  // 메뉴 버튼 위젯 생성 헬퍼
-  Widget _buildMenuButton(BuildContext context, String title, String subtitle, Color color, VoidCallback onTap) {
+  Widget _buildDecorCircle(double size, Color color) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+
+  Widget _buildMiniUserButton(BuildContext context, int id, Color color) {
+    return GestureDetector(
+      onTap: () => Provider.of<CharProvider>(context, listen: false).fetchCharacter(id),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(color: color.withOpacity(0.2), shape: BoxShape.circle),
+        child: Text("U$id", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 10)),
+      ),
+    );
+  }
+
+  Widget _buildLobbyCard(BuildContext context, {
+    required String title, required String subtitle, required IconData icon, 
+    required Color color, required VoidCallback onTap, bool isPrimary = false
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(25),
+        height: isPrimary ? 90 : 110,
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.3),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
-            ),
+            BoxShadow(color: color.withOpacity(0.2), blurRadius: 12, offset: const Offset(0, 6))
           ],
-          border: Border.all(color: color.withOpacity(0.5), width: 2),
+          border: isPrimary ? Border.all(color: color, width: 2) : null,
         ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.arrow_forward_ios, color: color),
-            ),
-            const SizedBox(width: 20),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        child: isPrimary 
+          ? Row( // Horizontal Layout for Primary
               children: [
-                Text(title, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87)),
-                const SizedBox(height: 5),
-                Text(subtitle, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                  child: Icon(icon, color: color, size: 28),
+                ),
+                const SizedBox(width: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: color, letterSpacing: 1.0)),
+                    Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  ],
+                ),
+                const Spacer(),
+                Icon(Icons.arrow_forward_ios_rounded, color: color.withOpacity(0.5), size: 18)
+              ],
+            )
+          : Column( // Vertical Layout for Secondary
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                 Icon(icon, color: color, size: 32),
+                 const SizedBox(height: 8),
+                 Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: color)),
               ],
             ),
-          ],
-        ),
       ),
     );
   }

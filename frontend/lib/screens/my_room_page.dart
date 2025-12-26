@@ -4,128 +4,148 @@ import 'package:fl_chart/fl_chart.dart';
 import 'camera_screen.dart';
 import '../providers/char_provider.dart';
 import '../widgets/stat_distribution_dialog.dart';
-import '../widgets/common/stat_widgets.dart'; // [New]
-import 'package:camera/camera.dart';
+import '../widgets/common/stat_widgets.dart';
+import '../widgets/chat_bubble.dart'; // Import ChatBubble
+import '../config/theme.dart'; // Import AppTheme
 
-// --- 마이룸 페이지 (MyRoomPage) ---
-// 반려동물의 상세 스탯을 확인하고, 획득한 포인트를 분배하며 휴식하는 공간입니다.
-class MyRoomPage extends StatelessWidget {
+class MyRoomPage extends StatefulWidget {
   const MyRoomPage({super.key});
+
+  @override
+  State<MyRoomPage> createState() => _MyRoomPageState();
+}
+
+class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateMixin {
+  late AnimationController _breathingController;
+  late Animation<double> _breathingAnimation;
+  bool _showBubble = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _breathingController = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 2000));
+    _breathingAnimation = Tween<double>(begin: 1.0, end: 1.03).animate(
+      CurvedAnimation(parent: _breathingController, curve: Curves.easeInOut),
+    );
+    _breathingController.repeat(reverse: true);
+    
+    // Auto-show bubble initially
+    Future.delayed(const Duration(milliseconds: 500), () {
+        if(mounted) setState(() => _showBubble = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _breathingController.dispose();
+    super.dispose();
+  }
+
+  void _onCharacterTap(CharProvider provider) {
+    // 1. Haptic feedback or sound could go here
+    // 2. Change message
+    List<String> messages = [
+       "오늘 운동은 언제 하시나요?",
+       "간식이 먹고 싶어요! 멍!",
+       "쓰담쓰담 해주세요~",
+       "같이 놀아요!",
+       "근육이 불끈불끈!"
+    ];
+    String randomMsg = (messages..shuffle()).first;
+    provider.updateStatusMessage(randomMsg);
+    
+    setState(() => _showBubble = true);
+    
+    // Auto-hide bubble after few seconds to simulate conversation flow
+    // (Optional, currently keeping it visible until next tap or permanent)
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5FA), // 부드러운 연한 회색 배경
-      body: SafeArea(
-        child: Column(
-          children: [
-            // [헤더 영역] 상단 커스텀 앱바 (뒤로가기 버튼 포함)
-            Padding(
-               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-               child: Row(
-                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                 children: [
-                   IconButton(
-                     icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black54),
-                     onPressed: () => Navigator.pop(context),
-                   ),
-                   const Text("마이룸", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                   const SizedBox(width: 48), // 중앙 정렬 유지를 위한 빈 공간
-                 ],
-               ),
-            ),
-            
-            Expanded(
-              child: Consumer<CharProvider>(
-                builder: (context, provider, child) {
-                  return Column(
-                    children: [
-                      // 1. 상단 정보 바 (사용자 칭호 및 알림)
-                      _buildTopBar(provider),
-
-                      // 2. 메인 레이아웃 (캐릭터 영역 40% : 스탯 영역 60% 분할)
-                      Expanded(
-                        child: Row(
-                          children: [
-                            // [왼쪽] 캐릭터 비주얼 영역
-                            Expanded(
-                              flex: 4,
-                              child: _buildCharacterArea(provider),
-                            ),
-                            
-                            // [오른쪽] 스탯 수치 및 레이더 차트 영역
-                            Expanded(
-                              flex: 6,
-                              child: _buildStatsArea(context, provider),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 20), // 하단 여백
-                    ],
-                  );
-                },
-              ),
-            ),
-          ],
+      extendBodyBehindAppBar: true, 
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
         ),
+        title: const Text("MY ROOM", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, shadows: [Shadow(color: Colors.black54, blurRadius: 4)])),
+        actions: [
+          IconButton(onPressed: () {}, icon: const Icon(Icons.settings, color: Colors.white70))
+        ],
       ),
-    );
-  }
-
-  // 상단 바 위젯: 사용자의 현재 칭호와 알림 아이콘 표시
-  Widget _buildTopBar(CharProvider provider) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: Stack(
         children: [
-          // 칭호 배지 (예: 근육대장님, 초보 트레이너)
-          Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.stars_rounded, color: Colors.amber, size: 20),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      // 캐릭터 스탯 정보가 50을 넘으면 호칭 변경
-                      provider.character?.stat?.strength != null && provider.character!.stat!.strength > 50 
-                          ? "근육대장님" 
-                          : "초보 트레이너",
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                  ),
+          // 1. Background (Gradient)
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFF2E3A59), // Navy
+                  Color(0xFF4A148C), // Deep Purple
+                  Color(0xFF1E2742), // Dark Navy
                 ],
               ),
             ),
           ),
           
-          // 알림/메시지함 버튼
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                 BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
-              ],
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.mail_outline_rounded, color: Colors.grey),
-              onPressed: () {
-                // TODO: 시스템 알림 또는 캐릭터 메시지함 기능 구현 예정
+          // 2. Content
+          SafeArea(
+            child: Consumer<CharProvider>(
+              builder: (context, provider, child) {
+                 return Column(
+                   children: [
+                     // Top Spacer
+                     const SizedBox(height: 10),
+                     
+                     // Message Bubble Area
+                     Container(
+                       constraints: const BoxConstraints(minHeight: 80),
+                       width: double.infinity,
+                       alignment: Alignment.center,
+                       child: _showBubble 
+                           ? ChatBubble(
+                               message: provider.statusMessage.isNotEmpty ? provider.statusMessage : "안녕하세요!", 
+                               isAnalyzing: false 
+                             )
+                           : const SizedBox(height: 80),
+                     ),
+
+                     // Character Area (Expanded)
+                     Expanded(
+                       flex: 5,
+                       child: GestureDetector(
+                         onTap: () => _onCharacterTap(provider),
+                         child: Center(
+                            child: AnimatedBuilder(
+                              animation: _breathingAnimation,
+                              builder: (context, child) {
+                                return Transform.scale(
+                                  scale: _breathingAnimation.value,
+                                  child: child,
+                                );
+                              },
+                              child: Image.asset(
+                                provider.character?.imageUrl ?? 'assets/images/characters/닌자옷.png',
+                                fit: BoxFit.contain,
+                                width: MediaQuery.of(context).size.width * 0.8,
+                              ),
+                            ),
+                         ),
+                       ),
+                     ),
+
+                     // Stats Panel (Bottom Sheet Style)
+                     Expanded(
+                       flex: 5, // 50% height
+                       child: _buildStatsPanel(context, provider),
+                     ),
+                   ],
+                 );
               },
             ),
           ),
@@ -134,128 +154,12 @@ class MyRoomPage extends StatelessWidget {
     );
   }
 
-  // 캐릭터 영역: 캐릭터 이미지와 HP/EXP 바 표시
-  Widget _buildCharacterArea(CharProvider provider) {
+  Widget _buildStatsPanel(BuildContext context, CharProvider provider) {
     final stat = provider.character?.stat;
-    final maxHealth = 100; // 최대 체력 기준값
-    final currentHealth = stat?.health ?? 100;
-
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // 반려동물 이미지 (AnimatedSwitcher로 표정 변화 시 부드럽게 전환)
-        Expanded(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 500),
-            child: Image.asset(
-              provider.character?.imageUrl ?? 'assets/images/characters/닌자옷.png',
-              key: ValueKey<String>(provider.character?.imageUrl ?? 'normal'),
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
-        
-        const SizedBox(height: 10),
-
-        // [HP 바] 체력 상태 표시
-        SizedBox(
-          width: 140,
-          child: Column(
-            children: [
-               Row(
-                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                 children: [
-                   const Text("HP", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.pinkAccent)),
-                   Text("$currentHealth/$maxHealth", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.black54)),
-                 ],
-               ),
-               const SizedBox(height: 4),
-               ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: (currentHealth / maxHealth).clamp(0.0, 1.0),
-                    backgroundColor: Colors.pink.withOpacity(0.1),
-                    color: Colors.pinkAccent,
-                    minHeight: 6,
-                  ),
-               ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 15),
-        
-        // [정보창] 이름, 레벨, 경험치(EXP)
-        Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
-            boxShadow: [
-               BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))
-            ]
-          ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.blueAccent,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      "Lv.${stat?.level ?? 1}",
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      provider.character?.name ?? "이름없음",
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueAccent),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // [EXP 바] 경험치 진행률
-              SizedBox(
-                width: 120,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: ((stat?.exp ?? 0) / 100.0).clamp(0.0, 1.0),
-                    backgroundColor: Colors.blue.withOpacity(0.1),
-                    color: Colors.blueAccent,
-                    minHeight: 4,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                "EXP ${stat?.exp ?? 0}/100", 
-                style: TextStyle(fontSize: 8, color: Colors.grey[600]),
-              )
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  // 스탯 영역: 레이더 차트와 세부 수치, 스탯 분배 기능 포함
-  Widget _buildStatsArea(BuildContext context, CharProvider provider) {
-    if (provider.character == null || provider.character!.stat == null) {
-      return const Center(child: Text("데이터 로딩 중..."));
+    if (stat == null) {
+       return const Center(child: Text("Loading...", style: TextStyle(color: Colors.white)));
     }
 
-    final stat = provider.character!.stat!;
     final statsMap = {
       "strength": stat.strength,
       "intelligence": stat.intelligence,
@@ -263,87 +167,111 @@ class MyRoomPage extends StatelessWidget {
       "defense": stat.defense,
       "luck": stat.luck,
     };
-    final labels = ["STR", "INT", "DEX", "DEF", "LUK"];
-    final keys = ["strength", "intelligence", "agility", "defense", "luck"];
     
+    // Glassmorphism Container
     return Container(
-      margin: const EdgeInsets.fromLTRB(0, 10, 20, 10),
+      margin: const EdgeInsets.only(top: 10, left: 10, right: 10, bottom: 0),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        color: Colors.white.withOpacity(0.9), // Slightly transparent white
+        borderRadius: const BorderRadius.only(topLeft: Radius.circular(30), topRight: Radius.circular(30)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 5)),
+          BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, -5))
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. [스탯 분배 버튼] 포인트가 남아있을 때만 노출됨
-          if (provider.unusedStatPoints > 0)
-            Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.upgrade, size: 16),
-                label: Text("스탯 분배 (${provider.unusedStatPoints}P)"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.indigoAccent,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                ),
-                onPressed: () {
-                   // 팝업을 띄워 원하는 스탯에 포인트 투자
-                   showDialog(
-                     context: context,
-                     builder: (context) => StatDistributionDialog(
-                       availablePoints: provider.unusedStatPoints,
-                       currentStats: statsMap,
-                       title: "미사용 포인트 분배",
-                       confirmLabel: "적용",
-                       skipLabel: "취소",
-                       onConfirm: (allocated, remaining) {
-                          // 선택한 스탯만큼 반복해서 Provider 업데이트 호출
-                          _applyAllocated(provider, 'strength', allocated['strength']!);
-                          _applyAllocated(provider, 'intelligence', allocated['intelligence']!);
-                          _applyAllocated(provider, 'agility', allocated['agility']!);
-                          _applyAllocated(provider, 'defense', allocated['defense']!);
-                          _applyAllocated(provider, 'luck', allocated['luck']!);
-                          
-                          Navigator.pop(context);
-                       },
-                       onSkip: () => Navigator.pop(context),
-                     ),
-                   );
-                },
+          // Header: Name & Level
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Lv.${stat.level} ${provider.character?.name ?? ''}", 
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.navy)),
+                  Text("EXP ${stat.exp}/100", style: const TextStyle(color: Colors.grey)),
+                ],
               ),
-            ),
-
-          // 2. [레이더 차트] 시각적인 능력치 밸런스 확인
-          AspectRatio(
-            aspectRatio: 1.3,
-            child: StatRadarChart(stats: statsMap), // [New] 공용 위젯 사용
+              // Unused Points Button
+              if (provider.unusedStatPoints > 0)
+                ElevatedButton.icon(
+                  onPressed: () => _showStatDialog(context, provider, statsMap),
+                  icon: const Icon(Icons.arrow_upward, size: 16),
+                  label: Text("${provider.unusedStatPoints}P 분배"),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.cyberYellow, foregroundColor: AppColors.navy),
+                ),
+            ],
           ),
-          
-          const Spacer(),
-          
-          // 3. [세부 스탯 바] 각 능력치별 진행도 표시
-          // Keys [strength, intelligence, agility, defense, luck]
-          // Labels [STR, INT, DEX, DEF, LUK]
-          ...List.generate(keys.length, (index) {
-             return StatProgressBar(
-                 label: labels[index], 
-                 value: statsMap[keys[index]] ?? 0
-             );
-          }),
+          const SizedBox(height: 5),
+          ClipRRect(
+             borderRadius: BorderRadius.circular(4),
+             child: LinearProgressIndicator(value: stat.exp / 100, backgroundColor: Colors.grey[200], color: AppColors.cyberYellow, minHeight: 6),
+          ),
+          const SizedBox(height: 20),
+
+          // Content: Radar Chart vs Progress Bars via Tab or Split
+          // Using Split View for now
+          Expanded(
+            child: Row(
+               children: [
+                  // Left: Radar Chart
+                  Expanded(
+                    flex: 4,
+                    child: StatRadarChart(stats: statsMap, showLabels: false),
+                  ),
+                  const SizedBox(width: 20),
+                  // Right: Stats List
+                  Expanded(
+                    flex: 6,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                           StatProgressBar(label: "STR", value: stat.strength),
+                           StatProgressBar(label: "INT", value: stat.intelligence),
+                           StatProgressBar(label: "DEX", value: stat.agility),
+                           StatProgressBar(label: "DEF", value: stat.defense),
+                           StatProgressBar(label: "LUK", value: stat.luck),
+                           const Divider(height: 20),
+                           StatProgressBar(label: "HP", value: stat.health, maxValue: 100), // HP
+                        ],
+                      ),
+                    ),
+                  )
+               ],
+            ),
+          )
         ],
       ),
     );
   }
+
+  void _showStatDialog(BuildContext context, CharProvider provider, Map<String, int> currentStats) {
+      showDialog(
+        context: context,
+        builder: (context) => StatDistributionDialog(
+          availablePoints: provider.unusedStatPoints,
+          currentStats: currentStats,
+          title: "스탯 분배",
+          confirmLabel: "적용",
+          skipLabel: "취소",
+          onConfirm: (allocated, remaining) {
+             _applyAllocated(provider, 'strength', allocated['strength']!);
+             _applyAllocated(provider, 'intelligence', allocated['intelligence']!);
+             _applyAllocated(provider, 'agility', allocated['agility']!);
+             _applyAllocated(provider, 'defense', allocated['defense']!);
+             _applyAllocated(provider, 'luck', allocated['luck']!);
+             Navigator.pop(context);
+          },
+          onSkip: () => Navigator.pop(context),
+        ),
+      );
+  }
   
-  // 포인트 할당 적용 로직
   void _applyAllocated(CharProvider provider, String type, int amount) {
     for (int i=0; i<amount; i++) {
-      provider.allocateStatSpecific(type); // 1포인트씩 소모하며 스탯 증가
+      provider.allocateStatSpecific(type); 
     }
   }
 }

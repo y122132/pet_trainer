@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
 import 'providers/char_provider.dart';
 import 'screens/menu_page.dart';
+import 'config/theme.dart'; // [New]
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,10 +24,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'PetTrainer',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-      ),
+      theme: AppTheme.lightTheme,
       // 앱의 시작 페이지는 메뉴 페이지입니다.
       home: const MenuPage(),
     );
