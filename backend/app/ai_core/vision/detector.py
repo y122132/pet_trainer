@@ -90,8 +90,14 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
         return {"success": False, "message": f"이미지 디코딩 에러: {str(e)}"}
 
     height, width, _ = frame.shape
+    
+    # [Improvement] Orientation & Aspect Ratio Calculation
+    # OpenCV imdecode might ignore EXIF, so we explicitly report what we see.
+    aspect_ratio = width / height
+    orientation = "landscape" if width > height else "portrait"
+    
     file_size_kb = len(image_bytes) / 1024
-    print(f"[Detector] Input Image Size: {width}x{height} (Ratio: {width/height:.2f}), File Size: {file_size_kb:.1f}KB", flush=True)
+    print(f"[Detector] Input: {width}x{height} ({orientation}, AR: {aspect_ratio:.2f}), Size: {file_size_kb:.1f}KB", flush=True)
 
     # ---------------------------------------------------------
     # 2. 반려동물 & 사물 탐지 (YOLO Object Detection)
@@ -105,25 +111,22 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
     LOGIC_CONF = logic_conf_setting.get(difficulty, logic_conf_setting["easy"])
     
     # [Critical Fix] BGR -> RGB 변환
-    # OpenCV는 BGR을 사용하지만, YOLO 모델(Ultralytics)은 RGB를 기대함.
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
-    # YOLO 추론 수행 (imgsz=640 명시)
-    # Ultralytics는 결과 좌표를 원본 이미지 크기(width, height)에 맞춰 자동 리스케일링합니다.
+    # YOLO 추론
     results_detect = model_detect(frame_rgb, conf=INFERENCE_CONF, imgsz=640, verbose=False)
     
     found_pet = False
-    pet_box = [] # [x1, y1, x2, y2] (정규화된 좌표)
+    pet_box = [] 
     best_conf = 0.0
     
-    # [Config Load] 현재 모드에 필요한 타겟 물건 설정 미리 가져오기
     pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
     mode_config = pet_config.get(mode, pet_config["playing"]) 
     target_props = mode_config["targets"]
 
-    detected_objects = [] # 프론트엔드 시각화용 (모든 관련 객체)
+    detected_objects = [] 
     props_detected = [] 
-    prop_boxes = {} # class_id -> [x1, y1, x2, y2]
+    prop_boxes = {} 
     
     if results_detect and results_detect[0].boxes:
         for box in results_detect[0].boxes:
@@ -131,11 +134,9 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             conf = float(box.conf[0])
             
             # [Coordinate Normalization]
-            # YOLO results are in absolute pixels of the original frame (frame_rgb).
-            # Normalize them to 0.0 ~ 1.0 for frontend compatibility.
+            # Normalize absolute pixels to 0.0 ~ 1.0 based on the ACTUAL loaded dimensions.
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             
-            # Ensure safe division
             safe_w = max(1.0, float(width))
             safe_h = max(1.0, float(height))
             
@@ -221,6 +222,8 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             "keypoints": [],
             "width": width,
             "height": height,
+            "aspect_ratio": aspect_ratio,   # [New]
+            "orientation": orientation,     # [New]
             "conf_score": best_conf,
             "debug_max_conf": max_conf_any, 
             "debug_max_cls": max_conf_cls,
@@ -368,6 +371,8 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
         "bbox": detected_objects,
         "width": width,
         "height": height,
+        "aspect_ratio": aspect_ratio,   # [New]
+        "orientation": orientation,     # [New]
         "conf_score": best_conf,
         "base_reward": base_reward,
         "bonus_points": bonus_points,
