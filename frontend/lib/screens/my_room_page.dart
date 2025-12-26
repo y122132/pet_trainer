@@ -1,13 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:pet_trainer_frontend/screens/outfit_selection_page.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:image_cropper/image_cropper.dart';
 import 'camera_screen.dart';
 import '../providers/char_provider.dart';
 import '../widgets/stat_distribution_dialog.dart';
-import 'package:camera/camera.dart';
 import 'customize_character_page.dart';
 
 // --- 마이룸 페이지 (MyRoomPage) ---
@@ -176,7 +174,31 @@ class _MyRoomPageState extends State<MyRoomPage> {
                 bottom: 10,
                 right: 10,
                 child: FloatingActionButton(
-                  onPressed: () => _showImageSourceDialog(context),
+                  onPressed: () async {
+                    final selectedOutfit = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const OutfitSelectionPage(),
+                      ),
+                    );
+
+                    if (selectedOutfit != null) {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => CustomizeCharacterPage(
+                            outfitImagePath: selectedOutfit,
+                          ),
+                        ),
+                      );
+
+                      if (result != null && result is String) {
+                        setState(() {
+                          _selectedImage = File(result);
+                        });
+                      }
+                    }
+                  },
                   tooltip: '커스텀',
                   child: const Icon(Icons.add_a_photo),
                 ),
@@ -443,75 +465,5 @@ class _MyRoomPageState extends State<MyRoomPage> {
         ],
       ),
     );
-  }
-
-  Future<void> _showImageSourceDialog(BuildContext context) async {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('이미지 소스 선택'),
-          content: SingleChildScrollView(
-            child: ListBody(
-              children: <Widget>[
-                GestureDetector(
-                  child: const Text('카메라'),
-                  onTap: () {
-                    _getImage(ImageSource.camera);
-                    Navigator.of(context).pop();
-                  },
-                ),
-                const Padding(padding: EdgeInsets.all(8.0)),
-                GestureDetector(
-                  child: const Text('갤러리'),
-                  onTap: () {
-                    _getImage(ImageSource.gallery);
-                    Navigator.of(context).pop();
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _getImage(ImageSource source) async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: source);
-
-    if (pickedFile != null) {
-      CroppedFile? croppedFile = await ImageCropper().cropImage(
-        sourcePath: pickedFile.path,
-        uiSettings: [
-          AndroidUiSettings(
-              toolbarTitle: 'Cropper',
-              toolbarColor: Colors.deepOrange,
-              toolbarWidgetColor: Colors.white,
-              initAspectRatio: CropAspectRatioPreset.original,
-              lockAspectRatio: false),
-          IOSUiSettings(
-            title: 'Cropper',
-          ),
-        ],
-      );
-      if (croppedFile != null) {
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => CustomizeCharacterPage(
-              imageFile: File(croppedFile.path),
-            ),
-          ),
-        );
-
-        if (result != null) {
-          setState(() {
-            _selectedImage = File(result);
-          });
-        }
-      }
-    }
   }
 }
