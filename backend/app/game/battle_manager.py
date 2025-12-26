@@ -349,10 +349,11 @@ class BattleManager:
     def can_move(state: BattleState):
         """
         상태 이상으로 인한 행동 불가 체크
+        Return: (can_move: bool, message: str, self_damage: int)
         """
         # [New] Volatile: Flinch
         if "flinch" in state.volatile:
-             return False, "풀죽어서 움직일 수 없습니다!"
+             return False, "풀죽어서 움직일 수 없습니다!", 0
 
         # [Fix] 혼란 (Confusion) - Check Volatile First
         if "confusion" in state.volatile:
@@ -365,16 +366,16 @@ class BattleManager:
                 state.current_hp -= self_damage
                 if state.current_hp < 0: state.current_hp = 0
                 
-                return False, f"혼란에 빠져 자신을 공격했습니다! (피해: {self_damage})"
+                return False, f"혼란에 빠져 자신을 공격했습니다!", self_damage
 
         # 마비 (Paralysis) 체크
         if state.status_ailment == "paralysis":
             if random.random() < 0.25:
                 # 25% 확률로 행동 불가
-                return False, "몸이 저려서 움직일 수 없습니다!"
+                return False, "몸이 저려서 움직일 수 없습니다!", 0
         
         # 수면 (Sleep) - Not implemented yet but placeholder
         if state.status_ailment == "sleep":
-             return False, "쿨쿨 자고 있습니다."
+             return False, "쿨쿨 자고 있습니다.", 0
 
-        return True, None
+        return True, None, 0
