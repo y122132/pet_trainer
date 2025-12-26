@@ -92,6 +92,7 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                             }
                         
                     msg = await get_character_response(
+                        user_id=user_id, # [New] Context Memory Key
                         action_type=action_type,
                         current_stats=char_stats,
                         mode=mode,
@@ -272,6 +273,7 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                             updated_stat = service_result["stat"]
                             
                             msg = await get_character_response(
+                                user_id=user_id, # [New] Context Memory Key
                                 action_type=result.get("action_type", "action").replace("_", " ").title(),
                                 current_stats={
                                     "strength": updated_stat.strength,
