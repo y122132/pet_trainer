@@ -1,16 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
+
 from app.api.v1.routers import api_router
 from app.sockets.analysis_socket import router as websocket_router
 from app.sockets.battle_socket import router as battle_router
 from app.db.database import init_db
 from app.ai_core.vision import detector
 
+from app.db.database_redis import RedisManager # 추가
+
+
 app = FastAPI(title="PetTrainer API")
 
 # CORS (Cross-Origin Resource Sharing) 미들웨어 설정
 # 프론트엔드(Flutter/Web)가 다른 도메인에서 API를 호출할 수 있도록 허용합니다.
-import os
+
 origins_env = os.getenv("ALLOWED_ORIGINS", "*")
 origins = [origin.strip() for origin in origins_env.split(",")]
 
@@ -48,3 +53,10 @@ async def root():
     서버 상태 확인용 루트 엔드포인트입니다.
     """
     return {"message": "Welcome to PetTrainer API"}
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """
+    서버 종료 시 리소스를 안전하게 해제합니다.
+    """
+    await RedisManager.close() # Redis 연결 풀 닫기

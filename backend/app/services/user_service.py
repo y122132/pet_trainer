@@ -1,10 +1,48 @@
-# --- 사용자 서비스 (User Service) ---
-# 이 파일은 사용자 계정 관리, 인증(Auth), 프로필 수정 등의 비즈니스 로직을 담당합니다.
-# 현재 MVP(최소 기능 제품) 단계에서는 복잡한 회원가입 절차 없이 기본 테스트 계정을 사용하므로
-# 실제 로직은 구현되어 있지 않습니다.
-#
-# 추후 확장 계획:
-# 1. create_user: 회원가입 로직
-# 2. authenticate_user: 로그인 및 비밀번호 검증
-# 3. get_current_user: JWT 토큰 기반 현재 사용자 조회
-# 4. update_user_profile: 프로필 정보 수정
+# backend/app/services/user_service.py
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from app.db.models.user import User
+from app.core.security import get_password_hash, verify_password, create_access_token
+from fastapi import HTTPException, status
+
+async def register_user(db: AsyncSession, user_in):
+    """
+    회원가입 비즈니스 로직: 아이디 중복 확인 및 유저 생성
+    """
+    # 1. 아이디 중복 확인
+    result = await db.execute(select(User).where(User.username == user_in.username))
+    if result.scalars().first():
+        raise HTTPException(status_code=400, detail="이미 존재하는 아이디입니다.")
+    
+    # 2. 새로운 유저 객체 생성 및 비밀번호 해싱
+    new_user = User(
+        username=user_in.username,
+        nickname=user_in.nickname,
+        password=get_password_hash(user_in.password)
+    )
+    
+    # 3. DB 저장
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user) # 저장된 객체 최신화
+    return {"message": "회원가입 성공"}
+
+async def authenticate_user(db: AsyncSession, user_in):
+    """
+    로그인 비즈니스 로직: 자격 증명 확인 및 토큰 발급
+    """
+    # 1. 유저 조회
+    result = await db.execute(select(User).where(User.username == user_in.username))
+    user = result.scalars().first()
+    
+    # 2. 비밀번호 검증
+    if not user or not verify_password(user_in.password, user.password):
+        return None # 검증 실패 시 None 반환 (라우터에서 예외 처리)
+    
+    # 3. JWT 토큰 생성
+    access_token = create_access_token(data={"sub": str(user.id)})
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer", 
+        "user_id": user.id
+    }
