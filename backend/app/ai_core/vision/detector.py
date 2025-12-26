@@ -133,17 +133,17 @@ def process_frame(image_bytes: bytes, mode: str = "playing", target_class_id: in
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
             
-            # [Coordinate Normalization]
-            # Normalize absolute pixels to 0.0 ~ 1.0 based on the ACTUAL loaded dimensions.
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+            # [Coordinate Normalization: Refined]
+            # Use xyxyn (normalized 0-1) directly from YOLO to ensure accurate
+            # letterbox padding correction (gain/pad calculation) matching the inference.
+            # This accounts for the aspect ratio difference between input (WxH) and model (640x640).
+            x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
             
-            safe_w = max(1.0, float(width))
-            safe_h = max(1.0, float(height))
-            
-            nx1 = max(0.0, min(1.0, float(x1) / safe_w))
-            ny1 = max(0.0, min(1.0, float(y1) / safe_h))
-            nx2 = max(0.0, min(1.0, float(x2) / safe_w))
-            ny2 = max(0.0, min(1.0, float(y2) / safe_h))
+            # Clamp securely to avoid float precision overshooting
+            nx1 = max(0.0, min(1.0, float(x1)))
+            ny1 = max(0.0, min(1.0, float(y1)))
+            nx2 = max(0.0, min(1.0, float(x2)))
+            ny2 = max(0.0, min(1.0, float(y2)))
             
             current_box = [nx1, ny1, nx2, ny2]
 
