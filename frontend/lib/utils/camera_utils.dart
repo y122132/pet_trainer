@@ -14,8 +14,14 @@ Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
   final Uint8List uBytes = planes[1]['bytes'];
   final Uint8List vBytes = planes[2]['bytes'];
   
-  final int yRowStride = planes[0]['bytesPerRow'];
-  final int uvRowStride = planes[1]['bytesPerRow'];
+  // [Robust Stride Calculation]
+  // Calculate stride from buffer size if reported stride looks suspicious (equals width but buffer is larger).
+  int yRowStride = planes[0]['bytesPerRow'];
+  if (yBytes.length > width * height && yRowStride <= width) {
+    yRowStride = (yBytes.length / height).round();
+  }
+
+  int uvRowStride = planes[1]['bytesPerRow'];
   final int uvPixelStride = planes[1]['bytesPerPixel'] ?? 1;
   
   // Create Image buffer
