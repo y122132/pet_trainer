@@ -130,8 +130,8 @@ class TrainingController extends ChangeNotifier {
         }).toList(),
       };
 
-      // Compute in Isolate
-      final jpegBytes = await compute(processCameraImageToJpeg, rawData);
+      // Compute in Isolate (Resize to 640px, JPEG 85)
+      final jpegBytes = await compute(resizeAndCompressImage, rawData);
 
       if (isAnalyzing && _canSendFrame) {
          _frameStartTime = DateTime.now().millisecondsSinceEpoch;

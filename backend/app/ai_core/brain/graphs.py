@@ -1,39 +1,83 @@
 import os
-from typing import Annotated, TypedDict, Optional
+import random
+import time
+import pickle # [New] Serialization
+from typing import Annotated, TypedDict, Optional, Literal
 from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+# from langgraph.checkpoint.memory import MemorySaver # [Removed]
+from app.db.database_redis import RedisManager # [New] Redis Manager
 from app.ai_core.brain.prompts import (
     BASE_PERSONA, MODE_PERSONA, SUCCESS_TEMPLATE, FAIL_TEMPLATE, 
     DAILY_STREAK_ADDON, MILESTONE_ADDON, IDLE_TEMPLATE, GREETING_TEMPLATE
 )
 
-# 환경변수에서 OpenAI API 키 로드
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# [New] Rule-based Templates
+RULE_TEMPLATES = {
+    "success": [
+        "잘했어요! 아주 훌륭합니다! 🐾",
+        "바로 그거예요! 완벽합니다! ✨",
+        "훈련 성공! 간식을 주고 싶네요! 🍖",
+        "점점 더 잘하는데요? 대단해요! 👍",
+        "오늘 컨디션 최고인데요? 계속 가봅시다! 🔥"
+    ],
+    "fail": [
+        "조금만 더 가까이 와보세요! 👀",
+        "아쉽네요, 다시 한 번 해볼까요? 💪",
+        "거의 다 왔어요! 힘내세요! 🐾",
+        "반려동물이 잘 보이게 해주세요! 📷",
+        "포기하지 마세요! 할 수 있어요! ✨"
+    ]
+}
+
 # --- 상태(State) 정의 ---
-# LangGraph의 노드 간에 전달될 데이터 구조입니다.
 class AgentState(TypedDict):
-    action_type: str        # 수행한 행동 (예: playing_fetch)
-    current_stats: dict     # 현재 캐릭터 스탯 (호칭 결정 등에 사용)
-    mode: str               # 훈련 모드 (playing, feeding, interaction)
-    is_success: bool        # 행동 성공 여부
-    reward_info: dict       # 보상 정보 {stat_type, value, bonus}
-    feedback_detail: str    # AI 비전 피드백 (실패 원인 등)
-    daily_count: int        # 오늘 수행 횟수
-    milestone_reached: bool # 마일스톤(레벨업 등) 달성 여부
-    messages: list          # LLM 대화 히스토리
+    action_type: str        
+    current_stats: dict     
+    mode: str               
+    is_success: bool        
+    reward_info: dict       
+    feedback_detail: str    
+    daily_count: int        
+    milestone_reached: bool 
+    messages: list          
+    last_interaction_timestamp: float 
+    is_long_absence: bool             
 
 # LLM 모델 초기화
-# 비용 효율성과 속도를 위해 'gpt-4o-mini' 모델을 사용합니다.
-# temperature=0.7: 적당히 창의적인 답변 생성
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7, api_key=OPENAI_API_KEY)
 
-# --- 노드 함수: 메시지 생성 ---
-def generate_message(state: AgentState):
+# [New] Router Logic (Hybrid Filter)
+def route_step(state: AgentState) -> Literal["llm_node", "rule_node"]:
     """
-    현재 상태(State)를 기반으로 캐릭터의 페르소나를 설정하고 반응 메시지를 생성합니다.
+    상황에 따라 LLM을 쓸지, 규칙 기반 템플릿을 쓸지 결정합니다.
     """
+    # 1. 특별한 이벤트 (마일스톤, 5회 단위 달성) -> LLM
+    if state.get("milestone_reached", False):
+        return "llm_node"
+    if state.get("daily_count", 0) > 0 and state.get("daily_count", 0) % 5 == 0:
+        return "llm_node"
+    
+    # 2. 첫 인사 / Idle / 오랜만의 접속 -> LLM
+    action = state.get("action_type", "")
+    if action in ["greeting", "idle"]:
+        return "llm_node"
+    if state.get("is_long_absence", False):
+        return "llm_node"
+    
+    # 3. 친밀도 높음 (Happiness > 80) -> LLM (더 풍부한 감정)
+    stats = state.get("current_stats", {})
+    if stats.get("happiness", 0) >= 80:
+        return "llm_node"
+        
+    # 4. 그 외 단순 반복적 성공/실패 -> Rule Based
+    return "rule_node"
+
+# [Node] LLM Message Generation
+def generate_llm_message(state: AgentState):
     action = state["action_type"]
     stats = state["current_stats"]
     mode = state.get("mode", "playing")
@@ -42,97 +86,113 @@ def generate_message(state: AgentState):
     reward = state.get("reward_info", {})
     daily_count = state.get("daily_count", 1)
     milestone_reached = state.get("milestone_reached", False)
+    is_long_absence = state.get("is_long_absence", False)
     
-    # 0. 스탯 기반 사용자 호칭 동적 결정
-    user_title = "주인님" # 기본 호칭
+    # 히스토리 로드 (최근 6개 대화만 유지)
+    history = state.get("messages", [])
+    if not history: history = []
+    
+    # 호칭 결정
+    user_title = "주인님"
     strength = stats.get("strength", 0)
     intelligence = stats.get("intelligence", 0)
-    agility = stats.get("agility", 0)
     happiness = stats.get("happiness", 0)
     
-    # 스탯이 높으면 호칭을 변경하여 성장을 체감하게 함
     if strength > 50: user_title = "든든한 대장님"
     elif intelligence > 50: user_title = "척척박사님"
     elif happiness > 50: user_title = "베스트 프렌드"
-    elif daily_count >= 5: user_title = "열정맨"
-
-    # 1. 모드별 페르소나(Persona) 프롬프트 설정 (prompts.py 참조)
-    # 기본 페르소나에 호칭 적용
-    persona_prompt = BASE_PERSONA.format(user_title=user_title)
     
-    # 모드에 따른 성격 추가
+    persona_prompt = BASE_PERSONA.format(user_title=user_title)
     persona_prompt += MODE_PERSONA.get(mode, MODE_PERSONA["default"])
-
-    # 2. 상황 설명(Context) 프롬프트 구성
+    
     situation_prompt = ""
     
     if is_success:
-        # 성공 시: 보상 내용과 축하 메시지
         stat_type = reward.get("stat_type", "스탯")
         stat_value = reward.get("value", 0)
         bonus = reward.get("bonus_points", 0)
         
         situation_prompt = SUCCESS_TEMPLATE.format(
-            action=action, 
-            stat_type=stat_type, 
-            stat_value=stat_value, 
-            bonus=bonus
+            action=action, stat_type=stat_type, stat_value=stat_value, bonus=bonus
         )
-        
-        # 연속 수행 문맥 추가 (꾸준함 칭찬)
-        if daily_count > 1:
-            situation_prompt += DAILY_STREAK_ADDON.format(daily_count=daily_count)
-        
-        # 마일스톤(10, 20...) 달성 시 특별 메시지
-        if milestone_reached:
-            situation_prompt += MILESTONE_ADDON
+        if daily_count > 1: situation_prompt += DAILY_STREAK_ADDON.format(daily_count=daily_count)
+        if milestone_reached: situation_prompt += MILESTONE_ADDON
             
     elif action == "idle":
-        # 대기(심심함) 상태
         situation_prompt = IDLE_TEMPLATE
         
     elif action == "greeting":
-        # 초기 인사
-        situation_prompt = GREETING_TEMPLATE
+        # [New] 오랜만에 접속 시 특별 메시지
+        if is_long_absence:
+             situation_prompt = "주인님! 너무 보고 싶었어요! 어디 다녀오셨어요? 😭 배고파서 현기증 난단 말이에요..."
+        else:
+             situation_prompt = GREETING_TEMPLATE
             
     else:
-        # 실패 시: 격려 및 힌트 제공
-        situation_prompt = FAIL_TEMPLATE.format(
-            action=action, 
-            feedback=feedback
-        )
+        situation_prompt = FAIL_TEMPLATE.format(action=action, feedback=feedback)
 
-    # 3. LLM 입력 메시지 구성
-    # SystemMessage: 페르소나 정의 (역할 부여)
-    system_msg = SystemMessage(content=f"{persona_prompt}\n\n[현재 내 상태]\n{stats}")
-    # HumanMessage: 현재 상황 전달
+    # 시스템 메시지 (매번 최신 상태 반영을 위해 새로 생성)
+    system_msg = SystemMessage(content=f"{persona_prompt}\n\n[Stats]\n{stats}")
     user_msg = HumanMessage(content=situation_prompt)
     
-    messages = [system_msg, user_msg]
+    # [Context] 히스토리 포함하여 메시지 구성 (System + History + User)
+    # 히스토리 중 SystemMessage나 오래된 내용은 제외하고 최근 대화만 포함
+    context_messages = [system_msg] + history[-6:] + [user_msg]
     
-    # LLM 호출 및 응답 생성
-    response = llm.invoke(messages)
+    response = llm.invoke(context_messages)
     
-    return {"messages": [response]}
+    # 상태 업데이트: 히스 갱신
+    new_history = history + [user_msg, response]
+    # 너무 길어지지 않게 관리 (최대 20개)
+    if len(new_history) > 20:
+        new_history = new_history[-20:]
+        
+    return {"messages": new_history}
+
+# [Node] Rule-based Message Generation
+def generate_rule_message(state: AgentState):
+    is_success = state.get("is_success", False)
+    key = "success" if is_success else "fail"
+    templates = RULE_TEMPLATES.get(key, RULE_TEMPLATES["success"])
+    msg = random.choice(templates)
+    
+    # Rule 기반 메시지는 히스토리에 굳이 쌓지 않거나, 쌓더라도 간단하게 처리
+    # 여기서는 대화 맥락 유지를 위해 쌓는 것으로 결정
+    history = state.get("messages", [])
+    if not history: history = []
+    
+    ai_msg = AIMessage(content=msg)
+    new_history = history + [ai_msg]
+    if len(new_history) > 20: new_history = new_history[-20:]
+    
+    return {"messages": new_history}
 
 # --- 워크플로우(Workflow) 정의 ---
-# StateGraph를 사용하여 에이전트의 실행 흐름을 정의합니다.
+# memory = MemorySaver() # [Removed]
+
 workflow = StateGraph(AgentState)
+workflow.add_node("llm_node", generate_llm_message)
+workflow.add_node("rule_node", generate_rule_message)
 
-# 노드 추가 (지금은 'agent' 단일 노드 구조)
-workflow.add_node("agent", generate_message)
+# 조건부 엣지 추가 (Router)
+workflow.add_conditional_edges(
+    START,
+    route_step,
+    {
+        "llm_node": "llm_node",
+        "rule_node": "rule_node"
+    }
+)
 
-# 시작점 설정
-workflow.set_entry_point("agent")
+workflow.add_edge("llm_node", END)
+workflow.add_edge("rule_node", END)
 
-# 종료 지점 설정 (agent 노드 실행 후 종료)
-workflow.add_edge("agent", END)
-
-# 그래프 컴파일 (실행 가능한 앱 객체 생성)
+# Checkpointer 없이 컴파일 (Manual State Management)
 app = workflow.compile()
 
 # --- 외부 호출용 함수 ---
 async def get_character_response(
+    user_id: int, # [New] User ID for Thread handling
     action_type: str, 
     current_stats: dict, 
     mode: str = "playing", 
@@ -143,9 +203,28 @@ async def get_character_response(
     milestone_reached: bool = False
 ) -> str:
     """
-    LangGraph를 비동기로 실행하여 캐릭터의 반응(대사)을 생성하고 반환합니다.
+    Redis를 사용하여 대화 맥락(State)을 로드하고 LangGraph를 실행한 뒤 결과를 저장합니다.
     """
     
+    # 1. Redis에서 상태 로드
+    client = RedisManager.get_client()
+    redis_key = f"brain_state:{user_id}"
+    
+    saved_state = {}
+    is_long_absence = False
+    
+    try:
+        data = await client.get(redis_key)
+        if data:
+            saved_state = pickle.loads(data)
+            last_ts = saved_state.get("last_interaction_timestamp", 0)
+            if last_ts > 0 and (time.time() - last_ts > 86400):
+                is_long_absence = True
+    except Exception as e:
+        print(f"[Brain] Redis Load Error: {e}")
+        saved_state = {}
+
+    # 2. 입력 데이터 구성 (기존 상태 + 새로운 입력)
     inputs = {
         "action_type": action_type,
         "current_stats": current_stats,
@@ -155,12 +234,20 @@ async def get_character_response(
         "feedback_detail": feedback_detail,
         "daily_count": daily_count,
         "milestone_reached": milestone_reached,
-        "messages": []
+        "last_interaction_timestamp": time.time(),
+        "is_long_absence": is_long_absence,
+        "messages": saved_state.get("messages", []) # 기존 대화 히스토리 주입
     }
     
-    # 그래프 실행 (invoke)
+    # 3. 그래프 실행
     result = await app.ainvoke(inputs)
     
-    # 결과에서 마지막 메시지(AIMessage)의 내용 추출
+    # 4. Redis에 최신 상태 저장
+    try:
+        # 결과 전체를 저장 (Result는 AgentState 구조)
+        await client.set(redis_key, pickle.dumps(result))
+    except Exception as e:
+        print(f"[Brain] Redis Save Error: {e}")
+    
     last_message = result["messages"][-1]
     return last_message.content

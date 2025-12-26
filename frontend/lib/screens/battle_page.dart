@@ -4,9 +4,8 @@ import 'dart:ui'; // For ImageFilter
 import 'package:provider/provider.dart';
 import 'package:pet_trainer_frontend/config.dart';
 import 'package:pet_trainer_frontend/providers/char_provider.dart';
-import 'package:pet_trainer_frontend/providers/battle_controller.dart';
+import 'package:pet_trainer_frontend/providers/battle_provider.dart';
 import 'package:pet_trainer_frontend/models/battle_state.dart';
-import 'package:pet_trainer_frontend/models/skill_data.dart';
 import 'package:pet_trainer_frontend/widgets/battle/battle_character_widget.dart';
 import 'package:pet_trainer_frontend/widgets/battle/battle_log_widget.dart';
 import 'package:pet_trainer_frontend/widgets/battle/skill_panel_widget.dart';
@@ -19,7 +18,7 @@ class BattlePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => BattleController(),
+      create: (_) => BattleProvider(),
       child: const BattleView(),
     );
   }
@@ -33,7 +32,7 @@ class BattleView extends StatefulWidget {
 }
 
 class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
-  late BattleController _controller;
+  late BattleProvider _controller;
   
   // Animation Controllers
   late AnimationController _shakeController;
@@ -78,7 +77,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
 
     // 2. Connect to Controller
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _controller = Provider.of<BattleController>(context, listen: false);
+      _controller = Provider.of<BattleProvider>(context, listen: false);
       final charProvider = Provider.of<CharProvider>(context, listen: false);
       
       if (charProvider.character != null) {
@@ -170,7 +169,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<BattleController>(
+    return Consumer<BattleProvider>(
       builder: (context, controller, child) {
         final state = controller.state;
         final charProvider = Provider.of<CharProvider>(context);
