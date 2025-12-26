@@ -265,7 +265,9 @@ async def start_battle_check(room_id: str):
     if not room_data: return
     
     stats_info = {}
-    for uid_str in room_data["players"]:
+    for uid in room_data["players"]:
+        uid_str = str(uid)
+        
         # 스킬 상세 정보
         sids = room_data["learned_skills"].get(uid_str, [])
         details = []
@@ -373,7 +375,9 @@ async def process_turn_redis(room_id: str):
         
         # PP Check
         if move_id != 0: # [New] Skip for Struggle
-            cpp = att_state.pp.get(str(move_id), 0)
+            max_pp = md.get("max_pp", 20)
+            cpp = att_state.pp.get(str(move_id), max_pp)
+            
             if cpp <= 0:
                  turn_logs.append({"type":"turn_event", "message": "PP 부족!"})
                  continue
@@ -519,5 +523,5 @@ async def process_turn_redis(room_id: str):
                  "result": "LOSE",
                  "winner": winner
              })
-        # Cleanup? 
-        # await delete_room_state(room_id)
+        # Cleanup
+        await delete_room_state(room_id)

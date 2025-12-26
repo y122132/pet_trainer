@@ -40,7 +40,12 @@ class BattleController extends ChangeNotifier {
     _state = _state.copyWith(statusMessage: "Connecting to server...");
     notifyListeners();
 
-    final String roomId = "arena_1";
+    // [Dynamic Room ID]
+    // Generate a unique room ID to ensure a fresh session.
+    final String roomId = "arena_${DateTime.now().millisecondsSinceEpoch}";
+    
+    // Note: In a real game, this ID should be shared between players (e.g. via Lobby or Matchmaking).
+    // For now, this effectively creates a "Solo/PvE" instance or requires manual coord if P2P.
     final String url = "${AppConfig.battleSocketUrl}/$roomId/$_myId";
     
     try {
@@ -233,10 +238,14 @@ class BattleController extends ChangeNotifier {
 
            _state = _state.copyWith(
               myStatuses: statuses,
-              mySkills: updatedSkills
+              mySkills: updatedSkills,
+              myHp: state['hp']
            );
         } else {
-           _state = _state.copyWith(oppStatuses: statuses);
+           _state = _state.copyWith(
+               oppStatuses: statuses,
+               oppHp: state['hp']
+           );
         }
      });
      // Note: We don't notify here, we might do it after animation or immediately. 
@@ -249,7 +258,7 @@ class BattleController extends ChangeNotifier {
        
        String type = res['type'] ?? 'unknown';
        if (type == 'turn_event') {
-          String eventType = res['event_type'];
+          String eventType = res['event_type'] ?? '';
           
           if (eventType == 'attack_start') {
               int attacker = res['attacker'];
@@ -274,10 +283,13 @@ class BattleController extends ChangeNotifier {
                  int target = res['defender'] ?? (_opponentId); // Fallback
                  _eventController.add(BattleEvent(type: BattleEventType.miss, targetId: target));
                  _addLog("Missed!");
-              } else if (res['is_critical'] == true) {
-                 int target = res['defender'] ?? (_opponentId);
-                 _eventController.add(BattleEvent(type: BattleEventType.crit, targetId: target));
-                 _addLog("CRITICAL HIT!");
+              } else {
+                 if (res['is_critical'] == true) {
+                    int target = res['defender'] ?? (_opponentId);
+                    _eventController.add(BattleEvent(type: BattleEventType.crit, targetId: target));
+                    _addLog("CRITICAL HIT!");
+                 }
+                 if (res['message'] != null) _addLog(res['message']);
               }
               await Future.delayed(const Duration(milliseconds: 500));
 
@@ -303,18 +315,21 @@ class BattleController extends ChangeNotifier {
                  await Future.delayed(const Duration(milliseconds: 600));
               }
 
-          } else if (eventType == 'heal') {
-              int target = _resolveTarget(res);
-              int amount = res['value'] ?? 0;
-              
-              _handleHpChange(target, amount);
-              _eventController.add(BattleEvent(type: BattleEventType.heal, targetId: target, value: amount));
-              _addLog("Recovered $amount HP!");
-              await Future.delayed(const Duration(milliseconds: 500));
-
           } else if (res['message'] != null) {
               _addLog(res['message']);
           }
+       } else if (type == 'heal') {
+           int target = _resolveTarget(res);
+           int amount = res['value'] ?? 0;
+           
+           _handleHpChange(target, amount);
+           _eventController.add(BattleEvent(type: BattleEventType.heal, targetId: target, value: amount));
+           
+           if (res['message'] != null) _addLog(res['message']);
+           else _addLog("Recovered $amount HP!");
+           
+           await Future.delayed(const Duration(milliseconds: 500));
+
        } else if (type == 'status_damage') {
            // [New] Status Damage Handler
            int target = res['target'] ?? _myId; // Default fallback
