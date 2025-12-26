@@ -14,6 +14,7 @@ Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
   final Uint8List uBytes = planes[1]['bytes'];
   final Uint8List vBytes = planes[2]['bytes'];
   
+  final int yRowStride = planes[0]['bytesPerRow'];
   final int uvRowStride = planes[1]['bytesPerRow'];
   final int uvPixelStride = planes[1]['bytesPerPixel'] ?? 1;
   
@@ -23,7 +24,10 @@ Uint8List processCameraImageToJpeg(Map<String, dynamic> data) {
   for (int y = 0; y < height; y++) {
     for (int x = 0; x < width; x++) {
       final int uvIndex = uvPixelStride * (x / 2).floor() + uvRowStride * (y / 2).floor();
-      final int index = y * width + x;
+      
+      // [Fix] Use yRowStride instead of width. 
+      // Camera sensors often add padding bytes at the end of each row.
+      final int index = y * yRowStride + x;
       
       final int yValue = yBytes[index];
       final int uValue = uBytes[uvIndex];
