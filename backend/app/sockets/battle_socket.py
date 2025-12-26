@@ -229,16 +229,9 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
                    await send_to_user(room_id, user_id, {"type": "ERROR", "message": "Invalid Skill"})
                    continue
                 
-                # 행동 불가 체크
-                # 행동 불가 체크
+                # 행동 불가 체크 (process_turn_redis 확인)
                 # bs_obj already loaded check above
-                can, fail_msg, self_dmg = BattleManager.can_move(bs_obj)
-                
-                # [Note] Endpoint에서 can_move 호출 시 확률적 효과(혼란 등)가 미리 발동될 위험이 있음.
-                # 하지만 현재 구조상 선택 시점에도 체크하고 있음. (상태 변경 저장됨)
-                if self_dmg > 0:
-                     # 혼란 자해 등 발생 시 저장 필요
-                     room_data["battle_states"][str(user_id)] = serialize_battle_state(bs_obj)
+                pass
                 
                 # 선택 저장
                 room_data["selections"][str(user_id)] = move_id
