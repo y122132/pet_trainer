@@ -126,7 +126,7 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
     
     # [Optimization] 프레임 스킵 카운터
     frame_count = 0
-    PROCESS_INTERVAL = 3  # 3프레임마다 1번 처리
+    PROCESS_INTERVAL = 1  # 3프레임마다 1번 처리
 
     try:
         while True:
