@@ -74,25 +74,10 @@ async def delete_room_state(room_id: str):
 
 # --- Logic Wrappers ---
 
-def serialize_battle_state(bs: BattleState) -> dict:
-    return {
-        "max_hp": bs.max_hp,
-        "current_hp": bs.current_hp,
-        "stages": bs.stages,
-        "status_ailment": bs.status_ailment,
-        "status_turns": bs.status_turns,
-        "volatile": bs.volatile,
-        "pp": bs.pp
-    }
+# --- Logic Wrappers ---
 
-def deserialize_battle_state(data: dict) -> BattleState:
-    bs = BattleState(max_hp=data["max_hp"], current_hp=data["current_hp"])
-    bs.stages = data.get("stages", bs.stages)
-    bs.status_ailment = data.get("status_ailment")
-    bs.status_turns = data.get("status_turns", 0)
-    bs.volatile = data.get("volatile", {})
-    bs.pp = data.get("pp", {})
-    return bs
+# Helpers removed; using BattleState methods directly.
+
 
 # --- Endpoints ---
 
@@ -166,7 +151,7 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
                     # BattleState Init (if not exists)
                     if str(user_id) not in room_data["battle_states"]:
                         initial_bs = BattleState(max_hp=stat_obj.health, current_hp=stat_obj.health)
-                        room_data["battle_states"][str(user_id)] = serialize_battle_state(initial_bs)
+                        room_data["battle_states"][str(user_id)] = initial_bs.to_dict()
                 else:
                     await websocket.close(code=4004, reason="No stat found")
                     del conns[user_id]
@@ -213,7 +198,7 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
                 
                 # [New] Struggle Check (PP Check)
                 bs_dict = room_data["battle_states"].get(str(user_id))
-                bs_obj = deserialize_battle_state(bs_dict)
+                bs_obj = BattleState.from_dict(bs_dict)
                 
                 all_pp_zero = True
                 for skid in known_skills:
@@ -319,8 +304,8 @@ async def process_turn_redis(room_id: str):
     stat1 = StatObj(room_data["character_stats"][su1])
     stat2 = StatObj(room_data["character_stats"][su2])
     
-    state1 = deserialize_battle_state(room_data["battle_states"][su1])
-    state2 = deserialize_battle_state(room_data["battle_states"][su2])
+    state1 = BattleState.from_dict(room_data["battle_states"][su1])
+    state2 = BattleState.from_dict(room_data["battle_states"][su2])
     
     move1 = room_data["selections"][su1]
     move2 = room_data["selections"][su2]
@@ -453,8 +438,8 @@ async def process_turn_redis(room_id: str):
         # Don't break here! Let the other player take damage too.
 
     # 4. Serialize Back & Save
-    room_data["battle_states"][su1] = serialize_battle_state(state1)
-    room_data["battle_states"][su2] = serialize_battle_state(state2)
+    room_data["battle_states"][su1] = state1.to_dict()
+    room_data["battle_states"][su2] = state2.to_dict()
     room_data["selections"] = {} # Reset
     room_data["turn_count"] += 1
     
