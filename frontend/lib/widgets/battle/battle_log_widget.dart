@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pet_trainer_frontend/config/theme.dart';
 
 class BattleLogWidget extends StatelessWidget {
   final List<String> logs;
@@ -36,26 +37,32 @@ class BattleLogWidget extends StatelessWidget {
     bool isEffect = log.contains("Status") || log.contains("상태");
     bool isCrit = log.contains("CRITICAL") || log.contains("크리티컬");
 
-    Color textColor = Colors.white;
-    if (isCrit) textColor = Colors.yellowAccent;
-    else if (isDamage) textColor = Colors.redAccent;
-    else if (isEffect) textColor = Colors.greenAccent;
+    Color textColor = AppColors.softCharcoal; // Default to dark for visibility
+    if (isCrit) textColor = AppColors.danger;
+    else if (isDamage) textColor = AppColors.danger;
+    else if (isEffect) textColor = AppColors.success;
 
     // First item is most opaque
-    double opacity = (index == 0) ? 1.0 : (index == 1 ? 0.6 : 0.3);
+    double opacity = (index == 0) ? 1.0 : (index == 1 ? 0.7 : 0.4);
 
     return Opacity(
       opacity: opacity,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Text(
-          log,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: textColor,
-            fontSize: index == 0 ? 14 : 12,
-            fontWeight: index == 0 ? FontWeight.bold : FontWeight.normal,
-            shadows: const [Shadow(color: Colors.black, blurRadius: 4, offset: Offset(1, 1))]
+        child: Container(
+           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+           decoration: BoxDecoration(
+             color: Colors.white.withOpacity(0.5),
+             borderRadius: BorderRadius.circular(12),
+           ),
+           child: Text(
+            log,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: textColor,
+              fontSize: index == 0 ? 14 : 12,
+              fontWeight: index == 0 ? FontWeight.bold : FontWeight.w500,
+            ),
           ),
         ),
       ),

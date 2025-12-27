@@ -191,35 +191,43 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
           extendBodyBehindAppBar: true,
           backgroundColor: Colors.black,
           appBar: AppBar(
-             title: const Text("CYBER ARENA", style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2.0, color: Colors.cyanAccent, shadows: [Shadow(color: Colors.blue, blurRadius: 10)])),
+             title: const Text("PET BATTLE", style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0, color: AppColors.softCharcoal)),
              centerTitle: true,
              backgroundColor: Colors.transparent,
              elevation: 0,
-             leading: IconButton(icon: const Icon(Icons.arrow_back_ios, color: Colors.white), onPressed: () => Navigator.pop(context)),
+             leading: IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.softCharcoal), onPressed: () => Navigator.pop(context)),
           ),
           body: Stack(
             children: [
-              // 0. Background (Cyberpunk Gradient)
+              // 0. Background (Cute Forest - Softer)
               Positioned.fill(
                 child: Container(
                   decoration: const BoxDecoration(
-                    gradient: RadialGradient(
-                      center: Alignment(0, 0),
-                      radius: 1.5,
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
                       colors: [
-                        Color(0xFF2E003E), // Deep Purple
-                        Color(0xFF0D001A), // Darker
-                        Colors.black
+                        Color(0xFFD4EAC8), // Soft Sage Green
+                        Color(0xFFE8F6F3), // Soft Mint White
                       ],
-                      stops: [0.2, 0.7, 1.0]
+                      stops: [0.3, 1.0]
                     )
                   ),
                 ),
               ),
-              // Grid Floor Effect (Optional, simplified with lines)
+              // Clouds (Background decor)
+              Positioned(top: 50, left: 30, child: Icon(Icons.cloud, size: 60, color: Colors.white.withOpacity(0.6))),
+              Positioned(top: 80, right: 50, child: Icon(Icons.cloud, size: 40, color: Colors.white.withOpacity(0.4))),
+              
+              // Ground Effect (Rounded Hill)
               Positioned(
-                 bottom: 0, left: 0, right: 0, height: 300,
-                 child: CustomPaint(painter: GridPainter()),
+                 bottom: -50, left: 0, right: 0, height: 200,
+                 child: Container(
+                   decoration: BoxDecoration(
+                     color: const Color(0xFFC1DFC4).withOpacity(0.6), // Darker Sage Hill
+                     borderRadius: const BorderRadius.vertical(top: Radius.circular(100))
+                   ),
+                 ),
               ),
 
               // 1. OPPONENT (Top Right)
@@ -234,7 +242,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
                    petType: state.oppPetType, idleAnimation: _idleAnimation, damageOpacity: 0.0,
                 )))
               ),
-              // HUD (Top Right) - Glassmorphism
+              // HUD (Top Right)
               Positioned(
                  top: 100, left: 20, right: 20,
                  child: SafeArea(
@@ -254,7 +262,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
               ),
 
               // 2. PLAYER (Bottom Left)
-              Positioned(bottom: 300, left: 50, child: Transform.scale(scale: 1.1,
+              Positioned(bottom: 350, left: 50, child: Transform.scale(scale: 1.1,
                 child: AnimatedBuilder(animation: Listenable.merge([_shakeAnimation, _dashAnimation]), builder: (ctx, child) {
                    Offset dashOff = (_attackerId == myId) ? _dashAnimation.value : Offset.zero;
                    // Shake if I AM the target
@@ -265,9 +273,9 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
                    petType: myPetType, idleAnimation: _idleAnimation, customImagePath: charProvider.imagePath, damageOpacity: 0.0,
                 )))
               ),
-              // HUD (Bottom Left)
+              // HUD (Bottom Left) - MOVED UP
               Positioned(
-                 bottom: 270, left: 20, right: 20,
+                 bottom: 330, left: 20, right: 20, // Moved up from 270 to 330
                  child: Row(
                    children: [
                      _buildGlassHud(
@@ -324,19 +332,19 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   }
 
   // --- Glassmorphism HUD Builder ---
+  // --- Cute HUD Builder ---
   Widget _buildGlassHud({required String name, required int hp, required int maxHp, required bool isMe, required List<dynamic> statuses}) {
     double hpPercent = (hp / maxHp).clamp(0.0, 1.0);
     Color barColor = hpPercent > 0.5 ? AppColors.success : (hpPercent > 0.2 ? Colors.orange : AppColors.danger);
     
     return Container(
-      width: 200,
+      width: 180,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.3), // Dark glass
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        color: Colors.white.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
-          BoxShadow(color: isMe ? Colors.blue.withOpacity(0.2) : Colors.red.withOpacity(0.2), blurRadius: 10)
+          BoxShadow(color: AppColors.softCharcoal.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))
         ]
       ),
       child: Column(
@@ -346,23 +354,23 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-              Text("$hp / $maxHp", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              Text(name, style: const TextStyle(color: AppColors.softCharcoal, fontWeight: FontWeight.bold, fontSize: 16)),
+              Text("$hp/$maxHp", style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
             ],
           ),
-          const SizedBox(height: 6),
-          // HP Bar
+          const SizedBox(height: 8),
+          // HP Bar (Rounded & Puffy)
           Stack(
             children: [
-              Container(height: 8, decoration: BoxDecoration(color: Colors.grey[800], borderRadius: BorderRadius.circular(4))),
+              Container(height: 12, decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(10))),
               AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
-                height: 8, 
-                width: 176 * hpPercent, // 200px - 24padding
+                height: 12, 
+                width: 156 * hpPercent, // 180 - 24padding
                 decoration: BoxDecoration(
                   color: barColor, 
-                  borderRadius: BorderRadius.circular(4),
-                  boxShadow: [BoxShadow(color: barColor.withOpacity(0.6), blurRadius: 6)]
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [BoxShadow(color: barColor.withOpacity(0.4), blurRadius: 4, offset: const Offset(0, 2))]
                 ),
               ),
             ],
@@ -370,7 +378,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
           // Status Icons
           if (statuses.isNotEmpty) ...[
              const SizedBox(height: 4),
-             Row(children: statuses.map((s) => const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.bolt, color: Colors.yellow, size: 14))).toList())
+             Row(children: statuses.map((s) => const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.bolt, color: AppColors.accentYellow, size: 16))).toList())
           ]
         ],
       ),
@@ -379,13 +387,22 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
 
   Widget _buildThinkingIndicator() {
     return Container(
-       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
        decoration: BoxDecoration(
-         color: Colors.black.withOpacity(0.6),
-         borderRadius: BorderRadius.circular(20),
-         border: Border.all(color: AppColors.cyberYellow)
+         color: Colors.white,
+         borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20), bottomLeft: Radius.circular(20)),
+         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(2, 2))]
        ),
-       child: const Text("Thinking...", style: TextStyle(color: AppColors.cyberYellow, fontSize: 12, fontWeight: FontWeight.bold))
+       child: const Row(
+         children: [
+           SizedBox(
+             width: 12, height: 12,
+             child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.secondaryPink),
+           ),
+           SizedBox(width: 8),
+           Text("고민 중...", style: TextStyle(color: AppColors.softCharcoal, fontSize: 12, fontWeight: FontWeight.bold)),
+         ],
+       )
     );
   }
 
@@ -395,30 +412,43 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       barrierColor: Colors.black87,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        backgroundColor: AppColors.spaceBlack,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: AppColors.cyberYellow)),
-        title: const Text("VICTORY! 🏆", style: TextStyle(color: AppColors.cyberYellow, fontWeight: FontWeight.bold, fontSize: 24)),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Center(child: Text("VICTORY! 🏆", style: TextStyle(color: AppColors.secondaryPink, fontWeight: FontWeight.w900, fontSize: 28))),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("획득 경험치: ${reward['exp_gained']} EXP", style: const TextStyle(color: Colors.white, fontSize: 16)),
-            const SizedBox(height: 8),
-            if (reward['level_up'] == true)
-              const Text("레벨업! Level Up! 🎉", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.success, fontSize: 18)),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(16)),
+              child: Column(
+                children: [
+                  Text("+${reward['exp_gained']} EXP", style: const TextStyle(color: AppColors.softCharcoal, fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  if (reward['level_up'] == true)
+                    const Text("LEVEL UP! 🎉", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.success, fontSize: 18)),
+                ],
+              ),
+            ),
             if ((reward['new_skills'] as List).isNotEmpty)
-               // ... omitted for brevity, same logic
-               const Text("새로운 스킬을 배웠습니다!", style: TextStyle(color: Colors.greenAccent))
+                const Padding(padding: EdgeInsets.only(top: 8), child: Text("새로운 스킬을 배웠습니다!", style: TextStyle(color: AppColors.secondaryPink))),
           ],
         ),
         actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.cyberYellow, foregroundColor: Colors.black),
-            onPressed: () {
-              Navigator.pop(context); // Dialog
-              Navigator.pop(context); // Page
-            },
-            child: const Text("확인", style: TextStyle(fontWeight: FontWeight.bold)),
+          Center(
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryMint, 
+                  foregroundColor: AppColors.softCharcoal,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))
+              ),
+              onPressed: () {
+                Navigator.pop(context); // Dialog
+                Navigator.pop(context); // Page
+              },
+              child: const Text("멋져요!", style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
           )
         ],
       ),
@@ -431,17 +461,23 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       barrierColor: Colors.black87,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        backgroundColor: AppColors.spaceBlack,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Colors.white24)),
-        title: Text(iWon ? "VICTORY! 🏆" : "DEFEAT... 💀", style: TextStyle(color: iWon ? AppColors.cyberYellow : Colors.grey, fontWeight: FontWeight.bold)),
-        content: Text(iWon ? "승리했습니다!" : "아쉽게 패배했습니다. 다음 기회에...", style: const TextStyle(color: Colors.white70)),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text(iWon ? "VICTORY! 🏆" : "DEFEAT... �", style: TextStyle(color: iWon ? AppColors.secondaryPink : Colors.grey, fontWeight: FontWeight.w900, fontSize: 24)),
+        content: Text(iWon ? "승리했습니다! 정말 대단해요!" : "아쉽게 패배했습니다.\n다음에 다시 도전해보세요!", style: const TextStyle(color: AppColors.softCharcoal), textAlign: TextAlign.center),
         actions: [
-          TextButton(
-             onPressed: () {
-               Navigator.pop(context);
-               Navigator.pop(context);
-             },
-             child: const Text("나가기", style: TextStyle(color: Colors.white)),
+          Center(
+            child: TextButton(
+               onPressed: () {
+                 Navigator.pop(context);
+                 Navigator.pop(context);
+               },
+               style: TextButton.styleFrom(
+                 foregroundColor: AppColors.softCharcoal,
+                 textStyle: const TextStyle(fontWeight: FontWeight.bold)
+               ),
+               child: const Text("나가기"),
+            ),
           )
         ],
       ),

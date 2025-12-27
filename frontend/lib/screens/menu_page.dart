@@ -129,20 +129,33 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Colors.white,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Background Decor (Subtle Circles)
+          // 1. Background (Gradient)
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFFFF0F5), // Lavender Blush
+                  Color(0xFFE0F7FA), // Cyan Mist
+                ],
+              ),
+            ),
+          ),
+          // Decor Circles (Softened)
           Positioned(
             top: -100,
             right: -100,
-            child: _buildDecorCircle(300, AppColors.navy.withOpacity(0.05)),
+            child: _buildDecorCircle(300, AppColors.secondaryPink.withOpacity(0.1)),
           ),
           Positioned(
             bottom: -50,
             left: -50,
-            child: _buildDecorCircle(200, AppColors.cyberYellow.withOpacity(0.1)),
+            child: _buildDecorCircle(200, AppColors.primaryMint.withOpacity(0.1)),
           ),
 
           // 2. Main Character (Center - Lobby Style)
@@ -325,31 +338,32 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: isPrimary ? 90 : 110,
+        height: isPrimary ? 100 : 120, // Slightly taller
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
-            BoxShadow(color: color.withOpacity(0.2), blurRadius: 12, offset: const Offset(0, 6))
+            BoxShadow(color: color.withOpacity(0.2), blurRadius: 15, offset: const Offset(0, 8))
           ],
-          border: isPrimary ? Border.all(color: color, width: 2) : null,
+          border: Border.all(color: color.withOpacity(0.1), width: 1),
         ),
         child: isPrimary 
           ? Row( // Horizontal Layout for Primary
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-                  child: Icon(icon, color: color, size: 28),
+                  child: Icon(icon, color: color, size: 30),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 20),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: color, letterSpacing: 1.0)),
-                    Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppColors.softCharcoal, letterSpacing: 1.0)),
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w500)),
                   ],
                 ),
                 const Spacer(),
@@ -359,9 +373,13 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
           : Column( // Vertical Layout for Secondary
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                 Icon(icon, color: color, size: 32),
-                 const SizedBox(height: 8),
-                 Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: color)),
+                 Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                    child: Icon(icon, color: color, size: 28)
+                 ),
+                 const SizedBox(height: 12),
+                 Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.softCharcoal)),
               ],
             ),
       ),

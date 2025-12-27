@@ -10,6 +10,7 @@ import '../services/battle_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/battle_provider.dart';
 import 'battle_page.dart';
+import '../widgets/cute_avatar.dart';
 
 class UserListScreen extends StatefulWidget {
   final int initialTab;
@@ -182,14 +183,15 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(widget.isInviteMode ? "CHALLENGE FRIEND" : "FRIENDS", style: const TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: widget.isInviteMode ? AppColors.danger : AppColors.navy,
-        foregroundColor: Colors.white,
+        title: Text(widget.isInviteMode ? "친구랑 놀기" : "친구 목록"),
+        // backgroundColor: Transparent by theme
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: AppColors.cyberYellow,
-          labelColor: AppColors.cyberYellow,
-          unselectedLabelColor: Colors.white70,
+          indicatorColor: AppColors.secondaryPink,
+          labelColor: AppColors.softCharcoal,
+          unselectedLabelColor: Colors.grey,
+          indicatorWeight: 3,
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
           tabs: const [
              Tab(text: "내 친구"),
              Tab(text: "친구 찾기"),
@@ -209,75 +211,136 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
   Widget _buildFriendsTab() {
     return Column(
       children: [
-        // Pending Requests Section (if any)
+        // Pending Requests
         if (_pendingRequests.isNotEmpty) ...[
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.orangeAccent.withOpacity(0.1),
-            child: Row(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            margin: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.accentYellow.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.notifications_active, color: Colors.orange, size: 20),
-                const SizedBox(width: 8),
-                Text("받은 친구 요청 (${_pendingRequests.length})", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                Row(
+                  children: [
+                    const Icon(Icons.mail_outline, color: Colors.orange, size: 20),
+                    const SizedBox(width: 8),
+                    Text("새로운 친구 요청 (${_pendingRequests.length})", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ..._pendingRequests.map((user) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Row(
+                    children: [
+                      CuteAvatar(petType: "dog", size: 40), // Placeholder type since we might not have it
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(user['nickname'] ?? user['username'], style: const TextStyle(fontWeight: FontWeight.bold))),
+                      TextButton(
+                        onPressed: () => _acceptFriendRequest(user['id']),
+                        style: TextButton.styleFrom(backgroundColor: AppColors.primaryMint, foregroundColor: AppColors.softCharcoal),
+                        child: const Text("수락"),
+                      )
+                    ],
+                  ),
+                )).toList()
               ],
             ),
           ),
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _pendingRequests.length,
-            itemBuilder: (context, i) {
-               final user = _pendingRequests[i];
-               return ListTile(
-                 leading: CircleAvatar(backgroundColor: Colors.grey[300], child: const Icon(Icons.person)),
-                 title: Text(user['nickname'] ?? user['username']),
-                 trailing: ElevatedButton(
-                   onPressed: () => _acceptFriendRequest(user['id']),
-                   child: const Text("수락"),
-                   style: ElevatedButton.styleFrom(backgroundColor: AppColors.navy, foregroundColor: Colors.white),
-                 ),
-               );
-            },
-          ),
-          const Divider(),
         ],
-        // Friends List
+        // Friend List
         Expanded(
           child: _friends.isEmpty 
-            ? const Center(child: Text("친구가 없습니다. 친구를 찾아보세요!"))
-            : ListView.separated(
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                     const Icon(Icons.pets, size: 60, color: AppColors.neutral),
+                     const SizedBox(height: 16),
+                     const Text("아직 친구가 없어요!\n'친구 찾기' 탭에서 새로운 친구를 만나보세요.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                  ],
+                )
+              )
+            : ListView.builder(
+                padding: const EdgeInsets.all(16),
                 itemCount: _friends.length,
-                separatorBuilder: (c, i) => const Divider(height: 1),
                 itemBuilder: (context, i) {
                   final user = _friends[i];
-                  return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: AppColors.cyberYellow,
-                      child: Text(user['nickname'][0].toUpperCase(), style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.bold)),
-                    ),
-                    title: Text(user['nickname'] ?? user['username'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text("Lv.${user['level'] ?? 1} • ${user['pet_type'] ?? 'dog'}"), // [Fix] Real Data
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Challenge Button (Only in Invite Mode)
-                        if (widget.isInviteMode)
-                          IconButton(
-                            icon: const Icon(Icons.sports_kabaddi, color: AppColors.danger),
-                            onPressed: () => _handleChallenge(user),
-                          ),
-                        // Chat Button
-                        IconButton(
-                           icon: const Icon(Icons.chat_bubble_outline, color: AppColors.navy),
-                           onPressed: () => _goToChat(user),
-                        ),
-                      ],
-                    ),
-                  );
+                  return _buildFriendCard(user);
                 },
               ),
         ),
       ],
+    );
+  }
+
+  Widget _buildFriendCard(dynamic user) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(color: AppColors.primaryMint.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 4))
+        ]
+      ),
+      child: Row(
+        children: [
+          CuteAvatar(petType: user['pet_type'] ?? 'dog', size: 55),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(user['nickname'] ?? user['username'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(color: AppColors.neutral.withOpacity(0.3), borderRadius: BorderRadius.circular(10)),
+                  child: Text("Lv.${user['level'] ?? 1} ${user['pet_type'] ?? 'Pet'}", style: const TextStyle(fontSize: 12, color: AppColors.softCharcoal)),
+                )
+              ],
+            ),
+          ),
+          
+          if (widget.isInviteMode)
+            _buildActionButton(
+              label: "같이 놀자!",
+              icon: Icons.gamepad, 
+              color: AppColors.secondaryPink,
+              onTap: () => _handleChallenge(user)
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.chat_bubble_outline_rounded, color: AppColors.primaryMint),
+              onPressed: () => _goToChat(user),
+            )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton({required String label, required IconData icon, required Color color, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: color.withOpacity(0.4), blurRadius: 6, offset: const Offset(0, 2))]
+        ),
+        child: Row(
+           children: [
+             Icon(icon, color: Colors.white, size: 16),
+             const SizedBox(width: 4),
+             Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+           ],
+        ),
+      ),
     );
   }
 

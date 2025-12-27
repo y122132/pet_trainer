@@ -68,12 +68,12 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.softCharcoal),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text("MY ROOM", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, shadows: [Shadow(color: Colors.black54, blurRadius: 4)])),
+        title: const Text("MY ROOM", style: TextStyle(color: AppColors.softCharcoal, fontWeight: FontWeight.w900, fontSize: 22)),
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.settings, color: Colors.white70))
+          IconButton(onPressed: () {}, icon: const Icon(Icons.settings, color: AppColors.softCharcoal))
         ],
       ),
       body: Stack(
@@ -85,9 +85,8 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Color(0xFF2E3A59), // Navy
-                  Color(0xFF4A148C), // Deep Purple
-                  Color(0xFF1E2742), // Dark Navy
+                   Color(0xFFFFF0F5), // Lavender Blush
+                   Color(0xFFE0F7FA), // Cyan Mist
                 ],
               ),
             ),
@@ -168,16 +167,17 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
       "luck": stat.luck,
     };
     
-    // Glassmorphism Container
+    // Glassmorphism Container (Light)
     return Container(
       margin: const EdgeInsets.only(top: 10, left: 10, right: 10, bottom: 0),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.9), // Slightly transparent white
+        color: Colors.white.withOpacity(0.8), // Milk Glass
         borderRadius: const BorderRadius.only(topLeft: Radius.circular(30), topRight: Radius.circular(30)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, -5))
+          BoxShadow(color: AppColors.secondaryPink.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, -5))
         ],
+        border: Border.all(color: Colors.white, width: 2)
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -189,27 +189,39 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Lv.${stat.level} ${provider.character?.name ?? ''}", 
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.navy)),
-                  Text("EXP ${stat.exp}/100", style: const TextStyle(color: Colors.grey)),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text("Lv.${stat.level}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.secondaryPink)),
+                      const SizedBox(width: 8),
+                      Text(provider.character?.name ?? '', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.softCharcoal)),
+                    ],
+                  ),
+                  Text("EXP ${stat.exp}/100", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
                 ],
               ),
               // Unused Points Button
               if (provider.unusedStatPoints > 0)
                 ElevatedButton.icon(
                   onPressed: () => _showStatDialog(context, provider, statsMap),
-                  icon: const Icon(Icons.arrow_upward, size: 16),
-                  label: Text("${provider.unusedStatPoints}P 분배"),
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.cyberYellow, foregroundColor: AppColors.navy),
+                  icon: const Icon(Icons.arrow_upward_rounded, size: 16),
+                  label: Text("${provider.unusedStatPoints}P 성장"),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.accentYellow, 
+                      foregroundColor: AppColors.softCharcoal,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      elevation: 2
+                  ),
                 ),
             ],
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 12),
           ClipRRect(
-             borderRadius: BorderRadius.circular(4),
-             child: LinearProgressIndicator(value: stat.exp / 100, backgroundColor: Colors.grey[200], color: AppColors.cyberYellow, minHeight: 6),
+             borderRadius: BorderRadius.circular(10),
+             child: LinearProgressIndicator(value: stat.exp / 100, backgroundColor: Colors.grey[200], color: AppColors.secondaryPink, minHeight: 10),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
 
           // Content: Radar Chart vs Progress Bars via Tab or Split
           // Using Split View for now
