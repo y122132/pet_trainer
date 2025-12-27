@@ -83,6 +83,10 @@ class AuthService {
     return await _storage.read(key: 'character_id');
   }
 
+  Future<String?> getUserId() async {
+    return await _storage.read(key: 'user_id');
+  }
+
   // 4. 유틸리티 기능: 로그아웃 (저장된 정보 삭제)
   Future<void> logout() async {
     await _storage.delete(key: 'jwt_token');

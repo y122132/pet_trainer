@@ -8,6 +8,7 @@ from typing import Optional, TYPE_CHECKING
 # 순환 참조 방지를 위한 타입 체크
 if TYPE_CHECKING:
     from app.db.models.character import Character
+    from app.db.models.friendship import Friendship
 
 class User(Base):
     __tablename__ = "users"
@@ -23,5 +24,20 @@ class User(Base):
         "Character", 
         back_populates="user", 
         uselist=False, 
+        cascade="all, delete-orphan"
+    )
+
+    # Friendships
+    sent_requests: Mapped[list["Friendship"]] = relationship(
+        "Friendship",
+        foreign_keys="Friendship.requester_id",
+        back_populates="requester",
+        cascade="all, delete-orphan"
+    )
+    
+    received_requests: Mapped[list["Friendship"]] = relationship(
+        "Friendship",
+        foreign_keys="Friendship.receiver_id",
+        back_populates="receiver",
         cascade="all, delete-orphan"
     )

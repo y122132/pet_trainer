@@ -36,8 +36,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 async def verify_websocket_token(websocket: WebSocket, token: Optional[str]):
     """
     WebSocket 연결 시 토큰을 검증합니다.
-    현재는 develop 브랜치의 방침에 따라 구조만 유지하며 모든 토큰을 허용합니다.
-    추후 위의 SECRET_KEY와 ALGORITHM을 사용하여 JWT 검증 로직을 구현할 수 있습니다.
     """
     if not token:
         # [DEV] 개발 편의를 위해 토큰이 없어도 통과시킵니다.
@@ -45,3 +43,37 @@ async def verify_websocket_token(websocket: WebSocket, token: Optional[str]):
     
     # 임시: 토큰이 있으면 유효하다고 가정합니다.
     return True
+
+# --- HTTP API 검증 함수 (Refactored) ---
+from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends
+
+# 토큰을 얻어올 엔드포인트 URL 설정 (Swagger UI 인증에 사용)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
+
+def verify_token(token: str) -> int:
+    """
+    JWT 토큰을 디코딩하고 유효성을 검증한 뒤 user_id를 반환합니다.
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return int(user_id)
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> int:
+    """
+    FastAPI Dependency: 헤더에서 토큰을 추출하고 검증하여 user_id를 반환합니다.
+    """
+    return verify_token(token)

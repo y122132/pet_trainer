@@ -66,9 +66,14 @@ async def authenticate_user(db: AsyncSession, user_in):
         "has_character": bool(user.character) # selectinload가 적용되었다면 바로 접근 가능
     }
 
-async def get_all_users(db: AsyncSession):
-    """모든 사용자 목록을 조회합니다."""
-    result = await db.execute(select(User))
+async def get_all_users(db: AsyncSession, query: str = None):
+    """모든 사용자 목록을 조회합니다. (검색어 포함)"""
+    stmt = select(User)
+    if query:
+        from sqlalchemy import or_
+        stmt = stmt.where(or_(User.username.contains(query), User.nickname.contains(query)))
+        
+    result = await db.execute(stmt)
     users = result.scalars().all()
     return [
         {"id": u.id, "username": u.username, "nickname": u.nickname}
