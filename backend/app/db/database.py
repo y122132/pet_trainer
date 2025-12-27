@@ -55,7 +55,7 @@ async def init_db():
             res = await session.execute(select(User).where(User.username == username))
             user_obj = res.scalar_one_or_none()
             if not user_obj:
-                print(f"Creating Test User {uid}...")
+                print(f"Creating Test User {username}...")
                 user_obj = User(
                     # id=uid, 
                     username=username, 
@@ -67,10 +67,10 @@ async def init_db():
                 await session.flush()
             
             # 2. Character 필드 체크: name, status, pet_type, learned_skills (JSONB)
-            char_res = await session.execute(select(Character).where(Character.user_id == uid))
+            char_res = await session.execute(select(Character).where(Character.user_id == user_obj.id))
             char = char_res.scalar_one_or_none()
             if not char:
-                print(f"Creating Character for User {uid}...")
+                print(f"Creating Character for User {username}...")
                 skills = [1, 2] if pet_type == 'dog' else [101, 102]
                 char = Character(
                     user_id=user_obj.id, 
