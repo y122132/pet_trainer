@@ -52,12 +52,12 @@ async def init_db():
 
         async def create_test_user(uid, username, nickname, char_name, pet_type):
             # 1. User 필드 체크: username, nickname, password, is_active (email은 nullable이므로 생략 가능)
-            res = await session.execute(select(User).where(User.id == uid))
+            res = await session.execute(select(User).where(User.username == username))
             user_obj = res.scalar_one_or_none()
             if not user_obj:
                 print(f"Creating Test User {uid}...")
                 user_obj = User(
-                    id=uid, 
+                    # id=uid, 
                     username=username, 
                     nickname=nickname, 
                     password=test_hashed_pwd,
@@ -73,7 +73,7 @@ async def init_db():
                 print(f"Creating Character for User {uid}...")
                 skills = [1, 2] if pet_type == 'dog' else [101, 102]
                 char = Character(
-                    user_id=uid, 
+                    user_id=user_obj.id, 
                     name=char_name, 
                     status="normal", 
                     pet_type=pet_type,
@@ -106,8 +106,8 @@ async def init_db():
                 session.add(stat)
         
         # 테스트 데이터 생성 실행
-        await create_test_user(1, "trainer_ash", "지우", "피카독", "dog")
-        await create_test_user(2, "trainer_gary", "바람", "나옹냥", "cat")
+        await create_test_user("trainer_ash", "지우", "피카독", "dog")
+        await create_test_user("trainer_gary", "바람", "나옹냥", "cat")
         
         await session.commit()
         print("--- 테스트 환경 초기화 완료 (User/Character/Stat 연동 완료) ---")
