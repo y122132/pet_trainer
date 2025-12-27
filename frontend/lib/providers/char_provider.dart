@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:pet_trainer_frontend/models/character.dart';
+import 'package:pet_trainer_frontend/models/character_model.dart';
 import 'package:pet_trainer_frontend/models/pet_config.dart';
 
-import 'package:pet_trainer_frontend/config.dart';
+import 'package:pet_trainer_frontend/api_config.dart';
+
+import 'package:pet_trainer_frontend/services/auth_service.dart'; // [추가] AuthService 임포트
 
 class CharProvider with ChangeNotifier {
   // 캐릭터 상태 데이터 (Private 변수)
@@ -185,8 +187,16 @@ class CharProvider with ChangeNotifier {
   // [id]: 캐릭터 ID (기본값 1)
   Future<void> fetchCharacter([int id = 1]) async {
     try {
+      final token = await AuthService().getToken();
       // API 호출: GET /v1/characters/{id}
-      final response = await http.get(Uri.parse('$_baseUrl/v1/characters/$id'));
+      final response = await http.get(
+        Uri.parse('${AppConfig.charactersUrl}/$id'),
+        headers: {
+          "Authorization": "Bearer $token", // [추가] 인증 헤더
+          "Content-Type": "application/json",
+        },
+      );
+
       if (response.statusCode == 200) {
         if (response.bodyBytes.isEmpty) {
            throw Exception("Empty response body");
@@ -202,12 +212,10 @@ class CharProvider with ChangeNotifier {
         _character = Character.fromJson(data);
         
         // [New] 서버에서 가져온 펫 종류 적용 (동기화)
-        // 기존에는 하드코딩된 'dog'만 사용했으나, 이제는 DB 정보를 따름
         _currentPetType = _character!.petType;
         if (PET_CONFIGS.containsKey(_currentPetType)) {
           _petConfig = PET_CONFIGS[_currentPetType]!;
         } else {
-          // 예외 처리: 모르는 펫 타입이면 기본값 유지
           print("Unknown pet type: $_currentPetType, using default.");
         }
         
@@ -230,14 +238,37 @@ class CharProvider with ChangeNotifier {
     }
   }
 
+  // [New] 내 캐릭터 정보 가져오기 (저장된 ID 기반)
+  Future<void> fetchMyCharacter() async {
+    final charIdStr = await AuthService().getCharacterId();
+    if (charIdStr != null) {
+      final charId = int.tryParse(charIdStr);
+      if (charId != null) {
+        print("[Provider] 내 캐릭터(ID: $charId) 불러오기 시작");
+        await fetchCharacter(charId);
+      } else {
+         print("[Provider] 저장된 캐릭터 ID가 유효하지 않음.");
+      }
+    } else {
+      print("[Provider] 저장된 캐릭터 ID가 없음. 로그인 필요?");
+      // 테스트용: 기본값 1번 시도 (삭제 가능)
+      // await fetchCharacter(1);
+    }
+  }
+
   // 서버로 현재 스탯 상태 동기화 (저장)
   Future<void> syncStatToBackend() async {
     if (_character == null) return;
     try {
+      // [추가] 기기에 저장된 JWT 토큰 가져오기
+      final token = await AuthService().getToken();
       // API 호출: PUT /v1/characters/{id}/stats
       await http.put(
-        Uri.parse('$_baseUrl/v1/characters/${_character!.id}/stats'),
-        headers: {"Content-Type": "application/json"},
+        Uri.parse('${AppConfig.charactersUrl}/${_character!.id}/stats'),
+        headers: {
+          "Authorization": "Bearer $token", // [추가] 인증 헤더
+          "Content-Type": "application/json",
+        },
         body: jsonEncode({
           "strength": _character!.stat!.strength,
           "intelligence": _character!.stat!.intelligence,

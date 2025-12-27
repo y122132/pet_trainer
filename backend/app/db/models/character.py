@@ -2,9 +2,13 @@ from sqlalchemy import Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING # TYPE_CHECKING 추가
 from app.db.database import Base
 
+# [추가] 순환 참조(Circular Import) 방지
+if TYPE_CHECKING:
+    from app.db.models.user import User
+    
 # --- 캐릭터(Character) 모델 ---
 class Character(Base):
     __tablename__ = "characters"

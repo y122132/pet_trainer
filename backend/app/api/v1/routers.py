@@ -1,91 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.database import get_db
-from app.services import char_service
-from pydantic import BaseModel
+# backend/app/api/v1/routers.py
+from fastapi import APIRouter
+# [수정] 모든 도메인 라우터를 임포트합니다.
+from app.api.v1 import chat, auth, characters 
 
-# API 버전 관리를 위한 프리픽스 설정 (/v1)
+# 메인 API 라우터 (/v1)
 api_router = APIRouter(prefix="/v1")
 
-# 라우터 그룹 분리 (현재는 간단하게 여기서 정의하지만, 추후 별도 파일로 분리 가능)
-user_router = APIRouter(prefix="/users", tags=["users"])
-character_router = APIRouter(prefix="/characters", tags=["characters"])
+# --- 각 기능별 라우터 통합 ---
 
-@user_router.get("/")
-async def get_users():
-    """사용자 목록 조회 (테스트용)"""
-    return [{"message": "List of users"}]
+# 1. 인증 라우터 (network 브랜치 기능)
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 
-# --- Pydantic 스키마 (데이터 검증 모델) ---
-class CharacterCreate(BaseModel):
-    user_id: int
-    name: str
+# 2. 채팅 라우터 (network 브랜치 기능)
+api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 
-# --- 캐릭터 관련 엔드포인트 ---
+# 3. 캐릭터 라우터 (분리된 신규 파일 연결)
+api_router.include_router(characters.router)
 
-@character_router.get("/{char_id}")
-async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
-    """
-    특정 캐릭터의 상세 정보와 스탯을 조회합니다.
-    """
-    char = await char_service.get_character_with_stats(db, char_id)
-    if not char:
-        raise HTTPException(status_code=404, detail="Character not found")
-    
-    # ORM 객체를 딕셔너리로 수동 직렬화 (간단한 응답 구조)
-    # ORM 객체를 딕셔너리로 수동 직렬화 (간단한 응답 구조)
-    return {
-        "id": char.id,
-        "user_id": char.user_id, # [Fix] user_id 추가
-        "name": char.name,
-        "status": char.status,
-        "pet_type": char.pet_type, 
-        "learned_skills": char.learned_skills, # [New] 스킬 목록 추가
-        "stats": {
-            "level": char.stat.level,
-            "exp": char.stat.exp,
-            "strength": char.stat.strength,
-            "intelligence": char.stat.intelligence, 
-            "agility": char.stat.agility, 
-            "defense": char.stat.defense,
-            "luck": char.stat.luck,
-            "happiness": char.stat.happiness,
-            "health": char.stat.health,
-            "unused_points": char.stat.unused_points
-        }
-    }
+# 4. 배틀 라우터 (초대 기능 등 HTTP API)
+from app.api.v1 import battle
+api_router.include_router(battle.router, prefix="/battle", tags=["battle"])
 
-@character_router.post("/")
-async def create_character(char_data: CharacterCreate, db: AsyncSession = Depends(get_db)):
-    """
-    새로운 캐릭터를 생성합니다.
-    """
-    char = await char_service.create_character(db, char_data.user_id, char_data.name)
-    return {"message": "Character created", "id": char.id}
-
-class StatUpdateSchema(BaseModel):
-    """스탯 업데이트 요청 데이터 모델"""
-    level: int | None = None
-    exp: int | None = None
-    health: int | None = None
-    strength: int | None = None
-    intelligence: int | None = None
-    agility: int | None = None
-    defense: int | None = None
-    luck: int | None = None
-    happiness: int | None = None
-    unused_points: int | None = None
-
-@character_router.put("/{char_id}/stats")
-async def update_stats(char_id: int, stat_data: StatUpdateSchema, db: AsyncSession = Depends(get_db)):
-    """
-    캐릭터의 스탯 정보를 수정합니다. (클라이언트 동기화용)
-    """
-    updated_stat = await char_service.update_character_stats(db, char_id, stat_data.dict(exclude_unset=True))
-    if not updated_stat:
-        raise HTTPException(status_code=404, detail="Character stats not found")
-    return {"message": "Stats updated", "stats": updated_stat}
-
-# 라우터들을 메인 API 라우터에 통합
-api_router.include_router(user_router)
-api_router.include_router(character_router)
+# [정리] 기존의 임시 user_router는 auth.py가 역할을 대신하므로 삭제했습니다.

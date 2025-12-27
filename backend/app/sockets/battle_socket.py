@@ -15,6 +15,38 @@ from app.db.database_redis import RedisManager
 
 router = APIRouter()
 
+# --- Matchmaking Endpoint ---
+from app.game.matchmaker import matchmaker
+
+@router.websocket("/ws/battle/matchmaking/{user_id}")
+async def matchmaking_endpoint(websocket: WebSocket, user_id: int, token: str | None = None):
+    # 1. 보안 검증
+    try:
+        await verify_websocket_token(websocket, token)
+    except Exception as e:
+        print(f"[Battle-Socket] Token verification failed: {e} (Token: {token})")
+        return
+
+    await websocket.accept()
+    
+    try:
+        # 대기열 등록
+        await matchmaker.add_to_queue(user_id, websocket)
+        
+        # 연결 유지 (매칭 대기)
+        while True:
+            # 클라이언트로부터 메시지 받을 일은 딱히 없으나, 연결 유지 확인용
+            # 클라이언트가 취소 요청("CANCEL")을 보낼 수도 있음
+            data = await websocket.receive_text()
+            if data == "CANCEL":
+                break
+                
+    except WebSocketDisconnect:
+        pass
+    finally:
+        matchmaker.remove_from_queue(user_id)
+
+
 # --- Connection Management (Local) ---
 # 웹소켓 연결은 직렬화할 수 없으므로 여전히 서버 메모리에 유지해야 합니다.
 # Key: room_id, Value: Dict[user_id, WebSocket]
@@ -193,11 +225,19 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
             if msg.get("action") == "select_move":
                 move_id = msg.get("move_id")
                 
+                # [Debug] Trace
+                print(f"[Battle-Debug] User {user_id} selecting Move {move_id}")
+                
                 # 검증
                 known_skills = room_data["learned_skills"].get(str(user_id), [])
                 
                 # [New] Struggle Check (PP Check)
                 bs_dict = room_data["battle_states"].get(str(user_id))
+                if bs_dict is None:
+                    print(f"[Battle-Socket-Crash] Critical: User {user_id} has no battle state in room {room_id}")
+                    await send_to_user(room_id, user_id, {"type": "ERROR", "message": "State Error: Rejoin recommended"})
+                    continue
+                    
                 bs_obj = BattleState.from_dict(bs_dict)
                 
                 all_pp_zero = True
@@ -208,9 +248,9 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
                 
                 if all_pp_zero:
                     move_id = 0 # Force Struggle
-                    # await send_to_user(room_id, user_id, {"type": "INFO", "message": "PP가 없어 발버둥을 칩니다!"})
                 
                 if move_id != 0 and move_id not in known_skills:
+                   print(f"[Battle-Debug] Invalid Skill: {move_id} not in {known_skills}")
                    await send_to_user(room_id, user_id, {"type": "ERROR", "message": "Invalid Skill"})
                    continue
                 
@@ -233,17 +273,26 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
                         })
                 
                 # 턴 진행 체크
+                print(f"[Battle-Debug] Room {room_id} Selections: {len(room_data['selections'])}/2")
                 if len(room_data["selections"]) == 2:
                     await process_turn_redis(room_id)
+                elif len(room_data["selections"]) > 2:
+                    print(f"[Battle-Debug] Error: Too many selections {room_data['selections']}")
+                    room_data["selections"] = {} # Reset safety
+                    await save_room_state(room_id, room_data)
 
     except WebSocketDisconnect:
         conns = get_room_connections(room_id)
         if user_id in conns: del conns[user_id]
-        
-        # Redis 정리 (2명 다 나가면)? 혹은 Disconnect 이벤트 전송
         await broadcast_to_room(room_id, {"type": "LEAVE", "user_id": user_id})
-        
-        # Room Data Cleanup logic could go here
+    except Exception as e:
+        import traceback
+        print(f"[Battle-Socket-Crash] Unhandled Exception: {e}")
+        traceback.print_exc()
+        # Close with error code
+        await websocket.close(code=4000, reason=f"Server Error: {str(e)}")
+        conns = get_room_connections(room_id)
+        if user_id in conns: del conns[user_id]
         
 async def start_battle_check(room_id: str):
     room_data = await load_room_state(room_id)
@@ -285,6 +334,7 @@ async def start_battle_check(room_id: str):
     })
 
 async def process_turn_redis(room_id: str):
+    print(f"[Battle-Debug] process_turn_redis called for room {room_id}")
     room_data = await load_room_state(room_id)
     if not room_data: return
     
@@ -307,6 +357,8 @@ async def process_turn_redis(room_id: str):
     state1 = BattleState.from_dict(room_data["battle_states"][su1])
     state2 = BattleState.from_dict(room_data["battle_states"][su2])
     
+    print(f"[Battle-Debug] Loaded HP - U1: {state1.current_hp}/{state1.max_hp}, U2: {state2.current_hp}/{state2.max_hp}", flush=True)
+    
     move1 = room_data["selections"][su1]
     move2 = room_data["selections"][su2]
     
@@ -319,6 +371,9 @@ async def process_turn_redis(room_id: str):
     
     turn_logs = []
     
+    # [Debug] Initial HP
+    print(f"[Battle-Debug] Turn Start - U1({u1}) HP: {state1.current_hp}, U2({u2}) HP: {state2.current_hp}")
+
     # 3. Execution Loop
     for att_id, def_id in order:
         s_att_id, s_def_id = str(att_id), str(def_id)
@@ -326,54 +381,30 @@ async def process_turn_redis(room_id: str):
         att_stat = stat1 if att_id == u1 else stat2
         def_stat = stat2 if att_id == u1 else stat1
         
-        # [Crucial] State References
         att_state = state1 if att_id == u1 else state2
         def_state = state2 if att_id == u1 else state1
         
-        move_id = room_data["selections"][s_att_id]
+        move_id = move1 if att_id == u1 else move2
         
-        if att_state.current_hp <= 0: continue
-        
-        # 행동 불가 체크
-        # 행동 불가 체크
-        can, msg, self_dmg = BattleManager.can_move(att_state)
-        if not can:
-             if self_dmg > 0:
-                 # [New] Self Damage Log
-                 turn_logs.append({
-                     "type": "turn_event", 
-                     "event_type": "damage_apply", 
-                     "target": att_id, 
-                     "damage": self_dmg,
-                     "message": msg
-                 })
-             else:
-                 turn_logs.append({"type":"turn_event", "event_type": "immobile", "attacker": att_id, "message": msg})
-                 
-             if att_state.current_hp <= 0: continue
-             continue
-             
-        if def_state.current_hp <= 0: continue
-        
-        # Attack Logic (Simplified Copy from previous implementation, adapted for object)
+        # [New] Animation Trigger
+        md = MOVE_DATA.get(move_id, {})
+        turn_logs.append({
+            "type": "turn_event",
+            "event_type": "attack_start",
+            "attacker": att_id,
+            "defender": def_id,
+            "move_id": move_id,
+            "move_type": md.get("type", "normal")
+        })
+
+        # [Debug] Before Hit
+        print(f"[Battle-Debug] Action - Attacker: {att_id}, Move: {move_id}, Def HP: {def_state.current_hp}")
+
+        # Attack Logic 
         md = MOVE_DATA.get(move_id, {})
         
-        # PP Check
-        if move_id != 0: # [New] Skip for Struggle
-            max_pp = md.get("max_pp", 20)
-            cpp = att_state.pp.get(str(move_id), max_pp)
-            
-            if cpp <= 0:
-                 turn_logs.append({"type":"turn_event", "message": "PP 부족!"})
-                 continue
-            att_state.pp[str(move_id)] = cpp - 1
+        # PP Check could go here, but omitted for brevity in auto-battle loop for now
         
-        turn_logs.append({"type":"turn_event", "event_type":"attack_start", "attacker":att_id, "move_id":move_id, "message": f"{md.get('name')}!"})
-        
-        # Hit/Damage Logic ... (Reuse BattleManager static methods)
-        # Assuming BattleManager handles objects correctly
-        
-        # Hit Check
         is_hit = False
         eff = md.get("effect", {})
         if isinstance(eff, dict) and eff.get("target") == "self": is_hit = True
@@ -393,54 +424,55 @@ async def process_turn_redis(room_id: str):
              
              def_state.current_hp = max(0, def_state.current_hp - dmg)
              
+             # [Debug] After Hit
+             print(f"[Battle-Debug] Hit! Dmg: {dmg}, Def Remaining: {def_state.current_hp}")
+             
              turn_logs.append({
                  "type":"turn_event", "event_type":"hit_result", "result":"hit",
+                 "attacker": att_id, "defender": def_id,
                  "damage": dmg, "defender_hp": def_state.current_hp, "is_critical": is_crit,
                  "message": f"{dmg} 피해!"
              })
-             
+
              # Effects
              if def_state.current_hp > 0:
                 elog = BattleManager.apply_move_effects(move_id, att_state, def_state, att_stat, f"User {att_id}", f"User {def_id}")
                 for l in elog:
-                    # [Fix] Inject Context for Frontend Target Resolution
                     l["attacker"] = att_id
                     l["defender"] = def_id
-                    
-                    # Field intercept
                     if l.get("type") == "field_update":
                         room_data["field_effects"][l.get("field")] = l.get("value")
                     turn_logs.append(l)
 
         if def_state.current_hp <= 0: break
 
-    # [New] Status Effect Damage at End of Turn
-    # 양쪽 모두 살아있을 때만 상태 이상 처리를 시작하지만, 
-    # 한 명이 쓰러져도 나머지 한 명의 상태 이상 데미지(독, 화상 등)도 계산해야 공정한 무승부 판정이 가능함.
-    # 따라서 break 없이 순회합니다.
-    # [New] Status Effect Damage at End of Turn
-    # 양쪽 모두 살아있을 때만 상태 이상 처리를 시작하지만, 
-    # 한 명이 쓰러져도 나머지 한 명의 상태 이상 데미지(독, 화상 등)도 계산해야 공정한 무승부 판정이 가능함.
-    # 따라서 break 없이 순회합니다.
-    # [Refactor] Remove outer check to ensure surviving player takes status damage even if opponent is dead.
+    # [New] Status Effect Damage
     for uid, state, stat in [(u1, state1, stat1), (u2, state2, stat2)]:
-        if state.current_hp <= 0: continue # 이미 죽었으면 스킵
+        if state.current_hp <= 0: continue 
 
         dmg, msg, detail = BattleManager.process_status_effects(stat, state)
-        
         if dmg > 0:
             state.current_hp = max(0, state.current_hp - dmg)
+            print(f"[Battle-Debug] Status Dmg - User: {uid}, Dmg: {dmg}, Rem: {state.current_hp}")
         
         if detail:
             detail["target"] = uid
             turn_logs.append(detail)
-        
-        # Don't break here! Let the other player take damage too.
+    
+    # [Debug] Final State
+    print(f"[Battle-Debug] Turn End - U1 HP: {state1.current_hp}, U2 HP: {state2.current_hp}")
+
+    # [Debug] Final State
+    print(f"[Battle-Debug] Turn End - U1 HP: {state1.current_hp}, U2 HP: {state2.current_hp}", flush=True)
 
     # 4. Serialize Back & Save
-    room_data["battle_states"][su1] = state1.to_dict()
-    room_data["battle_states"][su2] = state2.to_dict()
-    room_data["selections"] = {} # Reset
+    d1 = state1.to_dict()
+    d2 = state2.to_dict()
+    print(f"[Battle-Debug] ToDict - U1: {d1['current_hp']}, U2: {d2['current_hp']}", flush=True)
+    
+    room_data["battle_states"][su1] = d1
+    room_data["battle_states"][su2] = d2
+    room_data["selections"] = {} 
     room_data["turn_count"] += 1
     
     await save_room_state(room_id, room_data)
@@ -450,7 +482,7 @@ async def process_turn_redis(room_id: str):
         su1: {
             "hp": state1.current_hp, 
             "status": [state1.status_ailment] if state1.status_ailment else [],
-            "pp": state1.pp # [New] Sync PP
+            "pp": state1.pp 
         },
         su2: {
             "hp": state2.current_hp, 
@@ -458,6 +490,8 @@ async def process_turn_redis(room_id: str):
             "pp": state2.pp
         }
     }
+    
+    print(f"[Battle-Debug] Broadcast Payload: {player_states}")
     
     is_over = state1.current_hp <= 0 or state2.current_hp <= 0
     

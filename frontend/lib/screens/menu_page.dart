@@ -3,8 +3,14 @@ import 'package:provider/provider.dart';
 import 'my_room_page.dart';
 import 'mode_select_page.dart';
 import 'battle_page.dart';
+import 'battle_lobby_screen.dart'; // [New]
+import 'user_list_screen.dart'; // [New]
 import '../providers/char_provider.dart';
 import '../config/theme.dart';
+import '../providers/chat_provider.dart'; // [New]
+import '../services/auth_service.dart'; // [New]
+import '../providers/battle_provider.dart'; // [New]
+import 'dart:async'; // [New]
 
 class MenuPage extends StatefulWidget {
   const MenuPage({super.key});
@@ -16,6 +22,7 @@ class MenuPage extends StatefulWidget {
 class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin {
   late AnimationController _breathingController;
   late Animation<double> _breathingAnimation;
+  StreamSubscription? _chatSubscription; // [New]
 
   @override
   void initState() {
@@ -27,14 +34,94 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     );
     _breathingController.repeat(reverse: true);
     
-    // Auto-fetch data if not present (Safety check)
+    // Auto-fetch data and connect chat
     WidgetsBinding.instance.addPostFrameCallback((_) {
-        // Optional: Trigger fetch if needed, but usually done in main or splash.
+        final charProvider = Provider.of<CharProvider>(context, listen: false);
+        charProvider.fetchMyCharacter();
+        
+        _initChatConnection(); // [New]
     });
+  }
+
+  Future<void> _initChatConnection() async {
+      final auth = AuthService();
+      final idStr = await auth.getUserId();
+      if (idStr != null && mounted) {
+          final myId = int.parse(idStr);
+          final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+          chatProvider.connect(myId);
+          
+          // Listen for global invites
+          _chatSubscription = chatProvider.messageStream.listen((msg) {
+              if (msg['type'] == 'BATTLE_INVITE') {
+                  _showInviteDialog(msg); // [Fix] Use Dialog instead of SnackBar
+              }
+          });
+      }
+  }
+
+  void _showInviteDialog(Map<String, dynamic> msg) {
+      if (!mounted) return;
+      
+      final roomId = msg['room_id'];
+      final message = msg['message'] ?? "Battle Invite!";
+      
+      showDialog(
+        context: context,
+        barrierDismissible: false, // Must accept or decline
+        builder: (context) {
+           return AlertDialog(
+             backgroundColor: AppColors.navy,
+             shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppColors.cyberYellow, width: 2)
+             ),
+             title: const Row(
+               children: [
+                 Icon(Icons.sports_kabaddi, color: AppColors.cyberYellow),
+                 SizedBox(width: 10),
+                 Text("도전장 도착!", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+               ],
+             ),
+             content: Text(
+               message, 
+               style: const TextStyle(color: Colors.white70, fontSize: 16)
+             ),
+             actions: [
+               TextButton(
+                 onPressed: () => Navigator.pop(context),
+                 child: const Text("거절", style: TextStyle(color: Colors.grey)),
+               ),
+               ElevatedButton(
+                 onPressed: () {
+                    Navigator.pop(context); // Close dialog
+                    if (roomId != null) {
+                       Navigator.push(
+                         context, 
+                         MaterialPageRoute(
+                           builder: (_) => ChangeNotifierProvider(
+                             create: (_) => BattleProvider()..setRoomId(roomId),
+                             child: const BattleView(),
+                           )
+                         )
+                       );
+                    }
+                 },
+                 style: ElevatedButton.styleFrom(
+                   backgroundColor: AppColors.danger,
+                   foregroundColor: Colors.white
+                 ),
+                 child: const Text("수락 (FIGHT!)", style: TextStyle(fontWeight: FontWeight.bold)),
+               )
+             ],
+           );
+        }
+      );
   }
 
   @override
   void dispose() {
+    _chatSubscription?.cancel(); // [New]
     _breathingController.dispose();
     super.dispose();
   }
@@ -42,20 +129,33 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Colors.white,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Background Decor (Subtle Circles)
+          // 1. Background (Gradient)
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFFFF0F5), // Lavender Blush
+                  Color(0xFFE0F7FA), // Cyan Mist
+                ],
+              ),
+            ),
+          ),
+          // Decor Circles (Softened)
           Positioned(
             top: -100,
             right: -100,
-            child: _buildDecorCircle(300, AppColors.navy.withOpacity(0.05)),
+            child: _buildDecorCircle(300, AppColors.secondaryPink.withOpacity(0.1)),
           ),
           Positioned(
             bottom: -50,
             left: -50,
-            child: _buildDecorCircle(200, AppColors.cyberYellow.withOpacity(0.1)),
+            child: _buildDecorCircle(200, AppColors.primaryMint.withOpacity(0.1)),
           ),
 
           // 2. Main Character (Center - Lobby Style)
@@ -179,15 +279,27 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MyRoomPage())),
                        ),
                      ),
-                     const SizedBox(width: 12),
+                     const SizedBox(width: 8),
+                     // Friends Button [New]
+                     Expanded(
+                       child: _buildLobbyCard(
+                         context,
+                         title: "FRIENDS",
+                         subtitle: "채팅",
+                         icon: Icons.people_alt_rounded,
+                         color: Colors.teal,
+                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const UserListScreen())),
+                       ),
+                     ),
+                     const SizedBox(width: 8),
                      Expanded(
                        child: _buildLobbyCard(
                          context,
                          title: "BATTLE",
                          subtitle: "실전 대결",
-                         icon: Icons.sports_kabaddi_rounded, // or swords
+                         icon: Icons.sports_kabaddi_rounded, 
                          color: AppColors.danger,
-                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const BattlePage())),
+                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => BattleLobbyScreen())),
                        ),
                      ),
                    ],
@@ -226,31 +338,32 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: isPrimary ? 90 : 110,
+        height: isPrimary ? 100 : 120, // Slightly taller
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
-            BoxShadow(color: color.withOpacity(0.2), blurRadius: 12, offset: const Offset(0, 6))
+            BoxShadow(color: color.withOpacity(0.2), blurRadius: 15, offset: const Offset(0, 8))
           ],
-          border: isPrimary ? Border.all(color: color, width: 2) : null,
+          border: Border.all(color: color.withOpacity(0.1), width: 1),
         ),
         child: isPrimary 
           ? Row( // Horizontal Layout for Primary
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-                  child: Icon(icon, color: color, size: 28),
+                  child: Icon(icon, color: color, size: 30),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 20),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: color, letterSpacing: 1.0)),
-                    Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppColors.softCharcoal, letterSpacing: 1.0)),
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w500)),
                   ],
                 ),
                 const Spacer(),
@@ -260,9 +373,13 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
           : Column( // Vertical Layout for Secondary
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                 Icon(icon, color: color, size: 32),
-                 const SizedBox(height: 8),
-                 Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: color)),
+                 Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                    child: Icon(icon, color: color, size: 28)
+                 ),
+                 const SizedBox(height: 12),
+                 Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.softCharcoal)),
               ],
             ),
       ),

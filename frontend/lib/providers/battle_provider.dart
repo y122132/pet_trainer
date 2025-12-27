@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pet_trainer_frontend/config.dart';
+import 'package:pet_trainer_frontend/api_config.dart';
+import 'package:pet_trainer_frontend/services/auth_service.dart'; // [New]
 import 'package:pet_trainer_frontend/models/battle_state.dart';
 import 'package:pet_trainer_frontend/services/battle_socket_service.dart';
 import 'package:pet_trainer_frontend/game/battle_animation_manager.dart';
@@ -71,11 +72,18 @@ class BattleProvider extends ChangeNotifier {
 
     _socketService.messageStream.listen(_handleMessage);
 
-    // [Revert] Use static Room ID for Matchmaking (Dev)
-    final String roomId = "arena_1";
-    final String url = "${AppConfig.battleSocketUrl}/$roomId/$_myId";
-    
-    _socketService.connect(url);
+    final String roomId = _presetRoomId ?? "arena_1"; 
+    // AppConfig.battleSocketUrl 뒤에 실제 유저 ID가 붙어 경로가 구성됨
+    // [Fix] Token 추가
+    final authService = AuthService(); // Need import
+    authService.getToken().then((token) {
+        if (token != null) {
+            final String url = "${AppConfig.battleSocketUrl}/$roomId/$_myId?token=$token";
+            _socketService.connect(url);
+        } else {
+            debugPrint("BattleProvider: No token found, cannot connect.");
+        }
+    });
   }
 
   void sendMove(int moveId) {
@@ -88,6 +96,12 @@ class BattleProvider extends ChangeNotifier {
       "action": "select_move",
       "move_id": moveId
     });
+  }
+
+  // [New] For Matchmaking
+  String? _presetRoomId;
+  void setRoomId(String roomId) {
+    _presetRoomId = roomId;
   }
 
   // --- INTERNALS ---
@@ -235,21 +249,24 @@ class BattleProvider extends ChangeNotifier {
               }).toList();
            }
 
-           _state = _state.copyWith(
-              myStatuses: statuses,
-              mySkills: updatedSkills,
-              myHp: state['hp']
-           );
+            debugPrint("[BattleProvider] Syncing MyHP: ${_state.myHp} -> ${state['hp']}");
+            _state = _state.copyWith(
+               myStatuses: statuses,
+               mySkills: updatedSkills,
+               myHp: state['hp']
+            );
         } else {
-           _state = _state.copyWith(
-               oppStatuses: statuses,
-               oppHp: state['hp']
-           );
+            debugPrint("[BattleProvider] Syncing OppHP: ${_state.oppHp} -> ${state['hp']}");
+            _state = _state.copyWith(
+                oppStatuses: statuses,
+                oppHp: state['hp']
+            );
         }
      });
   }
 
   void _handleHpChange(int target, int delta) {
+      debugPrint("[BattleProvider] _handleHpChange: Target $target, Delta $delta, Current MyHP ${_state.myHp}");
       if (target == _myId) {
          int newHp = (_state.myHp + delta).clamp(0, _state.myMaxHp);
          _state = _state.copyWith(myHp: newHp);

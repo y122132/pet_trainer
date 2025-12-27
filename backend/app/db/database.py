@@ -6,106 +6,108 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# .env 파일에서 데이터베이스 연결 정보 로드
+# 데이터베이스 연결 정보 설정
 POSTGRES_USER = os.getenv("POSTGRES_USER")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "db")
 POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
 POSTGRES_DB = os.getenv("POSTGRES_DB")
 
-# PostgreSQL 비동기 연결 URL (asyncpg 드라이버 사용)
 SQLALCHEMY_DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
-# 비동기 엔진 생성
-engine = create_async_engine(
-    SQLALCHEMY_DATABASE_URL,
-    echo=True, # 쿼리 로그 출력 (운영 환경에서는 False로 설정 권장)
-)
+engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=True)
 
-# 비동기 세션 팩토리 생성
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
-    expire_on_commit=False, # 커밋 후 객체 만료 방지 (비동기 환경에서 재조회 방지)
+    expire_on_commit=False,
     autoflush=False,
 )
 
 class Base(DeclarativeBase):
     pass
 
-# FastAPI 의존성 주입(Dependency Injection)을 위한 DB 세션 생성기
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
 
-# 데이터베이스 초기화 함수 (Startup 시 실행)
 async def init_db():
-    # Base.metadata에 모델을 등록하기 위해 모델들을 import 해야 함
-    from app.db.models import user, character
+    """
+    서버 시작 시 테이블을 생성하고 최신화된 모델 필드에 맞춰 테스트 데이터를 시딩합니다.
+    """
+    # Base.metadata 등록을 위해 모델 임포트
+    from app.db.models import user, character, friendship
     
-    # 테이블 생성 (이미 존재하면 건너뜀)
     async with engine.begin() as conn:
-        # await conn.run_sync(Base.metadata.drop_all) # [FIX] 스키마 불일치 해결을 위해 초기화 활성화
+        # 테이블 생성
         await conn.run_sync(Base.metadata.create_all)
         
-    # MVP 테스트를 위한 기본(Default) 데이터 시딩
     from sqlalchemy import select
     from app.db.models.user import User
     from app.db.models.character import Character, Stat
-    
+    from app.core.security import get_password_hash
+
     async with AsyncSessionLocal() as session:
-        # 테스트 유저 생성 함수
-        async def create_test_user(uid, email, char_name, pet_type):
-            # 1. User
+        test_hashed_pwd = get_password_hash("password123")
+
+        async def create_test_user(uid, username, nickname, char_name, pet_type):
+            # 1. User 필드 체크: username, nickname, password, is_active (email은 nullable이므로 생략 가능)
             res = await session.execute(select(User).where(User.id == uid))
-            user = res.scalar_one_or_none()
-            if not user:
+            user_obj = res.scalar_one_or_none()
+            if not user_obj:
                 print(f"Creating Test User {uid}...")
-                user = User(id=uid, email=email, password="hashed_password") 
-                session.add(user)
+                user_obj = User(
+                    id=uid, 
+                    username=username, 
+                    nickname=nickname, 
+                    password=test_hashed_pwd,
+                    is_active=True # User 모델에 추가된 필드 확인됨
+                ) 
+                session.add(user_obj)
                 await session.flush()
             
-            # 2. Character
+            # 2. Character 필드 체크: name, status, pet_type, learned_skills (JSONB)
             char_res = await session.execute(select(Character).where(Character.user_id == uid))
             char = char_res.scalar_one_or_none()
             if not char:
-                print(f"Creating Character for User {uid} ({pet_type})...")
-                # 초기 스킬: Dog=[1, 2], Cat=[101, 102]
+                print(f"Creating Character for User {uid}...")
                 skills = [1, 2] if pet_type == 'dog' else [101, 102]
-                
                 char = Character(
                     user_id=uid, 
                     name=char_name, 
                     status="normal", 
                     pet_type=pet_type,
-                    learned_skills=skills
+                    learned_skills=skills # develop 브랜치 필수 필드
                 )
                 session.add(char)
                 await session.flush()
                 
-            # 3. Stat
+            # 3. Stat 필드 체크: agility(O), max_health(X), personality/condition(O)
             stat_res = await session.execute(select(Stat).where(Stat.character_id == char.id))
             stat = stat_res.scalar_one_or_none()
             if not stat:
                 print(f"Creating Stats for User {uid}...")
+                # character.py 모델 정의에 맞춰 정확히 매칭 (max_health 제거)
                 stat = Stat(
                     character_id=char.id,
-                    strength=10,
+                    level=5,
+                    exp=0,
+                    health=100,      # 모델의 health 필드 사용
+                    happiness=70,
+                    strength=15,
                     intelligence=10,
-                    agility=10,
-                    happiness=50,
-                    health=100,
-                    defense=10,    # Default
-                    luck=5,        # Default
-                    condition=100  # Default
+                    agility=12,      # develop의 agility 사수
+                    defense=10,
+                    luck=10,
+                    personality="기본", # develop 모델 필드
+                    condition=100,   # develop 모델 필드
+                    unused_points=5
                 )
                 session.add(stat)
         
-        # 유저 1 (강아지)
-        await create_test_user(1, "test1@example.com", "MyDog", "dog")
-        # 유저 2 (고양이)
-        await create_test_user(2, "test2@example.com", "EnemyCat", "cat")
+        # 테스트 데이터 생성 실행
+        await create_test_user(1, "trainer_ash", "지우", "피카독", "dog")
+        await create_test_user(2, "trainer_gary", "바람", "나옹냥", "cat")
         
         await session.commit()
-            
-        print("Test environment initialized (Users 1 & 2 created).")
+        print("--- 테스트 환경 초기화 완료 (User/Character/Stat 연동 완료) ---")

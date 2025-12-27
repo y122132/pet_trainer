@@ -117,9 +117,8 @@ async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: 
     user = result.scalar_one_or_none()
     
     if not user:
-        user = User(id=user_id, email=f"user{user_id}@example.com", hashed_password="dummy")
-        db.add(user)
-        await db.commit()
+        # 회원이 존재하지 않으면 에러 발생 (인증된 유저만 캐릭터 생성 가능)
+        raise ValueError("User not found")
     
     # 2. 기존 캐릭터 확인 (중복 생성 방지)
     stmt = select(Character).where(Character.user_id == user_id)

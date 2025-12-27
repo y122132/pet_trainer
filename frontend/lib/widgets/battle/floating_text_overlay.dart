@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pet_trainer_frontend/config/theme.dart';
 
 class FloatingTextOverlay extends StatelessWidget {
   final List<FloatingTextItem> items;
@@ -40,20 +41,16 @@ class FloatingTextOverlay extends StatelessWidget {
             child: Text(
               item.text,
               style: TextStyle(
-                  fontFamily: 'Roboto', // Or any bold font
-                  fontSize: item.isCrit ? 36 : (item.isHeal ? 28 : 32),
+                  fontSize: item.isCrit ? 40 : (item.isHeal ? 28 : 36), // Slightly bigger
                   fontWeight: FontWeight.w900,
                   color: item.isHeal
-                      ? Colors.greenAccent
-                      : (item.isCrit ? Colors.amber : Colors.white),
+                      ? AppColors.success
+                      : (item.text == "MISS" ? Colors.grey : (item.isCrit ? Colors.amber : const Color(0xFFFF7043))), // Orange-Red for Damage
                   shadows: [
-                    const Shadow(blurRadius: 2, color: Colors.black, offset: Offset(2, 2)),
-                    Shadow(
-                        blurRadius: 10,
-                        color: item.isCrit
-                            ? Colors.orange
-                            : (item.isHeal ? Colors.green : Colors.red),
-                        offset: const Offset(0, 0))
+                    // Outline
+                    Shadow(blurRadius: 2, color: item.isHeal ? Colors.green[900]! : (item.text == "MISS" ? Colors.black45 : Colors.brown), offset: const Offset(1, 1)),
+                    // Glow
+                    Shadow(blurRadius: 8, color: item.isHeal ? AppColors.success.withOpacity(0.5) : (item.isCrit ? Colors.amber.withOpacity(0.5) : Colors.redAccent.withOpacity(0.3)), offset: const Offset(0, 0))
                   ]),
             ),
           ),

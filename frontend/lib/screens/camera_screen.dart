@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pet_trainer_frontend/providers/char_provider.dart';
 import 'package:pet_trainer_frontend/providers/training_controller.dart';
-import 'package:pet_trainer_frontend/widgets/chat_bubble.dart';
+import 'package:pet_trainer_frontend/widgets/char_message_bubble.dart';
 import 'package:pet_trainer_frontend/widgets/stat_distribution_dialog.dart';
 import 'package:pet_trainer_frontend/widgets/camera/camera_painters.dart';
 import 'my_room_page.dart'; // For navigation context if needed

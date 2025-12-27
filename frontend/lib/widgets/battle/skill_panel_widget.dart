@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pet_trainer_frontend/config/theme.dart';
 
 class SkillPanelWidget extends StatelessWidget {
   final List<Map<String, dynamic>?> skills;
@@ -23,15 +24,15 @@ class SkillPanelWidget extends StatelessWidget {
     List<Map<String, dynamic>?> displaySkills = skills;
     
     return Container(
-      height: 280, 
-      decoration: const BoxDecoration(
+      height: 300, 
+      decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 20, offset: Offset(0, -5))],
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
+        boxShadow: [BoxShadow(color: AppColors.primaryMint.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, -5))],
       ),
       child: Center(
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 600), // Layout constraint for PC
+          constraints: const BoxConstraints(maxWidth: 600),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 30), 
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -39,14 +40,14 @@ class SkillPanelWidget extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("SKILLS", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.indigo, letterSpacing: 1.0)),
+                  const Text("SKILLS", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.softCharcoal, letterSpacing: 1.0)),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: isMyTurn ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
+                      color: isMyTurn ? AppColors.success : AppColors.secondaryPink.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Text(statusMessage, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isMyTurn ? Colors.green : Colors.red)),
+                    child: Text(statusMessage, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
                   ),
                 ],
               ),
@@ -88,12 +89,12 @@ class SkillPanelWidget extends StatelessWidget {
     if (skill == null) {
       return Container(
         decoration: BoxDecoration(
-          color: Colors.grey[100], 
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.grey[300]!, width: 2),
+          color: AppColors.neutral.withOpacity(0.3), 
+          borderRadius: BorderRadius.circular(30), // Pebble shape
+          border: Border.all(color: Colors.transparent, width: 2),
         ),
-        child: Center(
-          child: Icon(Icons.lock_outline, color: Colors.grey[400], size: 32),
+        child: const Center(
+          child: Icon(Icons.lock_outline_rounded, color: Colors.white, size: 32),
         ),
       );
     }
@@ -107,50 +108,52 @@ class SkillPanelWidget extends StatelessWidget {
     int maxPp = skill['max_pp'] ?? 20;
     
     Color typeColor = _getTypeColor(type);
+    // Adjust logic: if connected and my turn, usable. Also check PP.
     bool canPress = isConnected && isMyTurn && currentPp > 0;
 
     return GestureDetector(
       onLongPress: () => _showSkillInfo(context, name, type, skill),
-      child: Opacity(
-        opacity: canPress ? 1.0 : 0.6,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 300),
+        opacity: canPress ? 1.0 : 0.5,
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-               begin: Alignment.topLeft, end: Alignment.bottomRight,
-               colors: [Colors.white, typeColor.withOpacity(0.1)]
-            ),
+            borderRadius: BorderRadius.circular(24), // Pebble
+            color: Colors.white,
             boxShadow: [
-              if (canPress) BoxShadow(color: typeColor.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))
+              if (canPress) BoxShadow(color: typeColor.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4))
             ],
-            border: Border.all(color: canPress ? typeColor : Colors.grey, width: 2)
+            border: Border.all(color: canPress ? typeColor : Colors.grey.withOpacity(0.3), width: 3)
           ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
               onTap: canPress ? () => onSkillSelected(skillId) : null,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(24),
               child: Stack(
                 children: [
+                  // Cute Type Icon in Background
                   Positioned(
-                    right: -5, bottom: -5,
-                    child: Icon(Icons.flash_on, size: 64, color: typeColor.withOpacity(0.1)),
+                    right: -10, bottom: -10,
+                    child: Icon(_getTypeIcon(type), size: 60, color: typeColor.withOpacity(0.1)),
                   ),
                   Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                         Text(name, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
-                         const SizedBox(height: 4),
+                         Text(name, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.softCharcoal)),
+                         
+                         // Type Tag (Small Pill)
                          Container( 
+                           margin: const EdgeInsets.symmetric(vertical: 4),
                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                           decoration: BoxDecoration(color: typeColor, borderRadius: BorderRadius.circular(8)),
-                           child: Text(type.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+                           decoration: BoxDecoration(color: typeColor.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+                           child: Text(type.toUpperCase(), style: TextStyle(color: typeColor, fontSize: 10, fontWeight: FontWeight.bold)),
                          ),
-                         const SizedBox(height: 4),
-                         // [New] PP Display
+                         
+                         // PP
                          Text("PP $currentPp/$maxPp", 
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: currentPp > 0 ? Colors.black54 : Colors.red)
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: currentPp > 0 ? Colors.grey : AppColors.danger)
                          )
                       ],
                     ),
@@ -162,6 +165,16 @@ class SkillPanelWidget extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  IconData _getTypeIcon(String type) {
+    switch (type) {
+      case 'fire': return Icons.local_fire_department_rounded;
+      case 'water': return Icons.water_drop_rounded;
+      case 'grass': return Icons.grass_rounded;
+      case 'electric': return Icons.bolt_rounded;
+      default: return Icons.pets;
+    }
   }
 
   void _showSkillInfo(BuildContext context, String name, String type, Map<String, dynamic>? skill) {
@@ -203,15 +216,14 @@ class SkillPanelWidget extends StatelessWidget {
 
   Color _getTypeColor(String type) {
     switch (type) {
-      case 'fire': return Colors.red;
-      case 'water': return Colors.blue;
-      case 'grass': return Colors.green;
-      case 'electric': return Colors.amber[700]!;
-      case 'dark': return Colors.deepPurple;
-      case 'psychic': return Colors.pinkAccent;
-      case 'fighting': return Colors.orange;
-      case 'heal': return Colors.teal;
-      case 'evade': return Colors.indigo;
+      case 'fire': return const Color(0xFFFFAEBC);
+      case 'water': return const Color(0xFFB4F8C8); // Minty Blue
+      case 'grass': return const Color(0xFFA0E7E5); // Pastel Green
+      case 'electric': return const Color(0xFFFBE7C6); // Pastel Yellow
+      case 'dark': return Colors.purpleAccent.withOpacity(0.7);
+      case 'psychic': return Colors.pinkAccent.withOpacity(0.7);
+      case 'fighting': return Colors.orangeAccent;
+      case 'heal': return Colors.tealAccent;
       default: return Colors.grey;
     }
   }

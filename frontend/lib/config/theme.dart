@@ -1,31 +1,40 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  // Main Palette
-  static const Color navy = Color(0xFF2E3A59);
-  static const Color cyberYellow = Color(0xFFFFD700); 
-  static const Color spaceBlack = Color(0xFF1E2742);
-  static const Color background = Color(0xFFF5F5FA);
+  // Cute Pastel Palette
+  static const Color primaryMint = Color(0xFFA0E7E5);   // Soft Mint
+  static const Color secondaryPink = Color(0xFFFFAEBC); // Warm Pink
+  static const Color accentYellow = Color(0xFFFBE7C6);  // Lemon Yellow
+  static const Color creamWhite = Color(0xFFFFFDF9);    // Creamy Background
+  static const Color softCharcoal = Color(0xFF4A4A4A);  // Soft Text
   
   // Semantic
-  static const Color success = Color(0xFF00E676);
-  static const Color danger = Color(0xFFFF1744);
-  static const Color neutral = Colors.grey;
+  static const Color success = Color(0xFFB4F8C8); // Pastel Green
+  static const Color danger = Color(0xFFFFAEBC);  // Pastel Red (Pinkish)
+  static const Color neutral = Color(0xFFE0E0E0);
+  
+  // Legacy aliases for compatibility (mapping to new palette)
+  static const Color navy = softCharcoal;
+  static const Color cyberYellow = accentYellow;
+  static const Color spaceBlack = softCharcoal;
+  static const Color background = creamWhite;
 }
 
 class AppTheme {
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
-      scaffoldBackgroundColor: AppColors.background,
+      scaffoldBackgroundColor: AppColors.creamWhite,
       
       // Color Scheme
       colorScheme: ColorScheme.fromSeed(
-        seedColor: AppColors.navy,
-        primary: AppColors.navy,
-        secondary: AppColors.cyberYellow,
+        seedColor: AppColors.primaryMint,
+        primary: AppColors.primaryMint,
+        secondary: AppColors.secondaryPink,
+        tertiary: AppColors.accentYellow,
         surface: Colors.white,
-        background: AppColors.background,
+        background: AppColors.creamWhite,
+        error: AppColors.danger,
       ),
 
       // AppBar Theme
@@ -34,68 +43,76 @@ class AppTheme {
         elevation: 0,
         centerTitle: true,
         titleTextStyle: TextStyle(
-          color: AppColors.navy,
-          fontSize: 20,
-          fontWeight: FontWeight.w900, // Black Han Sans style
-          letterSpacing: 1.0,
+          color: AppColors.softCharcoal,
+          fontSize: 24,
+          fontWeight: FontWeight.w900, 
+          letterSpacing: 0.5,
+          fontFamily: 'RoundFont', // Generic placeholder if font added later
         ),
-        iconTheme: IconThemeData(color: AppColors.navy),
+        iconTheme: IconThemeData(color: AppColors.softCharcoal),
       ),
 
-      // Button Themes
+      // Button Themes (Rounded & Puffy)
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.navy,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          shadowColor: AppColors.navy.withOpacity(0.4),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          backgroundColor: AppColors.primaryMint,
+          foregroundColor: AppColors.softCharcoal,
+          elevation: 0, // Flat look with shadow handled by shape/container usually in cute UI
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(24),
           ),
           textStyle: const TextStyle(
-            fontSize: 16,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
           ),
         ),
       ),
 
-      // Card Theme
+      // Card Theme (Soft Shadow & Round)
       cardTheme: CardThemeData(
         color: Colors.white,
         elevation: 8,
-        shadowColor: Colors.black.withOpacity(0.05),
+        shadowColor: AppColors.primaryMint.withOpacity(0.2),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
         ),
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      ),
+      
+      // Floating Action Button
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: AppColors.secondaryPink,
+        foregroundColor: Colors.white,
+        elevation: 4,
+        shape: CircleBorder(), 
+      ),
+      
+      // Input Decoration (Round Text Fields)
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(30),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(30),
+          borderSide: const BorderSide(color: AppColors.neutral, width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(30),
+          borderSide: const BorderSide(color: AppColors.primaryMint, width: 2),
+        ),
       ),
 
-      // Text Theme (Using default font for now, can create custom TextStyle later)
+      // Text Theme
       textTheme: const TextTheme(
-        displayLarge: TextStyle(
-          color: AppColors.navy,
-          fontWeight: FontWeight.w900,
-          fontSize: 32,
-        ),
-        titleLarge: TextStyle(
-          color: AppColors.navy,
-          fontWeight: FontWeight.bold,
-          fontSize: 20,
-        ),
-        bodyLarge: TextStyle(
-          color: Color(0xFF4A5568),
-          fontSize: 16,
-        ),
-      ),
-
-      // Page Transitions
-      pageTransitionsTheme: const PageTransitionsTheme(
-        builders: {
-          TargetPlatform.android: ZoomPageTransitionsBuilder(),
-          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-        },
+        displayLarge: TextStyle(color: AppColors.softCharcoal, fontWeight: FontWeight.w900, fontSize: 32),
+        titleLarge: TextStyle(color: AppColors.softCharcoal, fontWeight: FontWeight.bold, fontSize: 20),
+        bodyLarge: TextStyle(color: AppColors.softCharcoal, fontSize: 16),
+        bodyMedium: TextStyle(color: AppColors.softCharcoal, fontSize: 14),
       ),
     );
   }
