@@ -27,9 +27,11 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     );
     _breathingController.repeat(reverse: true);
     
-    // Auto-fetch data if not present (Safety check)
+    // Auto-fetch data if not present
     WidgetsBinding.instance.addPostFrameCallback((_) {
-        // Optional: Trigger fetch if needed, but usually done in main or splash.
+        final provider = Provider.of<CharProvider>(context, listen: false);
+        // 이미 데이터가 있다면 굳이 또 부를 필요 없지만, 최신화 위해 호출 가능
+        provider.fetchMyCharacter();
     });
   }
 

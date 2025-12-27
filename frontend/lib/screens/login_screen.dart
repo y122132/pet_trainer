@@ -3,6 +3,7 @@ import '../services/auth_service.dart';
 import '../models/user_model.dart'; // UserModel 인식을 위해 추가
 import 'register_screen.dart';
 import 'menu_page.dart'; // 로그인 성공 시 이동할 페이지
+import 'simple_char_create_page.dart'; // [New] 캐릭터 생성 페이지
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -37,16 +38,20 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       
       // 로그인 성공 시 정보 표시 (디버깅용)
-      print("[AUTH] ${user.nickname}님 환영합니다. (ID: ${user.id})");
+      print("[AUTH] ${user.nickname}님 환영합니다. (ID: ${user.id}, Char: ${user.hasCharacter})");
 
-      // 로그인 성공 시 게임 메인 화면인 MenuPage로 이동
-      // network 브랜치의 UserListScreen 대신 develop의 MenuPage를 사용합니다.
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const MenuPage(),
-        ),
-      );
+      // [핵심] 캐릭터 존재 여부에 따라 분기
+      if (user.hasCharacter) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MenuPage()),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const SimpleCharCreatePage()),
+        );
+      }
     } else {
       if (!mounted) return;
       // 로그인 실패 시 에러 메시지 표시

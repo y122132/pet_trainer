@@ -28,7 +28,10 @@ class AuthService {
         if (user.token != null) {
           await _storage.write(key: 'jwt_token', value: user.token);
           await _storage.write(key: 'user_id', value: user.id.toString());
-          print("[AUTH] 토큰 저장 완료");
+          if (user.characterId != null) {
+             await _storage.write(key: 'character_id', value: user.characterId.toString());
+          }
+          print("[AUTH] 토큰 및 캐릭터 ID 저장 완료");
         }
 
         return user;
@@ -76,9 +79,14 @@ class AuthService {
     return await _storage.read(key: 'jwt_token');
   }
 
+  Future<String?> getCharacterId() async {
+    return await _storage.read(key: 'character_id');
+  }
+
   // 4. 유틸리티 기능: 로그아웃 (저장된 정보 삭제)
   Future<void> logout() async {
     await _storage.delete(key: 'jwt_token');
     await _storage.delete(key: 'user_id');
+    await _storage.delete(key: 'character_id');
   }
 }
