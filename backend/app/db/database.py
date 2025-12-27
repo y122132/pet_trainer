@@ -50,7 +50,7 @@ async def init_db():
     async with AsyncSessionLocal() as session:
         test_hashed_pwd = get_password_hash("password123")
 
-        async def create_test_user(uid, username, nickname, char_name, pet_type):
+        async def create_test_user(username, nickname, char_name, pet_type):
             # 1. User 필드 체크: username, nickname, password, is_active (email은 nullable이므로 생략 가능)
             res = await session.execute(select(User).where(User.username == username))
             user_obj = res.scalar_one_or_none()
