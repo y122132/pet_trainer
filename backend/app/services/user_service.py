@@ -42,7 +42,6 @@ async def authenticate_user(db: AsyncSession, user_in):
         return None # 검증 실패 시 None 반환 (라우터에서 예외 처리)
     
     # 3. JWT 토큰 생성
-    # 3. JWT 토큰 생성
     # ACCESS_TOKEN_EXPIRE_MINUTES를 security 모듈에서 가져와야 함 (import 필요)
     from datetime import timedelta
     from app.core.security import ACCESS_TOKEN_EXPIRE_MINUTES
@@ -66,3 +65,12 @@ async def authenticate_user(db: AsyncSession, user_in):
         "character_id": user.character.id if user.character else None, # [New] 캐릭터 ID 반환
         "has_character": bool(user.character) # selectinload가 적용되었다면 바로 접근 가능
     }
+
+async def get_all_users(db: AsyncSession):
+    """모든 사용자 목록을 조회합니다."""
+    result = await db.execute(select(User))
+    users = result.scalars().all()
+    return [
+        {"id": u.id, "username": u.username, "nickname": u.nickname}
+        for u in users
+    ]

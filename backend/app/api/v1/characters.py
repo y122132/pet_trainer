@@ -59,8 +59,11 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
 @router.post("/")
 async def create_character(char_data: CharacterCreate, db: AsyncSession = Depends(get_db)):
     """새로운 캐릭터를 생성합니다."""
-    char = await char_service.create_character(db, char_data.user_id, char_data.name)
-    return {"message": "Character created", "id": char.id}
+    try:
+        char = await char_service.create_character(db, char_data.user_id, char_data.name)
+        return {"message": "Character created", "id": char.id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.put("/{char_id}/stats")
 async def update_stats(char_id: int, stat_data: StatUpdateSchema, db: AsyncSession = Depends(get_db)):

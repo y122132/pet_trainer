@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../models/user_model.dart'; // UserModel 인식을 위해 추가
-import 'register_screen.dart';
+import 'user_register_screen.dart';
 import 'menu_page.dart'; // 로그인 성공 시 이동할 페이지
 import 'simple_char_create_page.dart'; // [New] 캐릭터 생성 페이지
 

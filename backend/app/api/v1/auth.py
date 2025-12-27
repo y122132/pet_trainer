@@ -31,3 +31,8 @@ async def login(user_in: UserLogin, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 틀렸습니다.")
         
     return auth_result
+
+@router.get("/users")
+async def get_users(db: AsyncSession = Depends(get_db)):
+    """전체 유저 목록 조회"""
+    return await user_service.get_all_users(db)

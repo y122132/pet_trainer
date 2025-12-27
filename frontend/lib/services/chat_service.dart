@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
-import 'package:pet_trainer_frontend/api_config.dart';
-import 'package:pet_trainer_frontend/models/chat_model.dart';
+import '../api_config.dart';
+import '../models/chat_model.dart';
 
 class ChatService {
   WebSocketChannel? _channel;

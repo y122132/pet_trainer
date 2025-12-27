@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'my_room_page.dart';
 import 'mode_select_page.dart';
 import 'battle_page.dart';
+import 'user_list_screen.dart'; // [New]
 import '../providers/char_provider.dart';
 import '../config/theme.dart';
 
@@ -181,13 +182,25 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MyRoomPage())),
                        ),
                      ),
-                     const SizedBox(width: 12),
+                     const SizedBox(width: 8),
+                     // Friends Button [New]
+                     Expanded(
+                       child: _buildLobbyCard(
+                         context,
+                         title: "FRIENDS",
+                         subtitle: "채팅",
+                         icon: Icons.people_alt_rounded,
+                         color: Colors.teal,
+                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const UserListScreen())),
+                       ),
+                     ),
+                     const SizedBox(width: 8),
                      Expanded(
                        child: _buildLobbyCard(
                          context,
                          title: "BATTLE",
                          subtitle: "실전 대결",
-                         icon: Icons.sports_kabaddi_rounded, // or swords
+                         icon: Icons.sports_kabaddi_rounded, 
                          color: AppColors.danger,
                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const BattlePage())),
                        ),
