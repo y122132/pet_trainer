@@ -25,4 +25,8 @@ class AppConfig {
   // 백엔드 routers.py 설정에 따라 /v1/chat 경로를 포함합니다.
   static String chatSocketUrl(int userId) => 
       'ws://$serverIp:$serverPort/v1/chat/ws/chat/$userId';
+
+  // 배틀 매치메이킹
+  static String matchMakingSocketUrl(int userId) => 
+      'ws://$serverIp:$serverPort/ws/battle/matchmaking/$userId';
 }

@@ -6,9 +6,20 @@ import '../services/auth_service.dart';
 import '../api_config.dart';
 import '../services/chat_service.dart'; // import if needed, or use http direct
 import '../config/theme.dart';
+import '../services/battle_service.dart';
+import 'package:provider/provider.dart';
+import '../providers/battle_provider.dart';
+import 'battle_page.dart';
 
 class UserListScreen extends StatefulWidget {
-  const UserListScreen({super.key});
+  final int initialTab;
+  final bool isInviteMode;
+  
+  const UserListScreen({
+    super.key, 
+    this.initialTab = 0,
+    this.isInviteMode = false,
+  });
 
   @override
   State<UserListScreen> createState() => _UserListScreenState();
@@ -18,6 +29,7 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
   
+  // ... ommit state vars ...
   List<dynamic> _friends = [];
   List<dynamic> _searchResults = []; // Users from search
   List<dynamic> _pendingRequests = []; // Requests I received
@@ -29,7 +41,7 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 2, vsync: this, initialIndex: widget.initialTab);
     _loadMyInfo();
   }
   
@@ -149,6 +161,20 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
     }
   }
 
+  // --- ACTIONS ---
+
+  void _onChallengeFriend(int friendId, String nickname) async {
+    // 1. Send Invite via API
+    // 2. Get Room ID
+    // 3. Go to Battle Page (Waiting)
+    
+    // Lazy load service to avoid cyclic dependency if any, though standard import is fine.
+    // Assuming BattleService is available.
+    // Need to import first: import '../services/battle_service.dart';
+    
+    // Use dynamic import for now or just add import at top of file
+  }
+
   // --- UI Builders ---
 
   @override
@@ -156,8 +182,8 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text("FRIENDS", style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: AppColors.navy,
+        title: Text(widget.isInviteMode ? "CHALLENGE FRIEND" : "FRIENDS", style: const TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: widget.isInviteMode ? AppColors.danger : AppColors.navy,
         foregroundColor: Colors.white,
         bottom: TabBar(
           controller: _tabController,
@@ -230,20 +256,23 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
                       child: Text(user['nickname'][0].toUpperCase(), style: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.bold)),
                     ),
                     title: Text(user['nickname'] ?? user['username'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text("Level 5 • Dog Trainer"), // Dummy data for UI
-                    trailing: const Icon(Icons.chat_bubble_outline, color: AppColors.navy),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ChatScreen(
-                            myId: _myId!,
-                            toUserId: user['id'],
-                            toUsername: user['nickname'] ?? user['username'],
+                    subtitle: Text("Lv.${user['level'] ?? 1} • ${user['pet_type'] ?? 'dog'}"), // [Fix] Real Data
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Challenge Button (Only in Invite Mode)
+                        if (widget.isInviteMode)
+                          IconButton(
+                            icon: const Icon(Icons.sports_kabaddi, color: AppColors.danger),
+                            onPressed: () => _handleChallenge(user),
                           ),
+                        // Chat Button
+                        IconButton(
+                           icon: const Icon(Icons.chat_bubble_outline, color: AppColors.navy),
+                           onPressed: () => _goToChat(user),
                         ),
-                      );
-                    },
+                      ],
+                    ),
                   );
                 },
               ),
@@ -252,8 +281,51 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
     );
   }
 
+  void _goToChat(dynamic user) {
+     Navigator.push(
+       context,
+       MaterialPageRoute(
+         builder: (context) => ChatScreen(
+           myId: _myId!,
+           toUserId: user['id'],
+           toUsername: user['nickname'] ?? user['username'],
+         ),
+       ),
+     );
+  }
+
+  void _handleChallenge(dynamic user) async {
+     // [Implementation]
+     if (user['id'] == null) return;
+     
+     final battleService = BattleService();
+     
+     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+       content: Text("${user['nickname']}님에게 도전장을 보내는 중..."),
+       duration: const Duration(seconds: 1),
+     ));
+     
+     final roomId = await battleService.sendInvite(user['id']);
+     
+     if (roomId != null && mounted) {
+       // Navigate to Battle Page (Waiting Mode)
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ChangeNotifierProvider(
+              create: (_) => BattleProvider()..setRoomId(roomId), 
+              child: const BattleView(),
+            ),
+          ),
+        );
+     } else {
+       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("초대 실패")));
+     }
+  }
+
   Widget _buildSearchTab() {
-    return Column(
+     // ... (unchanged)
+     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(16.0),
@@ -282,7 +354,6 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
                    itemCount: _searchResults.length,
                    itemBuilder: (context, i) {
                      final user = _searchResults[i];
-                     // Check if already friend (simple UI check, better to have server flag)
                      bool isFriend = _friends.any((f) => f['id'] == user['id']);
                      
                      return ListTile(

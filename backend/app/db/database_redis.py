@@ -9,7 +9,8 @@ REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 REDIS_DB = os.getenv("REDIS_DB", "0")
 
-REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+# [Fix] REDIS_URL이 환경 변수에 있다면 우선 사용 (Docker Compose 호환)
+REDIS_URL = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
 
 # Connection Pool (Reusable)
 # decode_responses=True는 텍스트 기반의 배틀 로그/채팅 처리에 적합합니다.

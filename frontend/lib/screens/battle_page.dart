@@ -93,7 +93,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
        
        switch (event.type) {
          case BattleEventType.shake:
-           _shakeController.forward();
+           _triggerShake(event.targetId!);
            break;
          case BattleEventType.attack:
            _triggerDash(event.actorId!);
@@ -104,7 +104,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
          case BattleEventType.crit:
            _showFloatingText("CRITICAL!", true, event.targetId!);
            _flashController.forward(); // Trigger Flash!
-           _shakeController.forward(); // Stronger shake
+           _triggerShake(event.targetId!); // Stronger shake
            break;
          case BattleEventType.damage:
            _showFloatingText("${event.value}", false, event.targetId!);
@@ -145,6 +145,13 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
      await _dashController.forward();
      await Future.delayed(const Duration(milliseconds: 100));
      await _dashController.reverse();
+  }
+  
+  // [Fix] Shake Logic
+  int? _shakeTargetId;
+  void _triggerShake(int targetId) {
+      setState(() => _shakeTargetId = targetId);
+      _shakeController.forward();
   }
 
   void _showFloatingText(String text, bool isCrit, int targetId, {bool isHeal = false}) {
@@ -217,9 +224,12 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
 
               // 1. OPPONENT (Top Right)
               Positioned(top: 130, right: 40, child: Transform.scale(scale: 0.9,
-                child: AnimatedBuilder(animation: _dashAnimation, builder: (ctx, child) {
-                   Offset off = (_attackerId != myId) ? _dashAnimation.value : Offset.zero;
-                   return Transform.translate(offset: off, child: child);
+                child: AnimatedBuilder(animation: Listenable.merge([_dashAnimation, _shakeAnimation]), builder: (ctx, child) {
+                   Offset dashOff = (_attackerId != myId) ? _dashAnimation.value : Offset.zero;
+                   // Shake if I am NOT the target (meaning opponent is target)
+                   double shakeX = (_shakeTargetId != null && _shakeTargetId != myId) ? _shakeAnimation.value : 0.0;
+                   
+                   return Transform.translate(offset: dashOff + Offset(shakeX, 0), child: child);
                 }, child: BattleAvatarWidget(
                    petType: state.oppPetType, idleAnimation: _idleAnimation, damageOpacity: 0.0,
                 )))
@@ -246,8 +256,11 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
               // 2. PLAYER (Bottom Left)
               Positioned(bottom: 300, left: 50, child: Transform.scale(scale: 1.1,
                 child: AnimatedBuilder(animation: Listenable.merge([_shakeAnimation, _dashAnimation]), builder: (ctx, child) {
-                   Offset off = (_attackerId == myId) ? _dashAnimation.value : Offset.zero;
-                   return Transform.translate(offset: Offset(_shakeAnimation.value, 0) + off, child: child);
+                   Offset dashOff = (_attackerId == myId) ? _dashAnimation.value : Offset.zero;
+                   // Shake if I AM the target
+                   double shakeX = (_shakeTargetId == myId) ? _shakeAnimation.value : 0.0;
+                   
+                   return Transform.translate(offset: dashOff + Offset(shakeX, 0), child: child);
                 }, child: BattleAvatarWidget(
                    petType: myPetType, idleAnimation: _idleAnimation, customImagePath: charProvider.imagePath, damageOpacity: 0.0,
                 )))

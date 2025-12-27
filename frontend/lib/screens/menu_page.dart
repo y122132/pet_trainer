@@ -3,9 +3,14 @@ import 'package:provider/provider.dart';
 import 'my_room_page.dart';
 import 'mode_select_page.dart';
 import 'battle_page.dart';
+import 'battle_lobby_screen.dart'; // [New]
 import 'user_list_screen.dart'; // [New]
 import '../providers/char_provider.dart';
 import '../config/theme.dart';
+import '../providers/chat_provider.dart'; // [New]
+import '../services/auth_service.dart'; // [New]
+import '../providers/battle_provider.dart'; // [New]
+import 'dart:async'; // [New]
 
 class MenuPage extends StatefulWidget {
   const MenuPage({super.key});
@@ -17,6 +22,7 @@ class MenuPage extends StatefulWidget {
 class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin {
   late AnimationController _breathingController;
   late Animation<double> _breathingAnimation;
+  StreamSubscription? _chatSubscription; // [New]
 
   @override
   void initState() {
@@ -28,16 +34,94 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     );
     _breathingController.repeat(reverse: true);
     
-    // Auto-fetch data if not present
+    // Auto-fetch data and connect chat
     WidgetsBinding.instance.addPostFrameCallback((_) {
-        final provider = Provider.of<CharProvider>(context, listen: false);
-        // 이미 데이터가 있다면 굳이 또 부를 필요 없지만, 최신화 위해 호출 가능
-        provider.fetchMyCharacter();
+        final charProvider = Provider.of<CharProvider>(context, listen: false);
+        charProvider.fetchMyCharacter();
+        
+        _initChatConnection(); // [New]
     });
+  }
+
+  Future<void> _initChatConnection() async {
+      final auth = AuthService();
+      final idStr = await auth.getUserId();
+      if (idStr != null && mounted) {
+          final myId = int.parse(idStr);
+          final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+          chatProvider.connect(myId);
+          
+          // Listen for global invites
+          _chatSubscription = chatProvider.messageStream.listen((msg) {
+              if (msg['type'] == 'BATTLE_INVITE') {
+                  _showInviteDialog(msg); // [Fix] Use Dialog instead of SnackBar
+              }
+          });
+      }
+  }
+
+  void _showInviteDialog(Map<String, dynamic> msg) {
+      if (!mounted) return;
+      
+      final roomId = msg['room_id'];
+      final message = msg['message'] ?? "Battle Invite!";
+      
+      showDialog(
+        context: context,
+        barrierDismissible: false, // Must accept or decline
+        builder: (context) {
+           return AlertDialog(
+             backgroundColor: AppColors.navy,
+             shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppColors.cyberYellow, width: 2)
+             ),
+             title: const Row(
+               children: [
+                 Icon(Icons.sports_kabaddi, color: AppColors.cyberYellow),
+                 SizedBox(width: 10),
+                 Text("도전장 도착!", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+               ],
+             ),
+             content: Text(
+               message, 
+               style: const TextStyle(color: Colors.white70, fontSize: 16)
+             ),
+             actions: [
+               TextButton(
+                 onPressed: () => Navigator.pop(context),
+                 child: const Text("거절", style: TextStyle(color: Colors.grey)),
+               ),
+               ElevatedButton(
+                 onPressed: () {
+                    Navigator.pop(context); // Close dialog
+                    if (roomId != null) {
+                       Navigator.push(
+                         context, 
+                         MaterialPageRoute(
+                           builder: (_) => ChangeNotifierProvider(
+                             create: (_) => BattleProvider()..setRoomId(roomId),
+                             child: const BattleView(),
+                           )
+                         )
+                       );
+                    }
+                 },
+                 style: ElevatedButton.styleFrom(
+                   backgroundColor: AppColors.danger,
+                   foregroundColor: Colors.white
+                 ),
+                 child: const Text("수락 (FIGHT!)", style: TextStyle(fontWeight: FontWeight.bold)),
+               )
+             ],
+           );
+        }
+      );
   }
 
   @override
   void dispose() {
+    _chatSubscription?.cancel(); // [New]
     _breathingController.dispose();
     super.dispose();
   }
@@ -202,7 +286,7 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
                          subtitle: "실전 대결",
                          icon: Icons.sports_kabaddi_rounded, 
                          color: AppColors.danger,
-                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const BattlePage())),
+                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => BattleLobbyScreen())),
                        ),
                      ),
                    ],

@@ -17,4 +17,8 @@ api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 # 3. 캐릭터 라우터 (분리된 신규 파일 연결)
 api_router.include_router(characters.router)
 
+# 4. 배틀 라우터 (초대 기능 등 HTTP API)
+from app.api.v1 import battle
+api_router.include_router(battle.router, prefix="/battle", tags=["battle"])
+
 # [정리] 기존의 임시 user_router는 auth.py가 역할을 대신하므로 삭제했습니다.

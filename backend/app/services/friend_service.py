@@ -62,12 +62,34 @@ async def get_friends(db: AsyncSession, user_id: int):
     if not friend_ids:
         return []
         
-    # 친구 정보 조회
-    user_stmt = select(User).where(User.id.in_(friend_ids))
-    user_res = await db.execute(user_stmt)
-    users = user_res.scalars().all()
+    # 친구 정보 조회 (Join Character to get level/pet_type)
+    # user_stmt = select(User).where(User.id.in_(friend_ids))
+    # users = user_res.scalars().all()
+    # return [{"id": u.id, "username": u.username, "nickname": u.nickname} for u in users]
     
-    return [{"id": u.id, "username": u.username, "nickname": u.nickname} for u in users]
+    from app.db.models.character import Character, Stat
+    
+    stmt_users = (
+        select(User, Character, Stat)
+        .outerjoin(Character, Character.user_id == User.id)
+        .outerjoin(Stat, Stat.character_id == Character.id)
+        .where(User.id.in_(friend_ids))
+    )
+    result_users = await db.execute(stmt_users)
+    rows = result_users.all()
+    
+    friends_list = []
+    for user, character, stat in rows:
+        friend_data = {
+            "id": user.id,
+            "username": user.username,
+            "nickname": user.nickname,
+            "level": stat.level if stat else 1, # [Fix] Access level from Stat
+            "pet_type": character.pet_type if character else "dog"
+        }
+        friends_list.append(friend_data)
+        
+    return friends_list
 
 async def get_pending_requests(db: AsyncSession, user_id: int):
     # 나에게 온 요청 중 status='pending'인 것

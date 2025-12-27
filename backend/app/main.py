@@ -27,13 +27,23 @@ app = FastAPI(title="PetTrainer API")
 origins_env = os.getenv("ALLOWED_ORIGINS", "*")
 origins = [origin.strip() for origin in origins_env.split(",")]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,  # 환경 변수 기반 설정
-    allow_credentials=True,
-    allow_methods=["*"],  # 모든 HTTP 메서드 허용 (GET, POST 등)
-    allow_headers=["*"],  # 모든 헤더 허용
-)
+if "origins" not in locals() or origins == ["*"]:
+    # [*] Wildcard with credentials is invalid. Use regex for localhost dev.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # 서버 시작 시 실행되는 이벤트 핸들러
 @app.on_event("startup")

@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:convert';
+import 'dart:async'; // [New]
 import '../api_config.dart'; // [New]
 import '../config/theme.dart'; // [New]
+import 'battle_page.dart'; // [New] for Navigation
+import 'package:provider/provider.dart';
+import '../providers/battle_provider.dart'; // [New]
+import '../providers/chat_provider.dart'; // [New] Global Chat
 
 class ChatScreen extends StatefulWidget {
   final int myId;
@@ -17,47 +22,43 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  late WebSocketChannel _channel;
   final _msgController = TextEditingController();
   List<Map<String, dynamic>> messages = [];
   final ScrollController _scrollController = ScrollController();
+  late StreamSubscription<Map<String, dynamic>> _chatSubscription; // [New] Subscription
 
   @override
   void initState() {
     super.initState();
-    // AppConfig를 사용하여 WebSocket 주소 생성
-    // 주소 형식: ws://HOST:PORT/v1/chat/ws/chat/{myId}
-    final url = AppConfig.chatSocketUrl(widget.myId);
-    print("Connecting to Chat WebSocket: $url");
-    _channel = WebSocketChannel.connect(Uri.parse(url));
-    
-    // [Fix] StreamBuilder 대신 직접 Listen하여 데이터 중복 처리 방지
-    _channel.stream.listen((data) {
-      _onMessageReceived(data);
-    }, onError: (error) {
-      print("WebSocket Error: $error");
-    }, onDone: () {
-      print("WebSocket Closed");
+    // ChatProvider는 Main에서 이미 connect되어 있다고 가정하거나 여기서는 리스닝만 함.
+    // 하지만 안전하게 connect 호출 (이미 연결되어 있으면 무시됨)
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    chatProvider.connect(widget.myId);
+
+    // Listen to global stream
+    _chatSubscription = chatProvider.messageStream.listen((data) {
+       _onMessageReceived(data);
     });
   }
 
-  void _onMessageReceived(dynamic data) {
-    try {
-      final decoded = jsonDecode(data);
+  void _onMessageReceived(Map<String, dynamic> decoded) {
       if (mounted) {
+        // [Opt] 현재 채팅방 대상인지 필터링 가능 (Global Provider이므로 다른 사람 메시지도 올 수 있음)
+        // 하지만 1:1 채팅 소켓 구조상 내 ID로 온건 다 받음. 
+        // 여기서 로직: 내 메시지거나, 내가 받은 메시지.
+        // 추가 필터: 이 채팅방의 상대(toUserId)와 관련된 것만 표시? 
+        // 일단 단순히 다 표시 (MVP) -> 추후 방 개념이 있으면 필터링 필요.
+        
         setState(() {
           messages.add(decoded);
         });
         _scrollToBottom();
       }
-    } catch (e) {
-      print("Message Parse Error: $e");
-    }
   }
   
   @override
   void dispose() {
-    _channel.sink.close();
+    _chatSubscription.cancel(); // [Important] Cleanup subscription
     _msgController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -78,10 +79,10 @@ class _ChatScreenState extends State<ChatScreen> {
   void _send() {
     if (_msgController.text.trim().isNotEmpty) {
       final text = _msgController.text.trim();
-      final data = {"to_user_id": widget.toUserId, "message": text};
       
       try {
-        _channel.sink.add(jsonEncode(data));
+        Provider.of<ChatProvider>(context, listen: false).sendMessage(widget.toUserId, text);
+
         // 내 화면에 메시지 즉시 추가 (낙관적 UI 업데이트)
         setState(() => messages.add({"from_user_id": widget.myId, "message": text}));
         _msgController.clear();
@@ -112,6 +113,12 @@ class _ChatScreenState extends State<ChatScreen> {
               itemBuilder: (context, i) {
                 final msg = messages[i];
                 bool isMe = msg['from_user_id'] == widget.myId;
+                
+                // [New] Check for System/Invite Message
+                if (msg['type'] == 'BATTLE_INVITE') {
+                   return _buildInviteMessage(msg, isMe);
+                }
+
                 return Align(
                   alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
@@ -141,6 +148,57 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildInviteMessage(Map<String, dynamic> msg, bool isMe) {
+     return Align(
+       alignment: Alignment.center, // Center system messages
+       child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 15),
+          padding: const EdgeInsets.all(16),
+          width: 250,
+          decoration: BoxDecoration(
+             color: Colors.black87,
+             borderRadius: BorderRadius.circular(16),
+             border: Border.all(color: AppColors.cyberYellow, width: 2),
+             boxShadow: [BoxShadow(color: AppColors.cyberYellow.withOpacity(0.3), blurRadius: 10)]
+          ),
+          child: Column(
+             mainAxisSize: MainAxisSize.min,
+             children: [
+                const Icon(Icons.sports_kabaddi, color: AppColors.cyberYellow, size: 30),
+                const SizedBox(height: 8),
+                Text(msg['message'] ?? "Battle Invitation", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                if (!isMe) // 내가 보낸건 버튼 안보임
+                SizedBox(
+                   width: double.infinity,
+                   child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+                      onPressed: () {
+                         final roomId = msg['room_id'];
+                         if (roomId != null) {
+                            // Join Battle
+                             Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ChangeNotifierProvider( // Using Provider
+                                  create: (_) => BattleProvider()..setRoomId(roomId),
+                                  child: const BattleView(),
+                                ),
+                              ),
+                            );
+                         }
+                      },
+                      child: const Text("FIGHT! (입장)", style: TextStyle(fontWeight: FontWeight.bold)),
+                   ),
+                )
+                else
+                 const Text("Waiting for opponent...", style: TextStyle(color: Colors.grey, fontSize: 12))
+             ],
+          ),
+       ),
+     );
   }
 
   Widget _buildMessageInput() {

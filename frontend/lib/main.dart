@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'services/auth_service.dart'; // [추가] 토큰 체크용
 import 'package:camera/camera.dart';
 import 'providers/char_provider.dart';
+import 'providers/chat_provider.dart'; // [New]
 import 'screens/menu_page.dart';
 import 'config/theme.dart'; // [New]
 import 'package:pet_trainer_frontend/screens/login_screen.dart';
@@ -19,6 +20,7 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => CharProvider()),
+        ChangeNotifierProvider(create: (_) => ChatProvider()), // [New] Global Chat
         // 필요 시 BattleProvider 등 develop의 다른 프로바이더 추가
       ],
       child: MyApp(initialToken: token),

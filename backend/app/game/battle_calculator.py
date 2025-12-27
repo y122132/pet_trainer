@@ -71,9 +71,19 @@ class BattleCalculator:
         is_critical = random.uniform(0, 100) < crit_chance
         crit_multiplier = 1.5 if is_critical else 1.0
 
-        # ... (Rest of logic) ...
-
-        # 4. 랜덤 변수 (0.85 ~ 1.0)
+        
+        # 4. 자속 보정 (STAB - Same Type Attack Bonus)
+        # 공격자의 타입과 기술의 타입이 같으면 1.5배 데미지
+        stab_multiplier = 1.0
+        # Pet Type vs Move Type matching logic needed. 
+        # For now, simplistic check if attacker_stat has type info? No, it's in Character object.
+        # But here we only have Stat object. 
+        # To strictly implement STAB, we need attacker's type passed in.
+        # Current signature: (attacker_stat, attacker_state, defender_stat, defender_state, move_id, defender_type, field_data)
+        # We don't have attacker_type. We can default to 1.0 or try to infer.
+        # Let's clean up the comment first.
+        
+        # 5. 랜덤 변수 (0.85 ~ 1.0)
         random_factor = random.uniform(0.85, 1.0)
 
         # [New] 속성 상성 및 면역(Immunity)
