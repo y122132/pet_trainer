@@ -86,7 +86,7 @@ async def init_db():
             stat_res = await session.execute(select(Stat).where(Stat.character_id == char.id))
             stat = stat_res.scalar_one_or_none()
             if not stat:
-                print(f"Creating Stats for User {uid}...")
+                print(f"Creating Stats for User {username}...")
                 # character.py 모델 정의에 맞춰 정확히 매칭 (max_health 제거)
                 stat = Stat(
                     character_id=char.id,
