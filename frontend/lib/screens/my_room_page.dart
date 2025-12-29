@@ -182,12 +182,12 @@ class _MyRoomPageState extends State<MyRoomPage> {
                       ),
                     );
 
-                    if (selectedOutfit != null) {
+                    if (selectedOutfit != null && selectedOutfit is OutfitConfig) {
                       final result = await Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => CustomizeCharacterPage(
-                            outfitImagePath: selectedOutfit,
+                            config: selectedOutfit, // OutfitConfig 객체를 전달
                           ),
                         ),
                       );
