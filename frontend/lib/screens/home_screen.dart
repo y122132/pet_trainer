@@ -43,23 +43,15 @@ class HomeScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                
-                // 3. 하단 액션 버튼 (고정됨)
-                _buildBottomButton(context),
               ],
+              _buildBottomButton(context),
             );
           },
-              ),
-              
-              // 3. 하단 버튼
-              _buildBottomButton(context),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
+          _buildBottomButton(context),
+        ),
+      );
+    )
+  };
   // 하단 버튼 ("오늘의 운동 시작하기")
   Widget _buildBottomButton(BuildContext context) {
     return Padding(

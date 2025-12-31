@@ -1,12 +1,15 @@
+// frontend/lib/screens/my_room_page.dart
+import 'login_screen.dart';
+import 'camera_screen.dart';
+import '../config/theme.dart';
+import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'camera_screen.dart';
 import '../providers/char_provider.dart';
-import '../widgets/stat_distribution_dialog.dart';
 import '../widgets/common/stat_widgets.dart';
-import '../widgets/char_message_bubble.dart'; // Import ChatBubble
-import '../config/theme.dart'; // Import AppTheme
+import '../widgets/char_message_bubble.dart';
+import '../widgets/stat_distribution_dialog.dart';
 
 class MyRoomPage extends StatefulWidget {
   const MyRoomPage({super.key});
@@ -61,6 +64,46 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
     // (Optional, currently keeping it visible until next tap or permanent)
   }
 
+  void _showSettingsSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text("설정", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.softCharcoal)),
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.redAccent),
+                title: const Text("로그아웃", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                onTap: () => _handleLogout(context),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _handleLogout(BuildContext context) async {
+    final auth = AuthService();
+    await auth.logout();
+    if (mounted) {
+      // 모든 화면 정보를 지우고 '/' 경로(로그인 화면)로 이동
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -69,11 +112,13 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
         backgroundColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.softCharcoal),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => _showSettingsSheet(context),
         ),
         title: const Text("MY ROOM", style: TextStyle(color: AppColors.softCharcoal, fontWeight: FontWeight.w900, fontSize: 22)),
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.settings, color: AppColors.softCharcoal))
+          IconButton(
+            onPressed: () => _showSettingsSheet(context),
+            icon: const Icon(Icons.settings, color: AppColors.softCharcoal))
         ],
       ),
       body: Stack(

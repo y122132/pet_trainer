@@ -1,9 +1,13 @@
+// frontend/lib/services/socket_client.dart
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:overlay_support/overlay_support.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'package:pet_trainer_frontend/api_config.dart';
+import 'package:pet_trainer_frontend/services/auth_service.dart';
 
-import 'package:pet_trainer_frontend/services/auth_service.dart'; // [추가]
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SocketClient {
@@ -20,8 +24,6 @@ class SocketClient {
 
   // 백엔드 주소 (Config에서 가져옴)
   final String _wsUrl = AppConfig.socketUrl; // ws://IP:PORT/ws/analysis
-
-  /// 웹소켓 서버에 연결합니다.
   /// [petType]: 반려동물 종류 (예: 'dog', 'cat')
   /// [difficulty]: 난이도 ('easy', 'hard')
   /// [mode]: 훈련 모드 ('playing', 'feeding', 'interaction')
@@ -40,9 +42,40 @@ class SocketClient {
       _channel = WebSocketChannel.connect(uri);
       _isConnected = true;
 
-      // 채널로부터 메시지를 받아 컨트롤러로 전달 (UI에서 listen 가능하도록)
       _channel!.stream.listen(
         (message) {
+          print("🚩 [소켓 수신] 타입: ${message.runtimeType} / 내용: $message");
+          
+          try {
+            String decodedMessage;
+            if (message is List<int>) {
+              decodedMessage = utf8.decode(message);
+            } else {
+              decodedMessage = message.toString();
+            }
+
+            final data = jsonDecode(decodedMessage);
+            print("🔍 [파싱결과] type: ${data['type']}");
+
+            if (data['type'] == 'CHAT_NOTIFICATION') {
+              print("🔔 [알림 작동] 메시지: ${data['message']}");
+
+              showSimpleNotification(
+                Text(
+                  "${data['sender_nickname'] ?? '알 수 없는 사용자'}님의 메시지", 
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)
+                ),
+                subtitle: Text(
+                  data['message'] ?? "", 
+                  style: const TextStyle(color: Colors.white70)
+                ),
+                background: Colors.indigoAccent,
+                duration: const Duration(seconds: 3),
+                elevation: 4,
+                position: NotificationPosition.top, 
+              );
+            }
+          } catch (e) {}
           _streamController.add(message);
         },
         onDone: () {
@@ -59,7 +92,6 @@ class SocketClient {
       _isConnected = false;
     }
   }
-
   /// 메시지(문자열 또는 바이너리)를 서버로 전송합니다.
   void sendMessage(dynamic message) {
     if (_channel != null && _isConnected) {

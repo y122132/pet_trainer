@@ -1,20 +1,20 @@
-import 'package:flutter/material.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
+// frontend/lib/screens/chat_screen.dart
+import 'dart:async';
 import 'dart:convert';
-import 'dart:async'; // [New]
-import '../api_config.dart'; // [New]
-import '../config/theme.dart'; // [New]
-import 'battle_page.dart'; // [New] for Navigation
+import 'battle_page.dart'; 
+import '../api_config.dart';
+import '../config/theme.dart'; 
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/battle_provider.dart'; // [New]
-import '../providers/chat_provider.dart'; // [New] Global Chat
+import '../providers/chat_provider.dart'; 
+import '../providers/battle_provider.dart'; 
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 class ChatScreen extends StatefulWidget {
   final int myId;
   final int toUserId;
   final String toUsername;
 
-  // myId는 UserListScreen에서 전달받음
   const ChatScreen({super.key, required this.myId, required this.toUserId, required this.toUsername});
 
   @override
@@ -25,40 +25,48 @@ class _ChatScreenState extends State<ChatScreen> {
   final _msgController = TextEditingController();
   List<Map<String, dynamic>> messages = [];
   final ScrollController _scrollController = ScrollController();
-  late StreamSubscription<Map<String, dynamic>> _chatSubscription; // [New] Subscription
+  late StreamSubscription<Map<String, dynamic>> _chatSubscription;
+  late ChatProvider _chatProvider;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _chatProvider = Provider.of<ChatProvider>(context, listen: false);
+  }
 
   @override
   void initState() {
     super.initState();
-    // ChatProvider는 Main에서 이미 connect되어 있다고 가정하거나 여기서는 리스닝만 함.
-    // 하지만 안전하게 connect 호출 (이미 연결되어 있으면 무시됨)
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    chatProvider.connect(widget.myId);
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _chatProvider.connect(widget.myId);
+      _chatProvider.setActiveChatUser(widget.toUserId);
+    });
 
-    // Listen to global stream
-    _chatSubscription = chatProvider.messageStream.listen((data) {
-       _onMessageReceived(data);
+    _chatSubscription = Provider.of<ChatProvider>(context, listen: false)
+        .messageStream.listen((data) {
+      _onMessageReceived(data);
     });
   }
 
   void _onMessageReceived(Map<String, dynamic> decoded) {
-      if (mounted) {
-        // [Opt] 현재 채팅방 대상인지 필터링 가능 (Global Provider이므로 다른 사람 메시지도 올 수 있음)
-        // 하지만 1:1 채팅 소켓 구조상 내 ID로 온건 다 받음. 
-        // 여기서 로직: 내 메시지거나, 내가 받은 메시지.
-        // 추가 필터: 이 채팅방의 상대(toUserId)와 관련된 것만 표시? 
-        // 일단 단순히 다 표시 (MVP) -> 추후 방 개념이 있으면 필터링 필요.
-        
-        setState(() {
-          messages.add(decoded);
-        });
-        _scrollToBottom();
-      }
+  if (mounted) {
+    final int? senderId = decoded['from_user_id'];
+    if (senderId == widget.toUserId || senderId == widget.myId) {
+      setState(() {
+        messages.add(decoded);
+      });
+      _scrollToBottom();
+    } else {
+      debugPrint("📩 다른 유저(${senderId})에게 온 메시지라 이 화면에는 표시하지 않습니다.");
+    }
   }
+}
   
   @override
   void dispose() {
-    _chatSubscription.cancel(); // [Important] Cleanup subscription
+    _chatProvider.clearActiveChatUser();
+    _chatSubscription.cancel();
     _msgController.dispose();
     _scrollController.dispose();
     super.dispose();
