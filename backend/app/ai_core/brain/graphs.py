@@ -47,6 +47,10 @@ class AgentState(TypedDict):
     messages: list          
     last_interaction_timestamp: float 
     is_long_absence: bool             
+    # [New] Contexts
+    weather_info: dict
+    client_time: str
+    memory_context: str
 
 # LLM 모델 초기화
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7, api_key=OPENAI_API_KEY)
@@ -64,7 +68,7 @@ def route_step(state: AgentState) -> Literal["llm_node", "rule_node"]:
     
     # 2. 첫 인사 / Idle / 오랜만의 접속 -> LLM
     action = state.get("action_type", "")
-    if action in ["greeting", "idle"]:
+    if action in ["greeting", "idle", "touch", "poke", "stroke"]: # Interaction 추가
         return "llm_node"
     if state.get("is_long_absence", False):
         return "llm_node"
@@ -89,6 +93,11 @@ def generate_llm_message(state: AgentState):
     milestone_reached = state.get("milestone_reached", False)
     is_long_absence = state.get("is_long_absence", False)
     
+    # [New] Contexts
+    weather = state.get("weather_info", {})
+    client_time = state.get("client_time", "")
+    memory_context = state.get("memory_context", "")
+    
     # 히스토리 로드 (최근 6개 대화만 유지)
     history = state.get("messages", [])
     if not history: history = []
@@ -105,6 +114,13 @@ def generate_llm_message(state: AgentState):
     
     persona_prompt = BASE_PERSONA.format(user_title=user_title)
     persona_prompt += MODE_PERSONA.get(mode, MODE_PERSONA["default"])
+    
+    # [Context Injection]
+    context_addon = f"\n\n[환경 정보]\n- 날씨: {weather.get('desc', '모름')} ({weather.get('temp', '?')}도)\n- 시간: {client_time}\n"
+    if memory_context:
+        context_addon += f"\n[장기 기억]\n{memory_context}\n"
+        
+    persona_prompt += context_addon
     
     situation_prompt = ""
     
@@ -128,6 +144,10 @@ def generate_llm_message(state: AgentState):
              situation_prompt = "주인님! 너무 보고 싶었어요! 어디 다녀오셨어요? 😭 배고파서 현기증 난단 말이에요..."
         else:
              situation_prompt = GREETING_TEMPLATE
+    
+    # [New] Interaction Actions
+    elif action in ["touch", "stroke", "poke"]:
+        situation_prompt = f"사용자가 당신을 '{action}' 했습니다. 기분 좋게 반응해주세요. 날씨나 기억을 언급해도 좋습니다."
             
     else:
         situation_prompt = FAIL_TEMPLATE.format(action=action, feedback=feedback)
@@ -192,6 +212,7 @@ workflow.add_edge("rule_node", END)
 app = workflow.compile()
 
 # --- 외부 호출용 함수 ---
+# --- 외부 호출용 함수 ---
 async def get_character_response(
     user_id: int, # [New] User ID for Thread handling
     action_type: str, 
@@ -201,10 +222,14 @@ async def get_character_response(
     reward_info: dict = {},
     feedback_detail: str = "",
     daily_count: int = 1,
-    milestone_reached: bool = False
+    milestone_reached: bool = False,
+    # [New] Weather & Context
+    weather_info: dict = None,
+    client_time: str = ""
 ) -> str:
     """
     Redis를 사용하여 대화 맥락(State)을 로드하고 LangGraph를 실행한 뒤 결과를 저장합니다.
+    또한 MemoryService를 통해 장기 기억을 관리합니다.
     """
     
     # 1. Redis에서 상태 로드
@@ -226,6 +251,27 @@ async def get_character_response(
         print(f"[Brain] Redis Load Error: {e}")
         saved_state = {}
 
+    # [New] 장기 기억 Context 로드 (DB Access)
+    from app.services.memory_service import MemoryService
+    from app.services.char_service import char_service # needed? MemoryService handles DB
+    from app.db.database import AsyncSessionLocal
+    from app.db.models.memory import MemoryType # [New]
+    
+    memory_context = ""
+    # user_id로 character_id를 찾아야 함. 
+    # Performance Note: 매번 DB 조회하는 것이 부담된다면 Redis에 char_id도 캐싱해야 함.
+    # 여기서는 안전하게 DB 조회.
+    char_id = None
+    async with AsyncSessionLocal() as db:
+        # User ID -> Character ID Resolve
+        from sqlalchemy import select
+        from app.db.models.character import Character
+        res = await db.execute(select(Character.id).where(Character.user_id == user_id))
+        char_id = res.scalar_one_or_none()
+        
+        if char_id:
+            memory_context = await MemoryService.get_recent_context(db, char_id)
+
     # 2. 입력 데이터 구성 (기존 상태 + 새로운 입력)
     inputs = {
         "action_type": action_type,
@@ -238,7 +284,11 @@ async def get_character_response(
         "milestone_reached": milestone_reached,
         "last_interaction_timestamp": time.time(),
         "is_long_absence": is_long_absence,
-        "messages": saved_state.get("messages", []) # 기존 대화 히스토리 주입
+        "messages": saved_state.get("messages", []), # 기존 대화 히스토리 주입
+        # [New] Contexts
+        "weather_info": weather_info or {},
+        "client_time": client_time,
+        "memory_context": memory_context
     }
     
     # 3. 그래프 실행
@@ -254,4 +304,39 @@ async def get_character_response(
         print(f"[Brain] Redis Save Error: {e}")
     
     last_message = result["messages"][-1]
-    return last_message.content
+    response_text = last_message.content
+
+    # [New] 기억 저장 (비동기 Fire-and-Forget 권장되지만 여기선 await)
+    if char_id:
+        async with AsyncSessionLocal() as db:
+            # 기억 내용 구성: "User Action -> AI Response"
+            # 단순화: "행동: {action_type} / 반응: {response_text}"
+            content = f"행동: {action_type}, 상황: {feedback_detail or '성공' if is_success else '실패'} -> 반응: {response_text}"
+            
+            # 메타데이터에 날씨 등 포함
+            meta = {
+                "weather": weather_info,
+                "time": client_time,
+                "mode": mode
+            }
+            
+            # Mode -> MemoryType Mapping
+            mem_type = MemoryType.INTERACTION
+            if mode == "playing":
+                mem_type = MemoryType.TRAINING
+            elif mode == "interaction":
+                mem_type = MemoryType.INTERACTION
+            elif mode == "battle":
+                mem_type = MemoryType.BATTLE
+            elif milestone_reached:
+                mem_type = MemoryType.EVENT
+            
+            await MemoryService.add_memory(
+                db, 
+                char_id, 
+                memory_type=mem_type, 
+                content=content, 
+                meta_info=meta
+            )
+
+    return response_text

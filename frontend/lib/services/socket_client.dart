@@ -3,8 +3,9 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'package:pet_trainer_frontend/api_config.dart';
 
-import 'package:pet_trainer_frontend/services/auth_service.dart'; // [추가]
+import 'package:pet_trainer_frontend/services/auth_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:geolocator/geolocator.dart'; // [New]
 
 class SocketClient {
   WebSocketChannel? _channel;
@@ -33,8 +34,18 @@ class SocketClient {
       final storage = FlutterSecureStorage();
       final String? userId = await storage.read(key: 'user_id');
 
+      // [New] 위치 정보 가져오기 (실패 시 기본값 없이 보냄 -> 백엔드에서 처리)
+      String locQuery = "";
+      try {
+        Position position = await _determinePosition();
+        locQuery = "&lat=${position.latitude}&lon=${position.longitude}";
+        print("Location Found: ${position.latitude}, ${position.longitude}");
+      } catch (e) {
+        print("Location Error (Permission or Service): $e");
+      }
+
       // URL 쿼리 파라미터 구성 (하드코딩된 /1 대신 /$userId 사용)
-      final uri = Uri.parse('$_wsUrl/$userId?pet_type=$petType&difficulty=$difficulty&mode=$mode');
+      final uri = Uri.parse('$_wsUrl/$userId?pet_type=$petType&difficulty=$difficulty&mode=$mode$locQuery');
       print("Socket Connecting to: $uri");
       
       _channel = WebSocketChannel.connect(uri);
@@ -58,6 +69,34 @@ class SocketClient {
       print("Socket Connection Failed (연결 실패): $e");
       _isConnected = false;
     }
+  }
+
+  // [New] 위치 권한 요청 및 좌표 획득 헬퍼
+  Future<Position> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // 1. 위치 서비스 활성화 여부 확인
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return Future.error('Location services are disabled.');
+    }
+
+    // 2. 권한 확인
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return Future.error('Location permissions are denied');
+      }
+    }
+    
+    if (permission == LocationPermission.deniedForever) {
+      return Future.error('Location permissions are permanently denied, we cannot request permissions.');
+    } 
+
+    // 3. 현재 위치 가져오기
+    return await Geolocator.getCurrentPosition();
   }
 
   /// 메시지(문자열 또는 바이너리)를 서버로 전송합니다.

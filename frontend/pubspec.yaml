@@ -19,6 +19,7 @@ dependencies:
   camera: ^0.10.5
   web_socket_channel: ^2.4.0
   fl_chart: ^0.66.0
+  geolocator: ^10.1.0
 
   cupertino_icons: ^1.0.2
   image: ^4.7.2

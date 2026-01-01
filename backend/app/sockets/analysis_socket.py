@@ -6,14 +6,25 @@ from app.db.database import AsyncSessionLocal
 from app.core.pet_constants import PET_CLASS_MAP
 from app.ai_core.brain.graphs import get_character_response # [NEW] LLM 호출 함수
 from app.core.security import verify_websocket_token # [Security]
+from app.services.weather_service import get_weather_info # [New] Weather
 import json
 import time
+from datetime import datetime
 import asyncio
 
 router = APIRouter()
 
 @router.websocket("/ws/analysis/{user_id}")
-async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "playing", pet_type: str = "none", difficulty: str = "easy", token: str | None = None):
+async def analysis_endpoint(
+    websocket: WebSocket, 
+    user_id: int, 
+    mode: str = "playing", 
+    pet_type: str = "none", 
+    difficulty: str = "easy", 
+    lat: float | None = None, # [New]
+    lon: float | None = None, # [New]
+    token: str | None = None
+):
     """
     실시간 분석을 위한 웹소켓 엔드포인트입니다.
     클라이언트(Flutter)로부터 실시간 카메라 프레임을 받아 AI로 분석하고 결과를 반환합니다.
@@ -38,6 +49,12 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
 
     # 대소문자 무시 및 기본값 설정 (기본값: 16 - 강아지)
     target_class_id = PET_CLASS_MAP.get(pet_type.lower(), 16)
+    
+    # [New] Weather Init
+    weather_info = {}
+    if lat is not None and lon is not None:
+        weather_info = await get_weather_info(lat, lon)
+        print(f"[FSM_WS] 날씨 정보 로드 완료: {weather_info.get('desc')}")
     
     # --- FSM 상태 변수 ---
     state = "READY"              # 현재 상태: READY, DETECTING, STAY, SUCCESS
@@ -99,7 +116,9 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                         is_success=is_success,
                         reward_info=reward or {},
                         feedback_detail=feedback,
-                        milestone_reached=milestone
+                        milestone_reached=milestone,
+                        weather_info=weather_info,
+                        client_time=datetime.now().strftime("%Y-%m-%d %H:%M")
                     )
                     
                     # 소켓 전송 (비동기)
@@ -285,7 +304,9 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                                 reward_info=result.get("base_reward", {}),
                                 feedback_detail=result.get("feedback_message", ""),
                                 daily_count=service_result.get("daily_count", 0),
-                                milestone_reached=service_result.get("milestone_reached")
+                                milestone_reached=service_result.get("milestone_reached"),
+                                weather_info=weather_info,
+                                client_time=datetime.now().strftime("%Y-%m-%d %H:%M")
                             )
                             
                             response_data = {
