@@ -11,12 +11,12 @@ CACHE_DURATION = 1800 # 30분 (1800초)
 
 async def get_weather_info(lat: float, lon: float) -> Dict[str, Any]:
     """
-    OpenWeatherMap API를 사용하여 특정 좌표의 날씨 정보를 조회합니다.
+    WeatherAPI.com을 사용하여 특정 좌표의 날씨 정보를 조회합니다.
     - API Key 누락 시 Fallback 값 반환
     - 30분 캐싱 적용
     - 오류 발생 시 Fallback 값 반환
     """
-    api_key = os.getenv("OPENWEATHER_API_KEY")
+    api_key = os.getenv("WEATHER_API_KEY") # [Change] Env Var Name
     
     # 1. API Key Check
     if not api_key:
@@ -34,19 +34,29 @@ async def get_weather_info(lat: float, lon: float) -> Dict[str, Any]:
             # print(f"[Weather] Cache Hit: {cache_key}")
             return cached["data"]
 
-    # 3. API Request
-    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric&lang=kr"
+    # 3. API Request (WeatherAPI.com)
+    # Docs: https://www.weatherapi.com/docs/
+    url = "http://api.weatherapi.com/v1/current.json"
+    params = {
+        "key": api_key,
+        "q": f"{lat},{lon}",
+        "lang": "ko"
+    }
     
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, params=params)
             resp.raise_for_status()
             data = resp.json()
             
+            # WeatherAPI Response Mapping
+            current = data.get("current", {})
+            condition = current.get("condition", {})
+            
             weather_data = {
-                "main": data["weather"][0]["main"], # Rain, Clear, Clouds, Snow, Drizzle, Thunderstorm...
-                "desc": data["weather"][0]["description"], # '실 비', '맑음' 등 한글 상세
-                "temp": data["main"]["temp"]
+                "main": condition.get("text", "Clear"), # WeatherAPI doesn't have 'main' group like OWM
+                "desc": condition.get("text", "맑음"),
+                "temp": current.get("temp_c", 20.0)
             }
             
             # Save Cache
