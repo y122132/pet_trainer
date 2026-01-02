@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
-import '../models/user_model.dart'; // UserModel 인식을 위해 추가
+import '../models/user_model.dart';
 import 'user_register_screen.dart';
-import 'menu_page.dart'; // 로그인 성공 시 이동할 페이지
-import 'simple_char_create_page.dart'; // [New] 캐릭터 생성 페이지
+import 'menu_page.dart';
+import 'simple_char_create_page.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -13,22 +14,30 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // 1. 컨트롤러 및 서비스 선언
   final _userController = TextEditingController();
   final _passController = TextEditingController();
   final AuthService _authService = AuthService();
 
-  // 2. 로그인 로직 함수
+  // --- 색상 상수 ---
+  static const Color kBgColor = Color(0xFFFFF9E6);
+  static const Color kBrown = Color(0xFF4E342E);
+  static const Color kLightBrown = Color(0xFF8D6E63);
+  static const Color kDarkBrown = Color(0xFF5D4037);
+
   void _handleLogin() async {
-    // 공백 체크 (기본적인 방어 코드)
     if (_userController.text.isEmpty || _passController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("아이디와 비밀번호를 입력해주세요.")),
+        SnackBar(
+          content: Text(
+            "아이디와 비밀번호를 입력해주세요.",
+            style: GoogleFonts.jua(),
+          ),
+          backgroundColor: kDarkBrown,
+        ),
       );
       return;
     }
 
-    // AuthService.login은 이제 리팩토링되어 UserModel? 객체를 반환합니다.
     final UserModel? user = await _authService.login(
       _userController.text,
       _passController.text,
@@ -36,11 +45,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (user != null) {
       if (!mounted) return;
-      
-      // 로그인 성공 시 정보 표시 (디버깅용)
-      print("[AUTH] ${user.nickname}님 환영합니다. (ID: ${user.id}, Char: ${user.hasCharacter})");
-
-      // [핵심] 캐릭터 존재 여부에 따라 분기
       if (user.hasCharacter) {
         Navigator.pushReplacement(
           context,
@@ -54,103 +58,171 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } else {
       if (!mounted) return;
-      // 로그인 실패 시 에러 메시지 표시
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("로그인 실패! 아이디와 비밀번호를 확인하세요.")),
+        SnackBar(
+          content: Text(
+            "로그인 실패! 아이디와 비밀번호를 확인하세요.",
+            style: GoogleFonts.jua(),
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
       );
     }
   }
 
-  // 3. UI 빌드 메서드
+  @override
+  void dispose() {
+    _userController.dispose();
+    _passController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Pet Trainer 로그인"),
-        centerTitle: true,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: SingleChildScrollView( // 키보드 올라올 때 가려짐 방지
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(height: 50),
-              const Text(
-                "반갑습니다!",
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                "반려동물 훈련을 시작하기 위해 로그인하세요.",
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-              const SizedBox(height: 40),
-              TextField(
-                controller: _userController,
-                decoration: const InputDecoration(
-                  labelText: "아이디 (Username)",
-                  hintText: "아이디를 입력하세요",
-                  prefixIcon: Icon(Icons.person),
-                  border: OutlineInputBorder(),
+      body: Container(
+        // 1. 배경 설정
+        decoration: const BoxDecoration(
+          color: kBgColor, // 이미지 없을 경우 대체 색상
+          image: DecorationImage(
+            image: AssetImage('assets/images/login_bg.png'),
+            fit: BoxFit.cover,
+            // 이미지가 어두울 경우를 대비한 투명도
+            colorFilter: ColorFilter.mode(Colors.black26, BlendMode.darken)
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // 로고 (기존 에셋 활용)
+                Image.asset(
+                  'assets/images/독고 표지 이름.png',
+                  width: MediaQuery.of(context).size.width * 0.7,
                 ),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _passController,
-                decoration: const InputDecoration(
-                  labelText: "비밀번호 (Password)",
-                  hintText: "비밀번호를 입력하세요",
-                  prefixIcon: Icon(Icons.lock),
-                  border: OutlineInputBorder(),
-                ),
-                obscureText: true,
-              ),
-              const SizedBox(height: 30),
-              ElevatedButton(
-                onPressed: _handleLogin,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 55),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                const SizedBox(height: 20),
+                Text(
+                  "반갑습니다!",
+                  style: GoogleFonts.jua(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                     shadows: [
+                      const Shadow(
+                        blurRadius: 4.0,
+                        color: kBrown,
+                        offset: Offset(2.0, 2.0),
+                      ),
+                    ],
                   ),
                 ),
-                child: const Text(
-                  "로그인",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                const SizedBox(height: 40),
+                // 아이디 입력창
+                _buildTextField(
+                  controller: _userController,
+                  hintText: '아이디',
+                  icon: Icons.person_outline,
                 ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text("계정이 없으신가요?"),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const RegisterScreen()),
-                      );
-                    },
-                    child: const Text(
-                      "회원가입 하러가기",
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                const SizedBox(height: 15),
+                // 비밀번호 입력창
+                _buildTextField(
+                  controller: _passController,
+                  hintText: '비밀번호',
+                  icon: Icons.lock_outline,
+                  obscureText: true,
+                ),
+                const SizedBox(height: 40),
+                // 로그인 버튼
+                _buildLoginButton(),
+                const SizedBox(height: 20),
+                _buildRegisterButton(),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  @override
-  void dispose() {
-    // 컨트롤러 해제
-    _userController.dispose();
-    _passController.dispose();
-    super.dispose();
+  // 3. 입력창 위젯
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hintText,
+    required IconData icon,
+    bool obscureText = false,
+  }) {
+    return TextField(
+      controller: controller,
+      obscureText: obscureText,
+      style: GoogleFonts.jua(color: kBrown),
+      decoration: InputDecoration(
+        hintText: hintText,
+        hintStyle: GoogleFonts.jua(color: kLightBrown),
+        prefixIcon: Icon(icon, color: kLightBrown),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 20, horizontal: 25),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(30),
+          borderSide: const BorderSide(color: kLightBrown, width: 2),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(30),
+          borderSide: const BorderSide(color: kLightBrown, width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(30),
+          borderSide: const BorderSide(color: kDarkBrown, width: 2.5),
+        ),
+      ),
+    );
+  }
+
+  // 4. 로그인 버튼 위젯
+  Widget _buildLoginButton() {
+    return ElevatedButton(
+      onPressed: _handleLogin,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: kDarkBrown,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(double.infinity, 55),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+        ),
+        elevation: 5,
+      ),
+      child: Text(
+        "로그인",
+        style: GoogleFonts.jua(fontSize: 22, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  // 회원가입 버튼 위젯
+  Widget _buildRegisterButton() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text("계정이 없으신가요?", style: GoogleFonts.jua(color: Colors.white, shadows: [const Shadow(blurRadius: 2.0, color: kBrown,)])),
+        TextButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const RegisterScreen()),
+            );
+          },
+          child: Text(
+            "회원가입",
+            style: GoogleFonts.jua(
+              fontWeight: FontWeight.bold,
+              color: kBgColor,
+              shadows: [const Shadow(blurRadius: 2.0, color: kDarkBrown,)]
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

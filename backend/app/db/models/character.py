@@ -19,6 +19,12 @@ class Character(Base):
     status: Mapped[str] = mapped_column(String, default="normal") # 상태 (예: normal, hungry, sleepy)
     pet_type: Mapped[str] = mapped_column(String, default="dog") # 반려동물 종류 (dog, cat 등)
     learned_skills: Mapped[list[int]] = mapped_column(JSONB, default=[]) # 습득한 기술 ID 리스트
+
+    # Image URLs
+    front_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
+    back_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
+    side_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
+    face_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
     
     # 관계 설정 (Relationships)
     user: Mapped["User"] = relationship("User", back_populates="character")

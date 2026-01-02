@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:image_picker/image_picker.dart'; // Import XFile
 import 'package:pet_trainer_frontend/models/character_model.dart';
 import 'package:pet_trainer_frontend/models/pet_config.dart';
 
@@ -12,6 +13,12 @@ class CharProvider with ChangeNotifier {
   // 캐릭터 상태 데이터 (Private 변수)
   Character? _character;
   Character? get character => _character;
+
+  // Temporary images for newly registered character
+  XFile? tempFrontImage;
+  XFile? tempBackImage;
+  XFile? tempSideImage;
+  XFile? tempFaceImage;
 
   // --- 편의를 위한 Getters (UI에서 접근하기 쉽게) ---
   int get strength => _character?.stat?.strength ?? 0;
@@ -25,7 +32,6 @@ class CharProvider with ChangeNotifier {
   int get currentExp => _character?.stat?.exp ?? 0;
   int get maxExp => 100; // 최대 경험치 (임시)
   int get level => _character?.stat?.level ?? 1;
-  String get imagePath => _character?.imageUrl ?? 'assets/images/characters/닌자옷.png';
   double get expPercentage => (currentExp / maxExp).clamp(0.0, 1.0); // 경험치 바(Bar)용 퍼센트
 
   // 스탯 맵 반환 (UI 차트용)
@@ -50,6 +56,15 @@ class CharProvider with ChangeNotifier {
 
   String get currentPetType => _currentPetType;
   PetConfig get petConfig => _petConfig;
+
+  // Method to set the temporary images
+  void setTemporaryImages(Map<String, XFile?> images) {
+    tempFrontImage = images['Front'];
+    tempBackImage = images['Back'];
+    tempSideImage = images['Side'];
+    tempFaceImage = images['Face'];
+    notifyListeners();
+  }
 
   // 펫 종류 변경 메서드 (설정 변경 시 호출)
   void setPetType(String type) {
@@ -105,9 +120,6 @@ class CharProvider with ChangeNotifier {
     }
     _unusedStatPoints -= amount;
     
-    // 이미지 갱신 등
-    _updateImage();
-    
     // 서버 동기화 (비동기)
     syncStatToBackend(); 
     
@@ -151,7 +163,6 @@ class CharProvider with ChangeNotifier {
     }
     
     _balanceStats();
-    _updateImage();
     syncStatToBackend();
     
     notifyListeners();
@@ -166,13 +177,11 @@ class CharProvider with ChangeNotifier {
         _character!.stat!.exp -= 100;
         _statusMessage = "레벨 업!!";
       }
-      _updateImage();
       notifyListeners();
     }
   }
 
   // 상태 메시지 업데이트 (캐릭터 대사 전용)
-  // [Fix] 시스템 로그("찾는 중..." 등)는 이 함수를 호출하면 안 됨.
   void updateStatusMessage(String msg) {
     // 빈 문자열이나 null이 들어오면 무시 (기존 메시지 유지)
     if (msg.isEmpty) return;
@@ -184,8 +193,13 @@ class CharProvider with ChangeNotifier {
   // --- 서버 통신 (API) ---
 
   // 데이터 로드 (서버에서 캐릭터 정보 가져오기)
-  // [id]: 캐릭터 ID (기본값 1)
   Future<void> fetchCharacter([int id = 1]) async {
+    // Clear temporary images on any server fetch
+    tempFrontImage = null;
+    tempBackImage = null;
+    tempSideImage = null;
+    tempFaceImage = null;
+
     try {
       final token = await AuthService().getToken();
       // API 호출: GET /v1/characters/{id}
@@ -224,7 +238,6 @@ class CharProvider with ChangeNotifier {
             _unusedStatPoints = _character!.stat!.unused_points;
         }
         
-        _updateImage();
         notifyListeners();
       } else {
         print("fetchCharacter failed: ${response.statusCode}");
@@ -291,30 +304,5 @@ class CharProvider with ChangeNotifier {
   void _balanceStats() {
     // 예시: 행복도가 100을 넘지 않도록 제한
     if (_character!.stat!.happiness > 100) _character!.stat!.happiness = 100;
-  }
-
-  // 스탯에 따라 이미지/표정 변경 로직
-  // [Fix] 사용자 요청: 행복도에 따른 변경 로직 제거. 설정된 PetType에 따라 고정된 이미지 사용.
-  void _updateImage() {
-    if (_character == null) return;
-    
-    String type = _currentPetType.toLowerCase();
-    
-    switch (type) {
-      case 'dog': 
-        _character!.imageUrl = "assets/images/characters/멜빵옷.png"; // Dog -> Overalls
-        break;
-      case 'cat': 
-        _character!.imageUrl = "assets/images/characters/공주옷.png"; // Cat -> Princess
-        break;
-      case 'ninja':
-        _character!.imageUrl = "assets/images/characters/닌자옷.png"; // Ninja -> Ninja
-        break;
-      case 'banana':
-        _character!.imageUrl = "assets/images/characters/바나나옷.png"; // Banana -> Banana
-        break;
-      default: 
-        _character!.imageUrl = "assets/images/characters/닌자옷.png"; // Fallback
-    }
   }
 }

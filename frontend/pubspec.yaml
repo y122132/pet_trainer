@@ -23,6 +23,10 @@ dependencies:
   cupertino_icons: ^1.0.2
   image: ^4.7.2
   flutter_secure_storage: ^9.0.0 # 기기 내부 데이터 안전하게 보관
+  video_player: ^2.10.1
+  google_fonts: ^6.3.3
+  image_picker: ^1.2.1
+  font_awesome_flutter: ^10.4.0
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'camera_screen.dart';
 import '../providers/char_provider.dart';
 import '../widgets/stat_distribution_dialog.dart';
@@ -96,6 +98,38 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
           SafeArea(
             child: Consumer<CharProvider>(
               builder: (context, provider, child) {
+                 Widget imageWidget;
+                 // Prioritize temporary image if it exists
+                 if (provider.tempFrontImage != null) {
+                   if (kIsWeb) {
+                     imageWidget = Image.network(
+                       provider.tempFrontImage!.path,
+                       fit: BoxFit.contain,
+                       width: MediaQuery.of(context).size.width * 0.8,
+                     );
+                   } else {
+                     imageWidget = Image.file(
+                       File(provider.tempFrontImage!.path),
+                       fit: BoxFit.contain,
+                       width: MediaQuery.of(context).size.width * 0.8,
+                     );
+                   }
+                 } else if (provider.character?.frontUrl != null && provider.character!.frontUrl!.isNotEmpty) {
+                   // Fallback to the image from the server
+                   imageWidget = Image.network(
+                     provider.character!.frontUrl!,
+                     fit: BoxFit.contain,
+                     width: MediaQuery.of(context).size.width * 0.8,
+                   );
+                 } else {
+                   // Fallback to the default asset
+                   imageWidget = Image.asset(
+                     'assets/images/characters/닌자옷.png',
+                     fit: BoxFit.contain,
+                     width: MediaQuery.of(context).size.width * 0.8,
+                   );
+                 }
+
                  return Column(
                    children: [
                      // Top Spacer
@@ -128,11 +162,7 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                                   child: child,
                                 );
                               },
-                              child: Image.asset(
-                                provider.character?.imageUrl ?? 'assets/images/characters/닌자옷.png',
-                                fit: BoxFit.contain,
-                                width: MediaQuery.of(context).size.width * 0.8,
-                              ),
+                              child: imageWidget,
                             ),
                          ),
                        ),
