@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../providers/char_provider.dart';
+import '../providers/chat_provider.dart';
 import '../widgets/common/stat_widgets.dart';
 import '../widgets/char_message_bubble.dart';
 import '../widgets/stat_distribution_dialog.dart';
@@ -96,11 +97,15 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
   }
 
   void _handleLogout(BuildContext context) async {
+    Provider.of<ChatProvider>(context, listen: false).disconnect();
     final auth = AuthService();
     await auth.logout();
     if (mounted) {
-      // 모든 화면 정보를 지우고 '/' 경로(로그인 화면)로 이동
       Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("로그아웃 되었습니다."))
+      );
     }
   }
 
@@ -110,11 +115,18 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
       extendBodyBehindAppBar: true, 
       appBar: AppBar(
         backgroundColor: Colors.transparent,
+        elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.softCharcoal),
-          onPressed: () => _showSettingsSheet(context),
+          onPressed: () => Navigator.pop(context),
         ),
-        title: const Text("MY ROOM", style: TextStyle(color: AppColors.softCharcoal, fontWeight: FontWeight.w900, fontSize: 22)),
+        title: const Text(
+          "MY ROOM", 
+          style: TextStyle(
+            color: AppColors.softCharcoal, 
+            fontWeight: FontWeight.w900, 
+            fontSize: 22
+            )),
         actions: [
           IconButton(
             onPressed: () => _showSettingsSheet(context),
@@ -123,15 +135,14 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
       ),
       body: Stack(
         children: [
-          // 1. Background (Gradient)
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                   Color(0xFFFFF0F5), // Lavender Blush
-                   Color(0xFFE0F7FA), // Cyan Mist
+                   Color(0xFFFFF0F5),
+                   Color(0xFFE0F7FA),
                 ],
               ),
             ),

@@ -2,10 +2,14 @@
 import json
 import asyncio
 from typing import Dict
+from datetime import datetime
 from app.db.database import get_db
 from app.services import user_service
+from app.db.models.chat_data import ChatMessage
 from app.db.database_redis import RedisManager
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, or_, update
+from sqlalchemy.future import select
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 
 router = APIRouter()
@@ -29,9 +33,16 @@ class ChatManager:
         }
         print(f"[CHAT] {nickname}({user_id}) 연결됨. 현재 접속자: {list(self.active_connections.keys())}")
 
-    def disconnect(self, user_id: int):
+    async def disconnect(self, user_id: int):
         if user_id in self.active_connections:
             del self.active_connections[user_id]
+            await RedisManager.set_user_offline(user_id)
+        
+            await self.broadcast({
+                "type": "USER_STATUS",
+                "user_id": user_id,
+                "online": False
+            })
             print(f"[CHAT] 유저 {user_id} 연결 끊김.")
 
     async def broadcast(self, payload: dict):
@@ -86,12 +97,23 @@ async def chat_endpoint(websocket: WebSocket, user_id: int, db: AsyncSession = D
             data = await websocket.receive_text()
             message_json = json.loads(data)
             receiver_id = int(message_json.get("to_user_id"))
+            content = message_json.get("message")
+
+            new_msg = ChatMessage(
+                sender_id=user_id,
+                receiver_id=receiver_id,
+                message=content
+            )
+            db.add(new_msg)
+            await db.commit()
+            await db.refresh(new_msg)
 
             notification_payload = {
                 "type": "CHAT_NOTIFICATION",
                 "from_user_id": user_id,
                 "sender_nickname": manager.get_nickname(user_id),
-                "message": message_json.get("message")
+                "message": content,
+                "created_at": new_msg.created_at.isoformat()
             }
 
             await RedisManager.publish_chat_notification(receiver_id, notification_payload)
@@ -102,7 +124,7 @@ async def chat_endpoint(websocket: WebSocket, user_id: int, db: AsyncSession = D
         print(f"[CHAT] 에러 발생: {e}")
     finally:
         await RedisManager.set_user_offline(user_id)
-        manager.disconnect(user_id)
+        await manager.disconnect(user_id)
         notification_task.cancel()
         
         await manager.broadcast({
@@ -126,3 +148,48 @@ async def listen_to_notifications(websocket: WebSocket, user_id: int):
         print(f"Notification Error: {e}")
     finally:
         await pubsub.unsubscribe(f"user_notify_{user_id}")
+
+@router.get("/history/{other_user_id}", tags=["chat"])
+async def get_chat_history(
+    other_user_id: int, 
+    current_user_id: int, # 실제로는 Depends(get_current_user)를 쓰시는게 보안상 좋습니다.
+    db: AsyncSession = Depends(get_db)
+):
+
+    query = select(ChatMessage).where(
+        or_(
+            and_(ChatMessage.sender_id == current_user_id, ChatMessage.receiver_id == other_user_id),
+            and_(ChatMessage.sender_id == other_user_id, ChatMessage.receiver_id == current_user_id)
+        )
+    ).order_by(ChatMessage.created_at.asc()).limit(50)
+
+    result = await db.execute(query)
+    messages = result.scalars().all()
+
+    return [
+        {
+            "from_user_id": m.sender_id,
+            "message": m.message,
+            "created_at": m.created_at.isoformat()
+        } for m in messages
+    ]
+
+@router.post("/read/{sender_id}", tags=["chat"])
+async def mark_messages_as_read(
+    sender_id: int, 
+    current_user_id: int, 
+    db: AsyncSession = Depends(get_db)
+):
+    
+    # 상대방이 나에게 보낸(receiver_id == 나) 메시지 중 안 읽은 것들을 True로 변경
+    query = update(ChatMessage).where(
+        and_(
+            ChatMessage.sender_id == sender_id,
+            ChatMessage.receiver_id == current_user_id,
+            ChatMessage.is_read == False
+        )
+    ).values(is_read=True)
+    
+    await db.execute(query)
+    await db.commit()
+    return {"status": "success"}

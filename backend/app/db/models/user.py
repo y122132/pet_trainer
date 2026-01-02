@@ -1,9 +1,9 @@
-# [병합본] backend/app/db/models/user.py
+#backend/app/db/models/user.py
+from datetime import datetime
+from app.db.database import Base
+from typing import Optional, TYPE_CHECKING
 from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from app.db.database import Base
-from datetime import datetime
-from typing import Optional, TYPE_CHECKING
 
 # 순환 참조 방지를 위한 타입 체크
 if TYPE_CHECKING:

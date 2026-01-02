@@ -80,6 +80,7 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
         setState(() {
           _friends = jsonDecode(utf8.decode(response.bodyBytes));
         });
+        Provider.of<ChatProvider>(context, listen: false).setInitialUnreadCounts(friendsData);
       }
     } catch (e) {
       print("Error fetching friends: $e");
@@ -280,8 +281,8 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
 
     return Consumer<ChatProvider>(
       builder: (context, chatProvider, child) {
-        // ChatProvider에서 실시간 상태 가져오기
         bool isOnline = chatProvider.onlineStatus[userId] ?? false;
+        int unreadCount = chatProvider.unreadCounts[userId] ?? 0;
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -327,11 +328,18 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
                   children: [
                     Row(
                       children: [
-                        Text(
-                          user['nickname'] ?? user['username'],
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        Flexible(
+                          child: Text(
+                            user['nickname'] ?? user['username'],
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold, 
+                              fontSize: 16,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            maxLines: 1,
+                          ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
                         // 상태 텍스트 표시
                         Text(
                           isOnline ? "접속 중" : "오프라인",
@@ -340,9 +348,42 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
                             color: isOnline ? Colors.green : Colors.grey,
                           ),
                         ),
+                        const Spacer(),
+                                                
+                        Consumer<ChatProvider>(
+                          builder: (context, chat, _) {
+                            int count = chat.unreadCounts[user['id']] ?? 0;
+                            if (count == 0) return const SizedBox.shrink();
+                            
+                            return Container(
+                              margin: const EdgeInsets.only(right: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.red.withOpacity(0.3), 
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2)
+                                  )
+                                ],
+                              ),
+                              child: Text(
+                                count > 99 ? "99+" : "$count",
+                                style: const TextStyle(
+                                  color: Colors.white, 
+                                  fontSize: 10, 
+                                  fontWeight: FontWeight.w900
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 8),
+
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(

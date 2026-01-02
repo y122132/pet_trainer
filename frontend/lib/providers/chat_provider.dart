@@ -23,8 +23,34 @@ class ChatProvider extends ChangeNotifier {
   Map<int, bool> _onlineStatus = {};
   Map<int, bool> get onlineStatus => _onlineStatus;
 
+  Map<int, int> _unreadCounts = {};
+  Map<int, int> get unreadCounts => _unreadCounts;
+
+  void setInitialUnreadCounts(List<dynamic> friends) {
+    for (var f in friends) {
+      final int friendId = f['id'];
+      final int count = f['unread_count'] ?? 0;
+      _unreadCounts[friendId] = count;
+    }
+    notifyListeners();
+    debugPrint("📊 초기 안 읽은 개수 설정 완료: $_unreadCounts");
+  }
+
+  void incrementUnreadCount(int userId) {
+    _unreadCounts[userId] = (_unreadCounts[userId] ?? 0) + 1;
+    notifyListeners();
+  }
+
+  void resetUnreadCount(int userId) {
+    _unreadCounts[userId] = 0;
+    notifyListeners();
+  }
+
   void setActiveChatUser(int? userId) {
     _activeChatUserId = userId;
+    if (userId != null) {
+      resetUnreadCount(userId);
+    }
   }
 
   void clearActiveChatUser() {
@@ -103,6 +129,8 @@ class ChatProvider extends ChangeNotifier {
 
         if (_activeChatUserId != senderId) {
           debugPrint("🔔 다른 사람에게 온 메시지라 팝업을 띄웁니다.");
+          incrementUnreadCount(senderId);
+          
           showSimpleNotification(
             Text("${decoded['sender_nickname']}님의 메시지", 
                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
