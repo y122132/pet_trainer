@@ -160,20 +160,34 @@ class _PetPhotoRegistrationPageState extends State<PetPhotoRegistrationPage> {
                     throw Exception("캐릭터 ID를 받아오지 못했습니다.");
                   }
 
-                  // 3. Update Image URLs (using local paths as mock URLs)
-                  final imageUpdateResponse = await http.put(
+                  // 3. Upload images as multipart/form-data
+                  var request = http.MultipartRequest(
+                    'PUT',
                     Uri.parse("${AppConfig.charactersUrl}/$newCharId/images"),
-                    headers: {
-                      "Content-Type": "application/json; charset=UTF-8",
-                      "Authorization": "Bearer $token"
-                    },
-                    body: jsonEncode({
-                      "front_url": _images['Front']!.path,
-                      "back_url": _images['Back']!.path,
-                      "side_url": _images['Side']!.path,
-                      "face_url": _images['Face']!.path,
-                    }),
                   );
+                  request.headers['Authorization'] = 'Bearer $token';
+
+                  for (var entry in _images.entries) {
+                    String key = entry.key;
+                    XFile imageFile = entry.value!;
+                    String fieldName = '${key.toLowerCase()}_image';
+
+                    if (kIsWeb) {
+                      request.files.add(http.MultipartFile.fromBytes(
+                        fieldName,
+                        await imageFile.readAsBytes(),
+                        filename: imageFile.name,
+                      ));
+                    } else {
+                      request.files.add(await http.MultipartFile.fromPath(
+                        fieldName,
+                        imageFile.path,
+                      ));
+                    }
+                  }
+
+                  final streamedResponse = await request.send();
+                  final imageUpdateResponse = await http.Response.fromStream(streamedResponse);
 
                   if (imageUpdateResponse.statusCode != 200) {
                      throw Exception("이미지 URL 업데이트 실패: ${imageUpdateResponse.body}");

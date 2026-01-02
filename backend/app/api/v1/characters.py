@@ -1,12 +1,18 @@
 # backend/app/api/v1/characters.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.services import char_service
 from pydantic import BaseModel
+import os
+import shutil
 
 # 캐릭터 전용 라우터 정의
 router = APIRouter(prefix="/characters", tags=["characters"])
+
+# 업로드 디렉토리 설정
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # --- Pydantic 스키마 (데이터 검증 모델) ---
 class CharacterCreate(BaseModel):
@@ -25,13 +31,6 @@ class StatUpdateSchema(BaseModel):
     luck: int | None = None
     happiness: int | None = None
     unused_points: int | None = None
-
-class ImageUrlUpdateSchema(BaseModel):
-    """이미지 URL 업데이트 요청 데이터 모델"""
-    front_url: str | None = None
-    back_url: str | None = None
-    side_url: str | None = None
-    face_url: str | None = None
 
 # --- 캐릭터 관련 엔드포인트 ---
 
@@ -85,9 +84,40 @@ async def update_stats(char_id: int, stat_data: StatUpdateSchema, db: AsyncSessi
     return {"message": "Stats updated", "stats": updated_stat}
 
 @router.put("/{char_id}/images")
-async def update_image_urls(char_id: int, image_data: ImageUrlUpdateSchema, db: AsyncSession = Depends(get_db)):
-    """캐릭터의 이미지 URL들을 수정합니다."""
-    updated_character = await char_service.update_character_image_urls(db, char_id, image_data.dict(exclude_unset=True))
+async def update_character_images(
+    char_id: int, 
+    db: AsyncSession = Depends(get_db),
+    front_image: UploadFile = File(..., alias="front_image"),
+    back_image: UploadFile = File(..., alias="back_image"),
+    side_image: UploadFile = File(..., alias="side_image"),
+    face_image: UploadFile = File(..., alias="face_image"),
+):
+    """캐릭터의 이미지 파일들을 업로드하고 URL을 업데이트합니다."""
+    
+    image_files = {
+        "front_url": front_image,
+        "back_url": back_image,
+        "side_url": side_image,
+        "face_url": face_image,
+    }
+    
+    image_urls = {}
+
+    for key, file in image_files.items():
+        # 파일 저장 경로 설정
+        file_location = os.path.join(UPLOAD_DIR, f"{char_id}_{key}_{file.filename}")
+        
+        # 파일 저장
+        with open(file_location, "wb+") as file_object:
+            shutil.copyfileobj(file.file, file_object)
+            
+        # 데이터베이스에 저장할 URL 생성 (예: /uploads/1_front_url_image.png)
+        image_urls[key] = f"/{UPLOAD_DIR}/{char_id}_{key}_{file.filename}"
+
+    # 서비스 계층을 호출하여 데이터베이스의 URL 업데이트
+    updated_character = await char_service.update_character_image_urls(db, char_id, image_urls)
+    
     if not updated_character:
         raise HTTPException(status_code=404, detail="Character not found")
-    return {"message": "Image URLs updated"}
+        
+    return {"message": "Image files uploaded and URLs updated successfully", "image_urls": image_urls}
