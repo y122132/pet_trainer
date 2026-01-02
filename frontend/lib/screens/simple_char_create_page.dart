@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:pet_trainer_frontend/api_config.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:pet_trainer_frontend/screens/pet_photo_reg_page.dart';
 import 'menu_page.dart';
 
 // --- 색상 상수 (전역) ---
@@ -35,8 +36,11 @@ class _SimpleCharCreatePageState extends State<SimpleCharCreatePage> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    // setState(() => _isLoading = true); // 로딩 인디케이터 제거
 
+    // The original character creation logic is commented out to navigate to the photo registration page first.
+    // The actual character creation can be moved to the photo registration page later.
+    /*
     try {
       final token = await _storage.read(key: 'jwt_token');
       final userId = await _storage.read(key: 'user_id');
@@ -87,6 +91,15 @@ class _SimpleCharCreatePageState extends State<SimpleCharCreatePage> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+    */
+
+    // Navigate to the photo registration page
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PetPhotoRegistrationPage(petName: _nameController.text),
+      ),
+    );
   }
 
   @override

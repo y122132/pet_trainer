@@ -40,6 +40,12 @@ class BattleUIState {
   // UI related flags
   final bool isOpponentThinking;
 
+  // Opponent Image URLs
+  final String? oppFrontUrl;
+  final String? oppBackUrl;
+  final String? oppSideUrl;
+  final String? oppFaceUrl;
+
   BattleUIState({
     this.myHp = 100,
     this.myMaxHp = 100,
@@ -55,6 +61,10 @@ class BattleUIState {
     this.myStatuses = const [],
     this.oppStatuses = const [],
     this.isOpponentThinking = false,
+    this.oppFrontUrl,
+    this.oppBackUrl,
+    this.oppSideUrl,
+    this.oppFaceUrl,
   });
 
   // CopyWith for immutable updates
@@ -65,6 +75,10 @@ class BattleUIState {
     List<String>? logs, List<Map<String, dynamic>>? mySkills,
     List<String>? myStatuses, List<String>? oppStatuses,
     bool? isOpponentThinking,
+    String? oppFrontUrl,
+    String? oppBackUrl,
+    String? oppSideUrl,
+    String? oppFaceUrl,
   }) {
     return BattleUIState(
       myHp: myHp ?? this.myHp,
@@ -81,6 +95,10 @@ class BattleUIState {
       myStatuses: myStatuses ?? this.myStatuses,
       oppStatuses: oppStatuses ?? this.oppStatuses,
       isOpponentThinking: isOpponentThinking ?? this.isOpponentThinking,
+      oppFrontUrl: oppFrontUrl ?? this.oppFrontUrl,
+      oppBackUrl: oppBackUrl ?? this.oppBackUrl,
+      oppSideUrl: oppSideUrl ?? this.oppSideUrl,
+      oppFaceUrl: oppFaceUrl ?? this.oppFaceUrl,
     );
   }
 }

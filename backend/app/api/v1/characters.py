@@ -26,6 +26,13 @@ class StatUpdateSchema(BaseModel):
     happiness: int | None = None
     unused_points: int | None = None
 
+class ImageUrlUpdateSchema(BaseModel):
+    """이미지 URL 업데이트 요청 데이터 모델"""
+    front_url: str | None = None
+    back_url: str | None = None
+    side_url: str | None = None
+    face_url: str | None = None
+
 # --- 캐릭터 관련 엔드포인트 ---
 
 @router.get("/{char_id}")
@@ -42,6 +49,10 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
         "status": char.status,
         "pet_type": char.pet_type, 
         "learned_skills": char.learned_skills,
+        "front_url": char.front_url,
+        "back_url": char.back_url,
+        "side_url": char.side_url,
+        "face_url": char.face_url,
         "stats": {
             "level": char.stat.level,
             "exp": char.stat.exp,
@@ -72,3 +83,11 @@ async def update_stats(char_id: int, stat_data: StatUpdateSchema, db: AsyncSessi
     if not updated_stat:
         raise HTTPException(status_code=404, detail="Character stats not found")
     return {"message": "Stats updated", "stats": updated_stat}
+
+@router.put("/{char_id}/images")
+async def update_image_urls(char_id: int, image_data: ImageUrlUpdateSchema, db: AsyncSession = Depends(get_db)):
+    """캐릭터의 이미지 URL들을 수정합니다."""
+    updated_character = await char_service.update_character_image_urls(db, char_id, image_data.dict(exclude_unset=True))
+    if not updated_character:
+        raise HTTPException(status_code=404, detail="Character not found")
+    return {"message": "Image URLs updated"}

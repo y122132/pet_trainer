@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:io'; // Required for File
+import 'package:flutter/foundation.dart' show kIsWeb; // Required for kIsWeb
 import 'my_room_page.dart';
 import 'mode_select_page.dart';
 import 'battle_page.dart';
@@ -37,7 +39,10 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     // Auto-fetch data and connect chat
     WidgetsBinding.instance.addPostFrameCallback((_) {
         final charProvider = Provider.of<CharProvider>(context, listen: false);
-        charProvider.fetchMyCharacter();
+        // Don't fetch if there's a temporary image, as it means we just registered.
+        if (charProvider.tempFrontImage == null) {
+          charProvider.fetchMyCharacter();
+        }
         
         _initChatConnection(); // [New]
     });
@@ -167,8 +172,28 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
                 Expanded(
                   child: Consumer<CharProvider>(
                     builder: (context, provider, child) {
-                      final imagePath = provider.character?.imageUrl ?? 
-                                      'assets/images/characters/닌자옷.png';
+                      Widget imageWidget;
+                      // Prioritize temporary image if it exists
+                      if (provider.tempFrontImage != null) {
+                        if (kIsWeb) {
+                          imageWidget = Image.network(
+                            provider.tempFrontImage!.path,
+                            fit: BoxFit.contain,
+                          );
+                        } else {
+                          imageWidget = Image.file(
+                            File(provider.tempFrontImage!.path),
+                            fit: BoxFit.contain,
+                          );
+                        }
+                      } else if (provider.character?.frontUrl != null && provider.character!.frontUrl!.isNotEmpty) {
+                        // Fallback to the image from the server
+                        imageWidget = Image.network(provider.character!.frontUrl!, fit: BoxFit.contain);
+                      }
+                      else {
+                        // Fallback to the default asset
+                        imageWidget = Image.asset('assets/images/characters/닌자옷.png', fit: BoxFit.contain);
+                      }
                       
                       return AnimatedBuilder(
                         animation: _breathingAnimation,
@@ -183,7 +208,7 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
                               // Simple interaction feedback
                               provider.updateStatusMessage("오늘도 훈련하러 가볼까요? 멍!");
                            },
-                           child: Image.asset(imagePath, fit: BoxFit.contain),
+                           child: imageWidget,
                         ),
                       );
                     },
@@ -210,6 +235,16 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
                        builder: (context, provider, child) {
                          String name = provider.character?.name ?? "트레이너";
                          String type = provider.character?.petType ?? "";
+
+                         ImageProvider? backgroundImage;
+                         if (provider.tempFaceImage != null) {
+                            backgroundImage = kIsWeb 
+                              ? NetworkImage(provider.tempFaceImage!.path) 
+                              : FileImage(File(provider.tempFaceImage!.path)) as ImageProvider;
+                         } else if (provider.character?.faceUrl != null && provider.character!.faceUrl!.isNotEmpty) {
+                            backgroundImage = NetworkImage(provider.character!.faceUrl!);
+                         }
+
                          return Container(
                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                            decoration: BoxDecoration(
@@ -224,7 +259,10 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
                                CircleAvatar(
                                  radius: 14,
                                  backgroundColor: AppColors.navy,
-                                 child: const Icon(Icons.person, size: 16, color: Colors.white),
+                                 backgroundImage: backgroundImage,
+                                 child: backgroundImage == null 
+                                    ? const Icon(Icons.person, size: 16, color: Colors.white) 
+                                    : null,
                                ),
                                const SizedBox(width: 8),
                                Text("$name ($type)", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),

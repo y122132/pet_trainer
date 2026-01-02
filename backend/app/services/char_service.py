@@ -268,3 +268,24 @@ async def process_battle_draw(db: AsyncSession, user_id1: int, user_id2: int):
         rewards[char.user_id] = await _give_exp_and_levelup(db, char, exp_gain=25)
         
     return rewards
+
+async def update_character_image_urls(db: AsyncSession, char_id: int, image_urls_update: dict):
+    """
+    API 요청으로 캐릭터의 이미지 URL들을 직접 수정합니다.
+    """
+    stmt = select(Character).where(Character.id == char_id)
+    result = await db.execute(stmt)
+    character = result.scalar_one_or_none()
+    
+    if not character:
+        return None
+        
+    # 전달된 필드만 업데이트 (Partial Update)
+    if "front_url" in image_urls_update: character.front_url = image_urls_update["front_url"]
+    if "back_url" in image_urls_update: character.back_url = image_urls_update["back_url"]
+    if "side_url" in image_urls_update: character.side_url = image_urls_update["side_url"]
+    if "face_url" in image_urls_update: character.face_url = image_urls_update["face_url"]
+    
+    await db.commit()
+    await db.refresh(character)
+    return character

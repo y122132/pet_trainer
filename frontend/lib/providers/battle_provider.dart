@@ -206,6 +206,10 @@ class BattleProvider extends ChangeNotifier {
            oppHp: value['hp'],
            oppMaxHp: value['max_hp'],
            oppPetType: value['pet_type'] ?? 'dog',
+           oppFrontUrl: value['front_url'],
+           oppBackUrl: value['back_url'],
+           oppSideUrl: value['side_url'],
+           oppFaceUrl: value['face_url'],
          );
        } else {
          final skills = (value['skills'] ?? []).map<Map<String,dynamic>>((e) => e as Map<String,dynamic>).toList();

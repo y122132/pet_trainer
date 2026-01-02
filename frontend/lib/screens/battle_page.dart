@@ -239,7 +239,11 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
                    
                    return Transform.translate(offset: dashOff + Offset(shakeX, 0), child: child);
                 }, child: BattleAvatarWidget(
-                   petType: state.oppPetType, idleAnimation: _idleAnimation, damageOpacity: 0.0,
+                   petType: state.oppPetType,
+                   idleAnimation: _idleAnimation,
+                   imageType: 'side',
+                   sideUrl: state.oppSideUrl,
+                   damageOpacity: 0.0,
                 )))
               ),
               // HUD (Top Right)
@@ -270,7 +274,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
                    
                    return Transform.translate(offset: dashOff + Offset(shakeX, 0), child: child);
                 }, child: BattleAvatarWidget(
-                   petType: myPetType, idleAnimation: _idleAnimation, customImagePath: charProvider.imagePath, damageOpacity: 0.0,
+                   petType: myPetType, idleAnimation: _idleAnimation, imageType: 'side', customImagePath: charProvider.character?.imagePath, damageOpacity: 0.0,
                 )))
               ),
               // HUD (Bottom Left) - MOVED UP
