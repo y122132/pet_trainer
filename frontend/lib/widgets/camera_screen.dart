@@ -1,14 +1,14 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
-class TakePhotoPage extends StatefulWidget {
-  const TakePhotoPage({super.key});
+class CameraScreen extends StatefulWidget {
+  const CameraScreen({super.key});
 
   @override
-  State<TakePhotoPage> createState() => _TakePhotoPageState();
+  State<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _TakePhotoPageState extends State<TakePhotoPage> {
+class _CameraScreenState extends State<CameraScreen> {
   late List<CameraDescription> _cameras;
   CameraController? _controller;
   Future<void>? _initializeControllerFuture;
@@ -22,8 +22,6 @@ class _TakePhotoPageState extends State<TakePhotoPage> {
   Future<void> _initializeCamera() async {
     _cameras = await availableCameras();
     if (_cameras.isEmpty) {
-      // Handle case where no cameras are available
-      print("No cameras found!");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('사용 가능한 카메라가 없습니다.')),
@@ -32,7 +30,10 @@ class _TakePhotoPageState extends State<TakePhotoPage> {
       }
       return;
     }
-    final firstCamera = _cameras.first;
+    final firstCamera = _cameras.first; // 배틀로얄은 전면카메라인데 여기선 일단 기본 후면
+    
+    // 전면/후면 카메라 선택 로직이 필요하다면 여기서 수정
+    
     _controller = CameraController(
       firstCamera,
       ResolutionPreset.medium,

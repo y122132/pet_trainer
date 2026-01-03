@@ -77,7 +77,10 @@ class _MainTitleScreenState extends State<MainTitleScreen>
 
   void _navigateToNextScreen() async {
     final authService = AuthService();
-    final String? token = await authService.getToken();
+    
+    // [보안 업데이트] 단순 존재 여부만 체크하는 게 아니라, 서버에 유효성을 물어봅니다.
+    // 네트워크 요청이 포함되므로 약간의 딜레이가 생길 수 있으나, 안전을 위해 필수적입니다.
+    final bool isValid = await authService.validateToken();
 
     if (!mounted) return;
 
@@ -85,7 +88,7 @@ class _MainTitleScreenState extends State<MainTitleScreen>
       context,
       MaterialPageRoute(
         builder: (context) =>
-            token != null ? const MenuPage() : const LoginScreen(),
+            isValid ? const MenuPage() : const LoginScreen(),
       ),
     );
   }

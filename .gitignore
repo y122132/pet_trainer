@@ -15,6 +15,7 @@ env/
 venv/
 *.log
 backend/app/db/pet_trainer.db
+backend/uploads/
 
 # Docker
 docker-compose.override.yml

@@ -1,5 +1,5 @@
 # backend/app/api/v1/characters.py
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.services import char_service
@@ -7,12 +7,17 @@ from pydantic import BaseModel
 import os
 import shutil
 
+from app.core.security import get_current_user_id
+
 # 캐릭터 전용 라우터 정의
 router = APIRouter(prefix="/characters", tags=["characters"])
 
 # 업로드 디렉토리 설정
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# 허용된 이미지 확장자
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
 # --- Pydantic 스키마 (데이터 검증 모델) ---
 class CharacterCreate(BaseModel):
@@ -76,12 +81,94 @@ async def create_character(char_data: CharacterCreate, db: AsyncSession = Depend
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.put("/{char_id}/stats")
-async def update_stats(char_id: int, stat_data: StatUpdateSchema, db: AsyncSession = Depends(get_db)):
+async def update_stats(
+    char_id: int, 
+    stat_data: StatUpdateSchema, 
+    db: AsyncSession = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id)
+):
     """캐릭터의 스탯 정보를 수정합니다."""
+    # 1. 캐릭터 존재 및 소유권 확인
+    char = await char_service.get_character(db, char_id)
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+    
+    if char.user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this character")
+
+    # 2. 스탯 업데이트 실행
     updated_stat = await char_service.update_character_stats(db, char_id, stat_data.dict(exclude_unset=True))
     if not updated_stat:
         raise HTTPException(status_code=404, detail="Character stats not found")
     return {"message": "Stats updated", "stats": updated_stat}
+
+    return {"message": "Stats updated", "stats": updated_stat}
+
+@router.post("/compose")
+async def create_character_with_images(
+    name: str = Form(...),
+    pet_type: str = Form("dog"),
+    front_image: UploadFile = File(..., alias="front_image"),
+    back_image: UploadFile = File(..., alias="back_image"),
+    side_image: UploadFile = File(..., alias="side_image"),
+    face_image: UploadFile = File(..., alias="face_image"),
+    db: AsyncSession = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    """
+    캐릭터 생성과 이미지 업로드를 한 번에 처리합니다. (Atomic Transaction)
+    """
+    # 1. 파일 확장자 선검사 (빠른 실패)
+    image_files = [front_image, back_image, side_image, face_image]
+    for file in image_files:
+        filename = file.filename
+        if '.' not in filename:
+             raise HTTPException(status_code=400, detail=f"Invalid filename: {filename}")
+        
+        ext = filename.rsplit('.', 1)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"File type not allowed: {ext}")
+
+    # 2. 캐릭터 생성 (DB)
+    try:
+        char = await char_service.create_character(db, current_user_id, name, pet_type)
+    except ValueError as e:
+        status_code = 400
+        if "User not found" in str(e): # User check fail
+             status_code = 404
+        raise HTTPException(status_code=status_code, detail=str(e))
+
+    # 3. 이미지 저장
+    image_file_map = {
+        "front_url": front_image,
+        "back_url": back_image,
+        "side_url": side_image,
+        "face_url": face_image,
+    }
+    image_urls = {}
+    
+    try:
+        for key, file in image_file_map.items():
+            file_location = os.path.join(UPLOAD_DIR, f"{char.id}_{key}_{file.filename}")
+            
+            with open(file_location, "wb+") as file_object:
+                shutil.copyfileobj(file.file, file_object)
+                
+            image_urls[key] = f"/{UPLOAD_DIR}/{char.id}_{key}_{file.filename}"
+            
+        # 4. URL 업데이트
+        updated_char = await char_service.update_character_image_urls(db, char.id, image_urls)
+        
+        # 반환 포맷은 프론트엔드 CharProvider가 기대하는 형태에 맞추거나, 
+        # 혹은 더 명확하게 주고 프론트엔드를 수정함.
+        return {"success": True, "message": "Character created successfully", "id": char.id, "character": updated_char}
+
+    except Exception as e:
+        # **롤백 실행**: 이미지가 하나라도 실패하면 캐릭터 삭제
+        print(f"[Create Error] Rolling back character {char.id}: {e}")
+        await char_service.delete_character(db, char.id)
+        raise HTTPException(status_code=500, detail=f"Image upload failed. Character creation rolled back. Error: {str(e)}")
+
 
 @router.put("/{char_id}/images")
 async def update_character_images(
@@ -91,9 +178,18 @@ async def update_character_images(
     back_image: UploadFile = File(..., alias="back_image"),
     side_image: UploadFile = File(..., alias="side_image"),
     face_image: UploadFile = File(..., alias="face_image"),
+    current_user_id: int = Depends(get_current_user_id)
 ):
     """캐릭터의 이미지 파일들을 업로드하고 URL을 업데이트합니다."""
     
+    # 1. 캐릭터 소유권 확인
+    char = await char_service.get_character(db, char_id)
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+    
+    if char.user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this character")
+
     image_files = {
         "front_url": front_image,
         "back_url": back_image,
@@ -104,6 +200,28 @@ async def update_character_images(
     image_urls = {}
 
     for key, file in image_files.items():
+        # 2. 파일 확장자 검사
+        filename = file.filename
+        if '.' not in filename:
+             raise HTTPException(status_code=400, detail=f"Invalid filename: {filename}")
+        
+        ext = filename.rsplit('.', 1)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"File type not allowed: {ext}. Allowed: {ALLOWED_EXTENSIONS}")
+
+        # [Bonus] 기존 파일 삭제 (청소)
+        old_url = getattr(char, key) # e.g. /uploads/1_front_url_old.png
+        if old_url:
+            # URL에서 실제 파일 경로 변환: /uploads/... -> uploads/...
+            # 단순하게 앞의 '/'만 제거한다고 가정 (상대 경로로 만들기 위해)
+            old_path = old_url.lstrip('/')
+            if os.path.exists(old_path):
+                try:
+                    os.remove(old_path)
+                    print(f"Deleted old file: {old_path}")
+                except Exception as e:
+                    print(f"Failed to delete old file {old_path}: {e}")
+
         # 파일 저장 경로 설정
         file_location = os.path.join(UPLOAD_DIR, f"{char_id}_{key}_{file.filename}")
         

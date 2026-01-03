@@ -1,18 +1,8 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
-
 class AppConfig {
-  static String get serverIp {
-    if (kIsWeb) {
-      return 'localhost'; // 웹에서는 localhost
-    } else if (Platform.isAndroid) {
-      return '10.0.2.2'; // 안드로이드 에뮬레이터
-    } else {
-      return 'localhost'; // iOS 에뮬레이터 또는 실제 기기 (네트워크 설정에 따라 다름)
-    }
-  }
 
   // [중요] AWS 탄력적 IP(Elastic IP) 또는 도메인을 여기에 입력하세요.
+  static const String serverIp = 'localhost'; // 로컬 테스트용
+  // static const String serverIp = '10.0.2.2'; // Android 에뮬레이터용
   // static const String serverIp = '54.116.28.3'; // AWS 배포용 
   static const int serverPort = 8000;
 

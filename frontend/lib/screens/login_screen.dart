@@ -4,7 +4,7 @@ import '../services/auth_service.dart';
 import '../models/user_model.dart';
 import 'user_register_screen.dart';
 import 'menu_page.dart';
-import 'simple_char_create_page.dart';
+import 'character_creation_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -53,7 +53,7 @@ class _LoginScreenState extends State<LoginScreen> {
       } else {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const SimpleCharCreatePage()),
+          MaterialPageRoute(builder: (context) => const CharacterCreationScreen()),
         );
       }
     } else {
