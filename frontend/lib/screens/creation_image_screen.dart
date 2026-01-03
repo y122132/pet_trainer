@@ -4,29 +4,31 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:pet_trainer_frontend/providers/char_provider.dart';
-import 'package:pet_trainer_frontend/screens/menu_page.dart';
-import 'package:pet_trainer_frontend/widgets/camera_screen.dart';
 import 'package:provider/provider.dart';
 
-// --- 색상 상수 ---
+import '../providers/char_provider.dart';
+import 'menu_page.dart';
+import '../widgets/camera_screen.dart';
+
+// --- 색상 상수 (통일감을 위해 유지) ---
 const Color kCreamColor = Color(0xFFFFF9E6);
 const Color kBrown = Color(0xFF4E342E);
 const Color kLightBrown = Color(0xFF8D6E63);
 const Color kDarkBrown = Color(0xFF5D4037);
 
-class CharacterCreationScreen extends StatefulWidget {
-  const CharacterCreationScreen({super.key});
+class CreationImageScreen extends StatefulWidget {
+  final String characterName; // 1단계에서 받은 이름
+
+  const CreationImageScreen({super.key, required this.characterName});
 
   @override
-  _CharacterCreationScreenState createState() => _CharacterCreationScreenState();
+  State<CreationImageScreen> createState() => _CreationImageScreenState();
 }
 
-class _CharacterCreationScreenState extends State<CharacterCreationScreen> {
-  final _nameController = TextEditingController();
+class _CreationImageScreenState extends State<CreationImageScreen> {
   final ImagePicker _picker = ImagePicker();
   
-  // 4면 사진 저장
+  // 4면 사진 저장용 맵
   final Map<String, XFile?> _images = {
     'Front': null,
     'Back': null,
@@ -41,12 +43,6 @@ class _CharacterCreationScreenState extends State<CharacterCreationScreen> {
   };
 
   bool _isLoading = false;
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
-  }
 
   // 사진 선택 방식 (액션시트)
   void _showImageSourceActionSheet(String key) {
@@ -104,38 +100,37 @@ class _CharacterCreationScreenState extends State<CharacterCreationScreen> {
         });
       }
     } catch (e) {
-      print("Gallery Error: $e");
+      debugPrint("Gallery Error: $e");
     }
   }
 
-  // 모든 정보가 입력되었는지 확인
-  bool _isValid() {
-    bool nameOk = _nameController.text.trim().isNotEmpty;
-    bool photosOk = _images.values.every((image) => image != null);
-    return nameOk && photosOk;
+  bool _isAllPhotosTaken() {
+    return _images.values.every((image) => image != null);
   }
 
-  // 제출 로직 (Provider 호출)
+  // 최종 제출 (Atomic Submit)
   Future<void> _submit() async {
-    if (!_isValid()) return;
+    if (!_isAllPhotosTaken()) return;
 
     setState(() => _isLoading = true);
 
     try {
       final provider = Provider.of<CharProvider>(context, listen: false);
       
+      // 1단계 이름 + 2단계 사진을 합쳐서 한번에 전송
       bool success = await provider.createCharacterWithImages(
-        _nameController.text.trim(),
+        widget.characterName, // 전달받은 이름 사용
         _images,
       );
 
       if (!mounted) return;
 
       if (success) {
-        // 성공 시 메인 로비로 이동
-        Navigator.pushReplacement(
+        // 성공 시 메인 로비로 이동 (기존 스택 제거)
+        Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => const MenuPage()),
+          (route) => false,
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -158,69 +153,49 @@ class _CharacterCreationScreenState extends State<CharacterCreationScreen> {
     return Scaffold(
       backgroundColor: kCreamColor,
       appBar: AppBar(
-        title: Text("캐릭터 생성", style: GoogleFonts.jua(color: kBrown)),
+        title: Text("2단계: 사진 등록", style: GoogleFonts.jua(color: kBrown)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        automaticallyImplyLeading: false, // 뒤로가기 방지
+        leading: IconButton( // 뒤로가기 허용 (이름 수정 가능하도록)
+          icon: const Icon(Icons.arrow_back, color: kBrown),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: Stack(
         children: [
-          // 배경 이미지 (하단 동물들)
-          Align(
+           Align(
             alignment: Alignment.bottomCenter,
             child: Opacity(
               opacity: 0.3, 
               child: Image.asset(
-                'assets/images/동물이름.png',
+                'assets/images/동물이름.png', // 기존 에셋 재사용
                 fit: BoxFit.fitWidth,
                 width: MediaQuery.of(context).size.width,
+                errorBuilder: (c, o, s) => const SizedBox(), // 에셋 없을 경우 대비
               ),
             ),
           ),
-          
+
           SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 10),
-                  // 1. 이름 입력
                   Text(
-                    "1. 반려동물의 이름을 지어주세요",
-                    style: GoogleFonts.jua(fontSize: 18, color: kDarkBrown),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _nameController,
-                    onChanged: (v) => setState(() {}),
+                    "${widget.characterName}(이)의 사진을\n4장 등록해주세요",
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.jua(color: kDarkBrown, fontSize: 18),
-                    decoration: InputDecoration(
-                      hintText: "예: 독고",
-                      hintStyle: GoogleFonts.jua(color: Colors.grey),
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: const BorderSide(color: kLightBrown),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: const BorderSide(color: kDarkBrown, width: 2),
-                      ),
-                    ),
+                    style: GoogleFonts.jua(fontSize: 22, color: kDarkBrown),
                   ),
-
+                  const SizedBox(height: 8),
+                  Text(
+                    "(AI가 분석하여 캐릭터를 생성합니다)",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.jua(fontSize: 14, color: Colors.grey),
+                  ),
                   const SizedBox(height: 30),
 
-                  // 2. 사진 등록
-                  Text(
-                    "2. 사진을 4장 등록해주세요 (AI 학습용)",
-                    style: GoogleFonts.jua(fontSize: 18, color: kDarkBrown),
-                  ),
-                  const SizedBox(height: 15),
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -235,11 +210,11 @@ class _CharacterCreationScreenState extends State<CharacterCreationScreen> {
 
                   const SizedBox(height: 40),
 
-                  // 3. 완료 버튼
                   ElevatedButton(
-                    onPressed: (_isValid() && !_isLoading) ? _submit : null,
+                    onPressed: (_isAllPhotosTaken() && !_isLoading) ? _submit : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: kDarkBrown,
+                      disabledBackgroundColor: Colors.grey,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
@@ -308,7 +283,6 @@ class _CharacterCreationScreenState extends State<CharacterCreationScreen> {
                   ],
                 ),
               
-              // 체크 표시
               if (image != null)
                 Positioned(
                   top: 8, right: 8,

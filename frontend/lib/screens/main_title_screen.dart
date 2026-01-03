@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pet_trainer_frontend/screens/login_screen.dart';
 import 'package:pet_trainer_frontend/screens/menu_page.dart';
+import 'package:pet_trainer_frontend/screens/creation_name_screen.dart'; // [Added]
 import 'package:pet_trainer_frontend/services/auth_service.dart';
 
 class MainTitleScreen extends StatefulWidget {
@@ -80,17 +81,37 @@ class _MainTitleScreenState extends State<MainTitleScreen>
     
     // [보안 업데이트] 단순 존재 여부만 체크하는 게 아니라, 서버에 유효성을 물어봅니다.
     // 네트워크 요청이 포함되므로 약간의 딜레이가 생길 수 있으나, 안전을 위해 필수적입니다.
+    // [보안 업데이트] 토큰 유효성 및 캐릭터 존재 여부 확인
     final bool isValid = await authService.validateToken();
+    final String? charId = await authService.getCharacterId();
 
     if (!mounted) return;
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            isValid ? const MenuPage() : const LoginScreen(),
-      ),
-    );
+    // 토큰이 유효하고 캐릭터도 있어야만 메뉴로 진입
+    // (캐릭터가 없으면 로그인을 다시 하거나, 로직에 따라 처리가 필요하지만 
+    //  여기선 안전하게 로그인 화면으로 보내서 처리를 위임함)
+    // [Modified] 논리 분기 업데이트
+    if (isValid) {
+      if (charId != null) {
+        // 1. 캐릭터 보유 -> 메인 로비
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MenuPage()),
+        );
+      } else {
+        // 2. 캐릭터 미보유 -> 캐릭터 생성 (1단계)
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const CreationNameScreen()),
+        );
+      }
+    } else {
+      // 3. 비로그인/토큰 만료 -> 로그인 화면
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
+    }
   }
 
   @override

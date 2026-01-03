@@ -1,21 +1,17 @@
 // frontend/lib/main.dart
-import 'config/theme.dart';
-import 'screens/menu_page.dart';
-import 'services/auth_service.dart';
-import 'package:camera/camera.dart';
-import 'providers/char_provider.dart';
-import 'providers/chat_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:overlay_support/overlay_support.dart';
-import 'package:pet_trainer_frontend/screens/login_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final authService = AuthService();
-  final String? token = await authService.getToken();
+import 'config/theme.dart';
+import 'providers/char_provider.dart';
+import 'providers/chat_provider.dart';
+import 'screens/main_title_screen.dart';
 
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  
   runApp(
     OverlaySupport(
       child: MultiProvider(
@@ -23,15 +19,14 @@ void main() async {
           ChangeNotifierProvider(create: (_) => CharProvider()),
           ChangeNotifierProvider(create: (_) => ChatProvider()),
         ],
-        child: MyApp(initialToken: token),
+        child: const MyApp(),
       ),
     ),
   );
 }
 
 class MyApp extends StatelessWidget {
-  final String? initialToken;
-  const MyApp({super.key, this.initialToken});
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +36,7 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
+      // [Locale 설정]
       locale: const Locale('ko', 'KR'),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
@@ -51,9 +47,9 @@ class MyApp extends StatelessWidget {
         Locale('ko', 'KR'),
         Locale('en', 'US'),
       ],
-      home: initialToken != null ? MenuPage() : LoginScreen(),
+      
+      // [Entry Point] 항상 타이틀 스크린부터 시작
+      home: const MainTitleScreen(),
     );
   }
 }
-
-
