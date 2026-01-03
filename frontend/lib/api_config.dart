@@ -9,6 +9,7 @@ class AppConfig {
   // 1. API 기본 경로 (v1 프리픽스 포함)
   // 이제 모든 REST API는 이 baseUrl을 통해 v1 경로로 접속합니다.
   static String get baseUrl => 'http://$serverIp:$serverPort/v1';
+  static String get serverBaseUrl => 'http://$serverIp:$serverPort'; // 이미지 로딩용 루트 URL
 
   // 2. HTTP 엔드포인트 (Auth & Characters)
   static String get loginUrl => '$baseUrl/auth/login';

@@ -199,11 +199,8 @@ class CharProvider with ChangeNotifier {
 
   // 데이터 로드 (서버에서 캐릭터 정보 가져오기)
   Future<void> fetchCharacter([int id = 1]) async {
-    // Clear temporary images on any server fetch
-    tempFrontImage = null;
-    tempBackImage = null;
-    tempSideImage = null;
-    tempFaceImage = null;
+    // Clear temporary images on any server fetch -> [Moved to success block]
+    // tempFrontImage = null; ... 
 
     try {
       final token = await AuthService().getToken();
@@ -242,6 +239,12 @@ class CharProvider with ChangeNotifier {
         if (_character!.stat != null) {
             _unusedStatPoints = _character!.stat!.unused_points;
         }
+
+        // [Fix] 데이터 로드 성공 시에만 임시 이미지 클리어 (깜빡임 방지)
+        tempFrontImage = null;
+        tempBackImage = null;
+        tempSideImage = null;
+        tempFaceImage = null;
         
         notifyListeners();
       } else {

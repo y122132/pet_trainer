@@ -17,6 +17,7 @@ import 'dart:async'; // [New]
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:math' as math;
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:pet_trainer_frontend/api_config.dart'; // [Fix] Import AppConfig
 
 
 class MenuPage extends StatefulWidget {
@@ -274,7 +275,12 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
             imageWidget = Image.file(File(image.path), fit: BoxFit.cover,);
         }
     } else if (image is String && image.isNotEmpty) {
-        imageWidget = Image.network(image, fit: BoxFit.cover,);
+        // [Fix] 상대 경로(/uploads/...)인 경우 서버 도메인 붙이기
+        String imageUrl = image;
+        if (image.startsWith('/')) {
+            imageUrl = "${AppConfig.serverBaseUrl}$image";
+        }
+        imageWidget = Image.network(imageUrl, fit: BoxFit.cover,);
     } else {
         imageWidget = Image.asset('assets/images/단팥 기본.png', fit: BoxFit.contain,);
     }

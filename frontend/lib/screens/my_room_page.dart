@@ -9,6 +9,7 @@ import '../widgets/stat_distribution_dialog.dart';
 import '../widgets/common/stat_widgets.dart';
 import '../widgets/char_message_bubble.dart'; // Import ChatBubble
 import '../config/theme.dart'; // Import AppTheme
+import 'package:pet_trainer_frontend/api_config.dart'; // [Fix] Import AppConfig
 
 class MyRoomPage extends StatefulWidget {
   const MyRoomPage({super.key});
@@ -116,8 +117,12 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                    }
                  } else if (provider.character?.frontUrl != null && provider.character!.frontUrl!.isNotEmpty) {
                    // Fallback to the image from the server
+                   String imageUrl = provider.character!.frontUrl!;
+                   if (imageUrl.startsWith('/')) {
+                       imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
+                   }
                    imageWidget = Image.network(
-                     provider.character!.frontUrl!,
+                     imageUrl,
                      fit: BoxFit.contain,
                      width: MediaQuery.of(context).size.width * 0.8,
                    );
