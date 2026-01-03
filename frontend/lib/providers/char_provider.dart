@@ -1,17 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:image_picker/image_picker.dart'; // Import XFile
 import 'package:pet_trainer_frontend/models/character_model.dart';
 import 'package:pet_trainer_frontend/models/pet_config.dart';
 
 import 'package:pet_trainer_frontend/api_config.dart';
 
 import 'package:pet_trainer_frontend/services/auth_service.dart'; // [추가] AuthService 임포트
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class CharProvider with ChangeNotifier {
   // 캐릭터 상태 데이터 (Private 변수)
   Character? _character;
   Character? get character => _character;
+
+  // Temporary images for newly registered character
+  XFile? tempFrontImage;
+  XFile? tempBackImage;
+  XFile? tempSideImage;
+  XFile? tempFaceImage;
 
   // --- 편의를 위한 Getters (UI에서 접근하기 쉽게) ---
   int get strength => _character?.stat?.strength ?? 0;
@@ -25,7 +33,6 @@ class CharProvider with ChangeNotifier {
   int get currentExp => _character?.stat?.exp ?? 0;
   int get maxExp => 100; // 최대 경험치 (임시)
   int get level => _character?.stat?.level ?? 1;
-  String get imagePath => _character?.imageUrl ?? 'assets/images/characters/닌자옷.png';
   double get expPercentage => (currentExp / maxExp).clamp(0.0, 1.0); // 경험치 바(Bar)용 퍼센트
 
   // 스탯 맵 반환 (UI 차트용)
@@ -40,6 +47,10 @@ class CharProvider with ChangeNotifier {
   // 현재 진행 중인 미션/메시지
   String _statusMessage = "시작하려면 버튼을 누르세요!";
   String get statusMessage => _statusMessage;
+
+  // 로딩 상태
+  bool _isLoading = false;
+  bool get isLoading => _isLoading;
   
   // 백엔드 주소 (Config 파일에서 로드)
   final String _baseUrl = AppConfig.baseUrl; // 예: http://192.168.1.5:8000
@@ -50,6 +61,15 @@ class CharProvider with ChangeNotifier {
 
   String get currentPetType => _currentPetType;
   PetConfig get petConfig => _petConfig;
+
+  // Method to set the temporary images
+  void setTemporaryImages(Map<String, XFile?> images) {
+    tempFrontImage = images['Front'];
+    tempBackImage = images['Back'];
+    tempSideImage = images['Side'];
+    tempFaceImage = images['Face'];
+    notifyListeners();
+  }
 
   // 펫 종류 변경 메서드 (설정 변경 시 호출)
   void setPetType(String type) {
@@ -105,9 +125,6 @@ class CharProvider with ChangeNotifier {
     }
     _unusedStatPoints -= amount;
     
-    // 이미지 갱신 등
-    _updateImage();
-    
     // 서버 동기화 (비동기)
     syncStatToBackend(); 
     
@@ -151,7 +168,6 @@ class CharProvider with ChangeNotifier {
     }
     
     _balanceStats();
-    _updateImage();
     syncStatToBackend();
     
     notifyListeners();
@@ -166,13 +182,11 @@ class CharProvider with ChangeNotifier {
         _character!.stat!.exp -= 100;
         _statusMessage = "레벨 업!!";
       }
-      _updateImage();
       notifyListeners();
     }
   }
 
   // 상태 메시지 업데이트 (캐릭터 대사 전용)
-  // [Fix] 시스템 로그("찾는 중..." 등)는 이 함수를 호출하면 안 됨.
   void updateStatusMessage(String msg) {
     // 빈 문자열이나 null이 들어오면 무시 (기존 메시지 유지)
     if (msg.isEmpty) return;
@@ -184,8 +198,10 @@ class CharProvider with ChangeNotifier {
   // --- 서버 통신 (API) ---
 
   // 데이터 로드 (서버에서 캐릭터 정보 가져오기)
-  // [id]: 캐릭터 ID (기본값 1)
   Future<void> fetchCharacter([int id = 1]) async {
+    // Clear temporary images on any server fetch -> [Moved to success block]
+    // tempFrontImage = null; ... 
+
     try {
       final token = await AuthService().getToken();
       // API 호출: GET /v1/characters/{id}
@@ -223,8 +239,13 @@ class CharProvider with ChangeNotifier {
         if (_character!.stat != null) {
             _unusedStatPoints = _character!.stat!.unused_points;
         }
+
+        // [Fix] 데이터 로드 성공 시에만 임시 이미지 클리어 (깜빡임 방지)
+        tempFrontImage = null;
+        tempBackImage = null;
+        tempSideImage = null;
+        tempFaceImage = null;
         
-        _updateImage();
         notifyListeners();
       } else {
         print("fetchCharacter failed: ${response.statusCode}");
@@ -293,28 +314,78 @@ class CharProvider with ChangeNotifier {
     if (_character!.stat!.happiness > 100) _character!.stat!.happiness = 100;
   }
 
-  // 스탯에 따라 이미지/표정 변경 로직
-  // [Fix] 사용자 요청: 행복도에 따른 변경 로직 제거. 설정된 PetType에 따라 고정된 이미지 사용.
-  void _updateImage() {
-    if (_character == null) return;
-    
-    String type = _currentPetType.toLowerCase();
-    
-    switch (type) {
-      case 'dog': 
-        _character!.imageUrl = "assets/images/characters/멜빵옷.png"; // Dog -> Overalls
-        break;
-      case 'cat': 
-        _character!.imageUrl = "assets/images/characters/공주옷.png"; // Cat -> Princess
-        break;
-      case 'ninja':
-        _character!.imageUrl = "assets/images/characters/닌자옷.png"; // Ninja -> Ninja
-        break;
-      case 'banana':
-        _character!.imageUrl = "assets/images/characters/바나나옷.png"; // Banana -> Banana
-        break;
-      default: 
-        _character!.imageUrl = "assets/images/characters/닌자옷.png"; // Fallback
+  // [New] 캐릭터 생성 및 이미지 업로드 통합 메서드 (Atomic)
+  Future<bool> createCharacterWithImages(String name, Map<String, XFile?> images) async {
+    _isLoading = true;
+    _statusMessage = "캐릭터 생성 중 (사진 전송)...";
+    notifyListeners();
+
+    try {
+      final token = await AuthService().getToken();
+      if (token == null) throw Exception("로그인이 필요합니다.");
+
+      // [Atomic Creation] 한번에 요청
+      var uri = Uri.parse("${AppConfig.baseUrl}/characters/compose");
+      var request = http.MultipartRequest("POST", uri);
+      
+      request.headers.addAll({
+        "Authorization": "Bearer $token",
+      });
+      
+      request.fields['name'] = name;
+      request.fields['pet_type'] = "dog"; // 기본값
+
+      // 파일 추가
+      for (var entry in images.entries) {
+          if (entry.value != null) {
+              String fieldName = "${entry.key.toLowerCase()}_image";
+              // XFile -> Byte Stream (Cross-platform safe)
+              // fromPath는 dart:io에 의존하므로 웹/일부 환경에서 에러 발생
+              // readAsBytes()는 모든 플랫폼에서 안전함
+              var bytes = await entry.value!.readAsBytes();
+              var pic = http.MultipartFile.fromBytes(
+                  fieldName, 
+                  bytes,
+                  filename: entry.value!.name
+              );
+              request.files.add(pic);
+          } else {
+             throw Exception("${entry.key} 사진이 누락되었습니다.");
+          }
+      }
+
+      print("[Provider] Sending atomic creation request...");
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+          final data = jsonDecode(response.body);
+          final newCharId = data['id'];
+          
+          print("[Provider] Creation Success: ID $newCharId");
+          
+          // ID 저장
+          await const FlutterSecureStorage().write(key: 'character_id', value: newCharId.toString());
+          
+          // 로컬 상태 업데이트 (화면 즉시 반영용)
+          setTemporaryImages(images);
+          
+          // 캐릭터 정보 새로고침
+          await fetchCharacter(newCharId);
+          
+          _isLoading = false;
+          return true;
+      } else {
+          final errorParams = jsonDecode(response.body);
+          throw Exception(errorParams['detail'] ?? "생성 실패 (${response.statusCode})");
+      }
+
+    } catch (e) {
+      print("[Provider] Creation Error: $e");
+      _statusMessage = "생성 오류: $e";
+      _isLoading = false;
+      notifyListeners();
+      return false;
     }
   }
 }

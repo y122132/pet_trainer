@@ -1,12 +1,21 @@
+// frontend/lib/screens/my_room_page.dart
+import 'login_screen.dart';
+import 'camera_screen.dart';
+import '../config/theme.dart';
+import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'camera_screen.dart';
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'camera_screen.dart'; // Keep for image upload references if any
 import '../providers/char_provider.dart';
-import '../widgets/stat_distribution_dialog.dart';
+import '../providers/chat_provider.dart';
 import '../widgets/common/stat_widgets.dart';
-import '../widgets/char_message_bubble.dart'; // Import ChatBubble
-import '../config/theme.dart'; // Import AppTheme
+import '../widgets/char_message_bubble.dart'; 
+import '../widgets/stat_distribution_dialog.dart'; // New from frontend_1
+import '../config/theme.dart'; 
+import 'package:pet_trainer_frontend/api_config.dart'; // [Fix] Import AppConfig
 
 class MyRoomPage extends StatefulWidget {
   const MyRoomPage({super.key});
@@ -61,32 +70,84 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
     // (Optional, currently keeping it visible until next tap or permanent)
   }
 
+  void _showSettingsSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text("설정", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.softCharcoal)),
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.redAccent),
+                title: const Text("로그아웃", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                onTap: () => _handleLogout(context),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _handleLogout(BuildContext context) async {
+    Provider.of<ChatProvider>(context, listen: false).disconnect();
+    final auth = AuthService();
+    await auth.logout();
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("로그아웃 되었습니다."))
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true, 
       appBar: AppBar(
         backgroundColor: Colors.transparent,
+        elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.softCharcoal),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text("MY ROOM", style: TextStyle(color: AppColors.softCharcoal, fontWeight: FontWeight.w900, fontSize: 22)),
+        title: const Text(
+          "MY ROOM", 
+          style: TextStyle(
+            color: AppColors.softCharcoal, 
+            fontWeight: FontWeight.w900, 
+            fontSize: 22
+            )),
         actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.settings, color: AppColors.softCharcoal))
+          IconButton(
+            onPressed: () => _showSettingsSheet(context),
+            icon: const Icon(Icons.settings, color: AppColors.softCharcoal))
         ],
       ),
       body: Stack(
         children: [
-          // 1. Background (Gradient)
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                   Color(0xFFFFF0F5), // Lavender Blush
-                   Color(0xFFE0F7FA), // Cyan Mist
+                   Color(0xFFFFF0F5),
+                   Color(0xFFE0F7FA),
                 ],
               ),
             ),
@@ -96,6 +157,42 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
           SafeArea(
             child: Consumer<CharProvider>(
               builder: (context, provider, child) {
+                 Widget imageWidget;
+                 // Prioritize temporary image if it exists
+                 if (provider.tempFrontImage != null) {
+                   if (kIsWeb) {
+                     imageWidget = Image.network(
+                       provider.tempFrontImage!.path,
+                       fit: BoxFit.contain,
+                       width: MediaQuery.of(context).size.width * 0.8,
+                     );
+                   } else {
+                     imageWidget = Image.file(
+                       File(provider.tempFrontImage!.path),
+                       fit: BoxFit.contain,
+                       width: MediaQuery.of(context).size.width * 0.8,
+                     );
+                   }
+                 } else if (provider.character?.frontUrl != null && provider.character!.frontUrl!.isNotEmpty) {
+                   // Fallback to the image from the server
+                   String imageUrl = provider.character!.frontUrl!;
+                   if (imageUrl.startsWith('/')) {
+                       imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
+                   }
+                   imageWidget = Image.network(
+                     imageUrl,
+                     fit: BoxFit.contain,
+                     width: MediaQuery.of(context).size.width * 0.8,
+                   );
+                 } else {
+                   // Fallback to the default asset
+                   imageWidget = Image.asset(
+                     'assets/images/characters/닌자옷.png',
+                     fit: BoxFit.contain,
+                     width: MediaQuery.of(context).size.width * 0.8,
+                   );
+                 }
+
                  return Column(
                    children: [
                      // Top Spacer
@@ -128,11 +225,7 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                                   child: child,
                                 );
                               },
-                              child: Image.asset(
-                                provider.character?.imageUrl ?? 'assets/images/characters/닌자옷.png',
-                                fit: BoxFit.contain,
-                                width: MediaQuery.of(context).size.width * 0.8,
-                              ),
+                              child: imageWidget,
                             ),
                          ),
                        ),

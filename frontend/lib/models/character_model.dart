@@ -48,19 +48,29 @@ class Character {
   final int id;
   final int userId;
   final String name;
-  String imageUrl; // 이미지 경로 (상태에 따라 변경됨)
   final String petType; // 반려동물 종류 (dog, cat 등) - [New]
   final List<int> learnedSkills; // 습득한 기술 ID 목록 - [New]
   final Stat? stat; // 연관된 스탯 객체
+  final String? imagePath;
+
+  // New image URLs
+  final String? frontUrl;
+  final String? backUrl;
+  final String? sideUrl;
+  final String? faceUrl;
 
   Character({
     required this.id,
     required this.userId,
     required this.name,
-    this.imageUrl = 'assets/images/characters/닌자옷.png', 
     this.petType = 'dog', // 기본값
     this.learnedSkills = const [],
     this.stat,
+    this.imagePath,
+    this.frontUrl = "",
+    this.backUrl = "",
+    this.sideUrl = "",
+    this.faceUrl = "",
   });
 
   // JSON 파싱 (서버 -> 앱)
@@ -69,14 +79,17 @@ class Character {
       id: json['id'] ?? 0,
       userId: json['user_id'] ?? 0,
       name: json['name'] ?? 'Unknown',
-      // 이미지 URL이 없으면 기본 이미지 사용
-      imageUrl: json['image_url'] ?? 'assets/images/characters/닌자옷.png',
       petType: json['pet_type'] ?? 'dog', // 서버 데이터 반영
       learnedSkills: json['learned_skills'] != null 
           ? List<int>.from(json['learned_skills']) 
           : [],
       // 중첩된 JSON 처리
       stat: (json['stats'] ?? json['stat']) != null ? Stat.fromJson(json['stats'] ?? json['stat']) : null,
+      imagePath: json['image_path'],
+      frontUrl: json['front_url'] ?? "",
+      backUrl: json['back_url'] ?? "",
+      sideUrl: json['side_url'] ?? "",
+      faceUrl: json['face_url'] ?? "",
     );
   }
 }

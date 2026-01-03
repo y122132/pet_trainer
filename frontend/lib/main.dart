@@ -1,36 +1,32 @@
+// frontend/lib/main.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
-import 'services/auth_service.dart'; // [추가] 토큰 체크용
-import 'package:camera/camera.dart';
+import 'package:overlay_support/overlay_support.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+
+import 'config/theme.dart';
 import 'providers/char_provider.dart';
-import 'providers/chat_provider.dart'; // [New]
-import 'screens/menu_page.dart';
-import 'config/theme.dart'; // [New]
-import 'package:pet_trainer_frontend/screens/login_screen.dart';
+import 'providers/chat_provider.dart';
+import 'screens/main_title_screen.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 1. 저장된 토큰이 있는지 미리 확인
-  final authService = AuthService();
-  final String? token = await authService.getToken();
-
+  
   runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => CharProvider()),
-        ChangeNotifierProvider(create: (_) => ChatProvider()), // [New] Global Chat
-        // 필요 시 BattleProvider 등 develop의 다른 프로바이더 추가
-      ],
-      child: MyApp(initialToken: token),
+    OverlaySupport(
+      child: MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => CharProvider()),
+          ChangeNotifierProvider(create: (_) => ChatProvider()),
+        ],
+        child: const MyApp(),
+      ),
     ),
   );
 }
 
 class MyApp extends StatelessWidget {
-  final String? initialToken;
-  const MyApp({super.key, this.initialToken});
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -39,9 +35,9 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
-        //fontFamily: 'NanumGothic', // 기본 폰트 설정 (시스템에 있으면 사용)
       ),
-      locale: const Locale('ko', 'KR'), // [직접 지정] 시스템 설정 무시하고 한국어 강제 적용
+      // [Locale 설정]
+      locale: const Locale('ko', 'KR'),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -51,10 +47,9 @@ class MyApp extends StatelessWidget {
         Locale('ko', 'KR'),
         Locale('en', 'US'),
       ],
-      // 2. 토큰이 있으면 바로 게임 메인(MenuPage), 없으면 로그인 화면으로 분기
-      home: initialToken != null ? MenuPage() : LoginScreen(),
+      
+      // [Entry Point] 항상 타이틀 스크린부터 시작
+      home: const MainTitleScreen(),
     );
   }
 }
-
-

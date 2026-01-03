@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import os
 from dotenv import load_dotenv
 
@@ -20,6 +21,11 @@ from app.db.database_redis import RedisManager # 추가
 
 
 app = FastAPI(title="PetTrainer API")
+
+# Mount the 'uploads' directory to serve static files
+# This should be placed before the routers if there's any path conflict.
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 
 # CORS (Cross-Origin Resource Sharing) 미들웨어 설정
 # 프론트엔드(Flutter/Web)가 다른 도메인에서 API를 호출할 수 있도록 허용합니다.

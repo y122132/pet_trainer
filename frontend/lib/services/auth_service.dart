@@ -93,4 +93,36 @@ class AuthService {
     await _storage.delete(key: 'user_id');
     await _storage.delete(key: 'character_id');
   }
+
+  // 5. 토큰 유효성 검사 (서버 Ping)
+  Future<bool> validateToken() async {
+    final token = await getToken();
+    if (token == null) return false;
+
+    try {
+      final response = await http.get(
+        // auth.py가 /api/v1/auth에 마운트되어 있다고 가정 (main.py 확인 필요하지만 관례상 맞음)
+        // 실제로는 api_config.dart에 endpoint를 추가하는게 좋지만, 여기서는 하드코딩된 baseUrl + path로 구성
+        Uri.parse("${AppConfig.baseUrl}/auth/me"),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer $token"
+        },
+      );
+
+      if (response.statusCode == 200) {
+        return true;
+      } else {
+        // 401 Unauthorized 등
+        await logout(); // 만료된 토큰 삭제
+        return false;
+      }
+    } catch (e) {
+      print("[Auth] Token validation error: $e");
+      // 네트워크 오류 시 보수적으로 접근: 
+      // 앱을 아예 켜지 못하게 할지, 아니면 로그인을 다시 하라고 할지.
+      // 여기서는 '검증 실패'로 간주하고 로그인을 유도하는 것이 안전함.
+      return false; 
+    }
+  }
 }
