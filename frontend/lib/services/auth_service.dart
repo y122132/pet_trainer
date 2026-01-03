@@ -1,12 +1,22 @@
 import 'dart:convert';
+import 'package:flutter/services.dart'; // [Added] PlatformException 처리를 위해 필요
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pet_trainer_frontend/api_config.dart';
 import 'package:pet_trainer_frontend/models/user_model.dart';
+import 'package:pet_trainer_frontend/screens/login_screen.dart'; // import if needed, but service shouldn't depend on screens usually.
 
 class AuthService {
   // 보안 저장소 인스턴스 생성
-  final _storage = const FlutterSecureStorage();
+  // [Fix] Android 옵션 추가: 암호화된 shared preferences 사용 시 복호화 실패 방지 (resetOnError)
+  final _storage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+      resetOnError: true, // [Key Fix] 복호화 에러 시 자동으로 초기화
+    ),
+  );
+  
+  // ... login code ...
 
   // 1. 로그인 기능: 성공 시 토큰을 기기에 저장함
   Future<UserModel?> login(String username, String password) async {
@@ -76,15 +86,29 @@ class AuthService {
 
   // 3. 유틸리티 기능: 저장된 토큰 가져오기 (자동 로그인/API 헤더용)
   Future<String?> getToken() async {
-    return await _storage.read(key: 'jwt_token');
+    try {
+      return await _storage.read(key: 'jwt_token');
+    } catch (e) {
+      print("SecureStorage Error (getToken): $e");
+      await _storage.deleteAll(); // 데이터 손상 시 초기화
+      return null;
+    }
   }
 
   Future<String?> getCharacterId() async {
-    return await _storage.read(key: 'character_id');
+    try {
+      return await _storage.read(key: 'character_id');
+    } catch (e) {
+      return null;
+    }
   }
 
   Future<String?> getUserId() async {
-    return await _storage.read(key: 'user_id');
+    try {
+     return await _storage.read(key: 'user_id');
+    } catch (e) {
+      return null;
+    }
   }
 
   // 4. 유틸리티 기능: 로그아웃 (저장된 정보 삭제)

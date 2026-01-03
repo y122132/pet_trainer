@@ -312,10 +312,12 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
             imageWidget = Image.file(File(image.path), fit: BoxFit.cover,);
         }
     } else if (image is String && image.isNotEmpty) {
-        // [Fix] 상대 경로(/uploads/...)인 경우 서버 도메인 붙이기
+        // [Fix] 상대 경로(/uploads/...) 및 로컬호스트 레거시 데이터 처리
         String imageUrl = image;
-        if (image.startsWith('/')) {
-            imageUrl = "${AppConfig.serverBaseUrl}$image";
+        if (imageUrl.startsWith('/')) {
+            imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
+        } else if (imageUrl.contains('localhost')) {
+            imageUrl = imageUrl.replaceFirst('localhost', AppConfig.serverIp);
         }
         imageWidget = Image.network(imageUrl, fit: BoxFit.cover,);
     } else {
