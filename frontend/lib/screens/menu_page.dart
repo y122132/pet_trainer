@@ -18,6 +18,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:math' as math;
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:pet_trainer_frontend/api_config.dart'; // [Fix] Import AppConfig
+import 'login_screen.dart'; // [New] For Logout
 
 
 class MenuPage extends StatefulWidget {
@@ -45,8 +46,8 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     // Auto-fetch data and connect chat
     WidgetsBinding.instance.addPostFrameCallback((_) {
         final charProvider = Provider.of<CharProvider>(context, listen: false);
-        // Don't fetch if there's a temporary image, as it means we just registered.
-        if (charProvider.tempFrontImage == null) {
+        // Don't fetch if there's a temporary image or if character is already loaded nicely
+        if (charProvider.tempFrontImage == null && charProvider.character == null) {
           charProvider.fetchMyCharacter();
         }
         
@@ -128,6 +129,37 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
            );
         }
       );
+  }
+
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("설정", style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text("로그아웃"),
+              onTap: () async {
+                 await AuthService().logout();
+                 if (mounted) {
+                   Navigator.of(context).pushAndRemoveUntil(
+                     MaterialPageRoute(builder: (_) => const LoginScreen()),
+                     (route) => false
+                   );
+                 }
+              },
+            ),
+             // 추후 사운드 설정 등 추가 가능
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("닫기"))
+        ],
+      )
+    );
   }
 
   @override
@@ -216,6 +248,11 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
               _buildHeaderIcon(FontAwesomeIcons.envelope),
               const SizedBox(width: 12),
               _buildHeaderIcon(FontAwesomeIcons.bell),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: _showSettingsDialog,
+                child: _buildHeaderIcon(Icons.settings), // Use standard icon for settings
+              )
             ],
           )
         ],

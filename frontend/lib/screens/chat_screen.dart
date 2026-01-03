@@ -1,20 +1,23 @@
-import 'package:flutter/material.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
+// frontend/lib/screens/chat_screen.dart
+import 'dart:async';
 import 'dart:convert';
-import 'dart:async'; // [New]
-import '../api_config.dart'; // [New]
-import '../config/theme.dart'; // [New]
-import 'battle_page.dart'; // [New] for Navigation
+import 'battle_page.dart'; 
+import '../api_config.dart';
+import '../config/theme.dart';
+import 'package:intl/intl.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/battle_provider.dart'; // [New]
-import '../providers/chat_provider.dart'; // [New] Global Chat
+import 'package:http/http.dart' as http;
+import '../providers/chat_provider.dart';
+import '../providers/battle_provider.dart'; 
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 class ChatScreen extends StatefulWidget {
   final int myId;
   final int toUserId;
   final String toUsername;
 
-  // myId는 UserListScreen에서 전달받음
   const ChatScreen({super.key, required this.myId, required this.toUserId, required this.toUsername});
 
   @override
@@ -25,40 +28,105 @@ class _ChatScreenState extends State<ChatScreen> {
   final _msgController = TextEditingController();
   List<Map<String, dynamic>> messages = [];
   final ScrollController _scrollController = ScrollController();
-  late StreamSubscription<Map<String, dynamic>> _chatSubscription; // [New] Subscription
+  late StreamSubscription<Map<String, dynamic>> _chatSubscription;
+  late ChatProvider _chatProvider;
+
+  String _formatDate(String? isoString) {
+    if (isoString == null || isoString.isEmpty) return "";
+    try {
+      // ISO 문자열을 읽어서 현지 시간으로 변환
+      DateTime dateTime = DateTime.parse(isoString).toLocal();
+      // '2026년 1월 2일 금요일' 형태로 변환
+      return DateFormat('yyyy년 M월 d일 EEEE', 'ko_KR').format(dateTime);
+    } catch (e) {
+      debugPrint("Date Format Error: $e");
+      return "";
+    }
+  }
+
+  String _formatTime(String? isoString) {
+    if (isoString == null || isoString.isEmpty) return "";
+    try {
+      DateTime dateTime = DateTime.parse(isoString).toLocal();
+      return DateFormat('a h:mm', 'ko_KR').format(dateTime);
+    } catch (e) {
+      return "";
+    }
+  }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _chatProvider = Provider.of<ChatProvider>(context, listen: false);
+  }
 
   @override
   void initState() {
     super.initState();
-    // ChatProvider는 Main에서 이미 connect되어 있다고 가정하거나 여기서는 리스닝만 함.
-    // 하지만 안전하게 connect 호출 (이미 연결되어 있으면 무시됨)
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    chatProvider.connect(widget.myId);
+    _markMessagesAsRead();
+    _loadHistory();
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _chatProvider.connect(widget.myId);
+      _chatProvider.setActiveChatUser(widget.toUserId);
+    });
 
-    // Listen to global stream
-    _chatSubscription = chatProvider.messageStream.listen((data) {
-       _onMessageReceived(data);
+    _chatSubscription = Provider.of<ChatProvider>(context, listen: false)
+        .messageStream.listen((data) {
+      _onMessageReceived(data);
     });
   }
 
-  void _onMessageReceived(Map<String, dynamic> decoded) {
+  Future<void> _markMessagesAsRead() async {
+    try {
+      await http.post(
+        Uri.parse('${AppConfig.baseUrl}/chat/read/${widget.toUserId}?current_user_id=${widget.myId}'),
+      );
+      // 내 로컬 ChatProvider의 미확인 알림 개수도 여기서 즉시 초기화
       if (mounted) {
-        // [Opt] 현재 채팅방 대상인지 필터링 가능 (Global Provider이므로 다른 사람 메시지도 올 수 있음)
-        // 하지만 1:1 채팅 소켓 구조상 내 ID로 온건 다 받음. 
-        // 여기서 로직: 내 메시지거나, 내가 받은 메시지.
-        // 추가 필터: 이 채팅방의 상대(toUserId)와 관련된 것만 표시? 
-        // 일단 단순히 다 표시 (MVP) -> 추후 방 개념이 있으면 필터링 필요.
-        
+        Provider.of<ChatProvider>(context, listen: false).resetUnreadCount(widget.toUserId);
+      }
+    } catch (e) {
+      debugPrint("Read Update Error: $e");
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final response = await http.get(
+        Uri.parse('${AppConfig.baseUrl}/chat/history/${widget.toUserId}?current_user_id=${widget.myId}'),
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> history = jsonDecode(utf8.decode(response.bodyBytes));
+        setState(() {
+          messages = history.cast<Map<String, dynamic>>();
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      debugPrint("History Load Error: $e");
+    }
+  }
+
+  void _onMessageReceived(Map<String, dynamic> decoded) {
+    if (mounted) {
+      final int? senderId = decoded['from_user_id'];
+      
+      if (senderId == widget.toUserId || senderId == widget.myId) {
         setState(() {
           messages.add(decoded);
         });
         _scrollToBottom();
+      } else {
+        debugPrint("📩 다른 유저(${senderId})에게 온 메시지라 이 화면에는 표시하지 않습니다.");
       }
+    }
   }
   
   @override
   void dispose() {
-    _chatSubscription.cancel(); // [Important] Cleanup subscription
+    _chatProvider.clearActiveChatUser();
+    _chatSubscription.cancel();
     _msgController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -79,12 +147,15 @@ class _ChatScreenState extends State<ChatScreen> {
   void _send() {
     if (_msgController.text.trim().isNotEmpty) {
       final text = _msgController.text.trim();
+      final nowStr = DateTime.now().toIso8601String();
       
       try {
         Provider.of<ChatProvider>(context, listen: false).sendMessage(widget.toUserId, text);
-
-        // 내 화면에 메시지 즉시 추가 (낙관적 UI 업데이트)
-        setState(() => messages.add({"from_user_id": widget.myId, "message": text}));
+        setState(() => messages.add({
+          "from_user_id": widget.myId, 
+          "message": text,
+          "created_at": nowStr,
+          }));
         _msgController.clear();
         _scrollToBottom();
       } catch (e) {
@@ -112,12 +183,34 @@ class _ChatScreenState extends State<ChatScreen> {
               itemCount: messages.length,
               itemBuilder: (context, i) {
                 final msg = messages[i];
+                final currentMsgDate = msg['created_at'];
+
                 bool isMe = msg['from_user_id'] == widget.myId;
-                
-                // [New] Check for System/Invite Message
-                if (msg['type'] == 'BATTLE_INVITE') {
-                   return _buildInviteMessage(msg, isMe);
+                bool showDateDivider = false;
+                if (i == 0) {
+                  showDateDivider = true; // 첫 메시지는 무조건 날짜 표시
+                } else {
+                  DateTime prevDate = DateTime.parse(messages[i - 1]['created_at']).toLocal();
+                  DateTime currDate = DateTime.parse(msg['created_at']).toLocal();
+                  
+                  // 연, 월, 일이 하나라도 다르면 날짜가 바뀐 것임
+                  if (prevDate.year != currDate.year || 
+                      prevDate.month != currDate.month || 
+                      prevDate.day != currDate.day) {
+                    showDateDivider = true;
+                  }
                 }
+                
+                return Column(
+                  children: [
+                    if (showDateDivider) _buildDateDivider(msg['created_at']),
+
+                    if (msg['type'] == 'BATTLE_INVITE') 
+                      _buildInviteMessage(msg, isMe)
+                    else
+                      _buildMessageBubble(msg, isMe),
+                  ],
+                );
 
                 return Align(
                   alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -146,6 +239,54 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           _buildMessageInput(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(Map<String, dynamic> msg, bool isMe) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (isMe) _buildTimeText(msg['created_at']), // 내 메시지면 시간 먼저
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.6),
+            decoration: BoxDecoration(
+              color: isMe ? AppColors.cyberYellow : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(msg['message'] ?? ""),
+          ),
+          if (!isMe) _buildTimeText(msg['created_at']), // 상대 메시지면 나중에 시간
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimeText(String? isoString) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 5),
+      child: Text(_formatTime(isoString), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+    );
+  }
+
+  Widget _buildDateDivider(String dateStr) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 20),
+      alignment: Alignment.center,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          _formatDate(dateStr),
+          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+        ),
       ),
     );
   }
@@ -211,6 +352,11 @@ class _ChatScreenState extends State<ChatScreen> {
             Expanded(
               child: TextField(
                 controller: _msgController,
+                autocorrect: false,
+                enableSuggestions: false,
+                keyboardType: TextInputType.text,
+                enableInteractiveSelection: true,
+                selectionControls: desktopTextSelectionControls,
                 decoration: InputDecoration(
                   hintText: "메시지를 입력하세요...",
                   filled: true,

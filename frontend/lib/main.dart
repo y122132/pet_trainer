@@ -1,28 +1,37 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:pet_trainer_frontend/screens/main_title_screen.dart';
-import 'package:provider/provider.dart';
+// frontend/lib/main.dart
+import 'config/theme.dart';
+import 'screens/menu_page.dart';
+import 'services/auth_service.dart';
+import 'package:camera/camera.dart';
 import 'providers/char_provider.dart';
-import 'providers/chat_provider.dart'; // [New]
-import 'config/theme.dart'; // [New]
+import 'providers/chat_provider.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:overlay_support/overlay_support.dart';
+import 'package:pet_trainer_frontend/screens/login_screen.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final authService = AuthService();
+  final String? token = await authService.getToken();
 
   runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => CharProvider()),
-        ChangeNotifierProvider(create: (_) => ChatProvider()), // [New] Global Chat
-        // 필요 시 BattleProvider 등 develop의 다른 프로바이더 추가
-      ],
-      child: const MyApp(),
+    OverlaySupport(
+      child: MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => CharProvider()),
+          ChangeNotifierProvider(create: (_) => ChatProvider()),
+        ],
+        child: MyApp(initialToken: token),
+      ),
     ),
   );
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final String? initialToken;
+  const MyApp({super.key, this.initialToken});
 
   @override
   Widget build(BuildContext context) {
@@ -31,9 +40,8 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
-        //fontFamily: 'NanumGothic', // 기본 폰트 설정 (시스템에 있으면 사용)
       ),
-      locale: const Locale('ko', 'KR'), // [직접 지정] 시스템 설정 무시하고 한국어 강제 적용
+      locale: const Locale('ko', 'KR'),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -43,8 +51,7 @@ class MyApp extends StatelessWidget {
         Locale('ko', 'KR'),
         Locale('en', 'US'),
       ],
-      // 앱의 첫 화면을 MainTitleScreen으로 설정
-      home: const MainTitleScreen(),
+      home: initialToken != null ? MenuPage() : LoginScreen(),
     );
   }
 }
