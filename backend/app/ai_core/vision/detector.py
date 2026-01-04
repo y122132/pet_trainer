@@ -6,6 +6,7 @@ from app.core.pet_behavior_config import PET_BEHAVIORS, DEFAULT_BEHAVIOR, DETECT
 
 # 전역 모델 변수 및 락 (Thread Safety)
 model_pose = None
+model_pet_pose = None # [Fix] Added missing global
 model_detect = None
 model_lock = threading.Lock()
 
@@ -13,12 +14,13 @@ def load_models():
     """
     YOLO AI 모델을 스레드 안전하게 로드합니다.
     """
-    global model_pose, model_detect
+    global model_pose, model_pet_pose, model_detect
     with model_lock:
         if model_pose is None:
             print("Loading YOLO models... (AI 모델 로딩 중)")
             model_pose = YOLO("yolo11n-pose.pt", verbose=False) # 사람 포즈(주인용)
-            model_pet_pose = YOLO("best_pet_pose.pt", verbose=False) # 반려동물 포즈
+            # [Update] Allow using refined model
+            model_pet_pose = YOLO("best_pet_pose_refine.pt", verbose=False) # 반려동물 포즈
             model_detect = YOLO("yolo11n.pt", verbose=False) # 사물 탐지(장난감, 밥그릇 등)
             print("YOLO models loaded. (로딩 완료)")
     return model_pose, model_pet_pose, model_detect
@@ -71,35 +73,112 @@ def process_frame(
     # ---------------------------------------------------------
     # 4. 반려동물 & 사물 탐지 (YOLO Object Detection)
     # ---------------------------------------------------------
+    # ---------------------------------------------------------
+    # 4. 모델 추론 (역할 분리)
+    # ---------------------------------------------------------
+    # Role 1: Pet Pose Model -> Detects Pet & Keypoints
+    # Role 2: Object Model -> Detects Props (Bowl, Toy) ONLY
+    # Role 3: Human Pose Model -> Detects Human & Keypoints
+
     INFERENCE_CONF = 0.25
     logic_conf_setting = DETECTION_SETTINGS["logic_conf"]
-    LOGIC_CONF = logic_conf_setting.get(difficulty, logic_conf_setting["easy"])
+    # [Update] Raise LOGIC_CONF to 0.35 for Refined Model (Good Precision)
+    LOGIC_CONF = 0.35 # logic_conf_setting.get(difficulty, logic_conf_setting["easy"])
     
     results_detect = None
+    results_pet = None
+    results_human = None
+
     try:
-        # [Optimization] Thread-Safe Inference
         with model_lock:
+             # 1. Pet Pose (Pets)
+             if model_pet_pose:
+                 # [Tuning] Raise conf to 0.35 as model is improved (Refined)
+                 results_pet = model_pet_pose(frame_rgb, conf=0.35, imgsz=640, verbose=False)
+             
+             # 2. Object Detection (Props)
+             # User requested yolo11n to ONLY detect props. We can filter classes here or in loop.
+             # Filtering in loop is safer as props might change.
              results_detect = model_detect(frame_rgb, conf=INFERENCE_CONF, imgsz=640, verbose=False)
-             results_pet_pose = model_pet_pose(frame_rgb, conf=0.45, imgsz=640, verbose=False) if model_pet_pose else None
-             results_human_pose = model_pose(frame_rgb, conf=0.45, classes=[0], imgsz=640, verbose=False) if model_pose else None
+             
+             # 3. Human Pose (Owners)
+             if model_pose:
+                 # [Tuning] Lower conf to 0.25 to detect sitting humans (often lower score than standing)
+                 results_human = model_pose(frame_rgb, conf=0.25, classes=[0], imgsz=640, verbose=False)
+                 
     except Exception as e:
-        return {"success": False, "message": f"객체 감지(YOLO) 중 오류 발생: {str(e)}"}
+        return {"success": False, "message": f"AI 추론 중 오류: {str(e)}"}
+    
+    # --- 결과 파싱 ---
+    detected_objects = []
     
     found_pet = False
     pet_box = [] 
+    pet_keypoints = []
+    pet_nose = None
+    pet_paws = []
+    
     best_conf = 0.0
-    
+
+    # Configs
     pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
-    # 기본값 처리 강화
     if pet_config is None: pet_config = DEFAULT_BEHAVIOR
-    
     mode_config = pet_config.get(mode, pet_config.get("playing", DEFAULT_BEHAVIOR["playing"]))
     target_props = mode_config["targets"]
+    
+    # -------------------------------------------------
+    # A. 반려동물 처리 (From best_pet_pose)
+    # -------------------------------------------------
+    if results_pet and results_pet[0].boxes:
+        # best_pet_pose classes: 0=Dog, 1=Cat (User Metadata)
+        # target_class_id (COCO): 16=Dog, 15=Cat
+        
+        # Find best pet
+        for i, box in enumerate(results_pet[0].boxes):
+            cls_source = int(box.cls[0])
+            conf = float(box.conf[0])
+            
+            # Map Source Class to COCO Class
+            mapped_cls = -1
+            if cls_source == 0: mapped_cls = 16 # Dog
+            elif cls_source == 1: mapped_cls = 15 # Cat
+            
+            # Filter by Target (e.g. only dogs if target is dog)
+            # Currently strict check
+            if mapped_cls == target_class_id and conf >= LOGIC_CONF:
+                if conf > best_conf:
+                    best_conf = conf
+                    found_pet = True
+                    
+                    x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
+                    nx1, ny1 = max(0.0, min(1.0, float(x1))), max(0.0, min(1.0, float(y1)))
+                    nx2, ny2 = max(0.0, min(1.0, float(x2))), max(0.0, min(1.0, float(y2)))
+                    pet_box = [nx1, ny1, nx2, ny2, float(conf), float(mapped_cls)]
+                    
+                    # Extract Keypoints for THIS pet
+                    if results_pet[0].keypoints is not None and len(results_pet[0].keypoints.data) > i:
+                        kps = results_pet[0].keypoints.data[i].cpu().numpy()
+                        for k_idx, kp in enumerate(kps):
+                            safe_w = max(1.0, float(width))
+                            safe_h = max(1.0, float(height))
+                            norm_x = float(kp[0]) / safe_w
+                            norm_y = float(kp[1]) / safe_h
+                            conf_k = float(kp[2])
+                            pet_keypoints.append([norm_x, norm_y, conf_k])
 
-    detected_objects = [] 
+                            if conf_k > 0.5:
+                                if k_idx == 2: pet_nose = [norm_x, norm_y] 
+                                if k_idx == 7: pet_paws.append([norm_x, norm_y]) 
+                                if k_idx == 10: pet_paws.append([norm_x, norm_y])
+
+        if found_pet:
+            detected_objects.append(pet_box)
+
+    # -------------------------------------------------
+    # B. 타겟 물건 처리 (From yolo11n)
+    # -------------------------------------------------
     props_detected = [] 
     prop_boxes = {} 
-    
     max_conf_any = 0.0
     max_conf_cls = -1
 
@@ -108,71 +187,63 @@ def process_frame(
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
             
-            # [Debug Info]
+             # Debug info
             if conf > max_conf_any:
                 max_conf_any = conf
                 max_conf_cls = cls_id
             
-            x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
-            nx1 = max(0.0, min(1.0, float(x1)))
-            ny1 = max(0.0, min(1.0, float(y1)))
-            nx2 = max(0.0, min(1.0, float(x2)))
-            ny2 = max(0.0, min(1.0, float(y2)))
-            
-            current_box = [nx1, ny1, nx2, ny2]
+            # Skip Pet/Human classes in Object Detector to avoid duplicate/conflicting logic
+            # [Fix] Also skip Class 77 (Teddy Bear) as it confuses users (Dog recognized as Teddy)
+            if cls_id in [0, 15, 16, 77]: 
+                continue
 
-            # [Visual]
-            if conf >= LOGIC_CONF:
-                 if cls_id == target_class_id or cls_id in target_props:
-                      detected_objects.append([nx1, ny1, nx2, ny2, float(conf), float(cls_id)])
-
-            # A. 반려동물 찾기
-            if cls_id == target_class_id and conf >= LOGIC_CONF:
-                if conf > best_conf:
-                    best_conf = conf
-                    found_pet = True
-                    pet_box = [nx1, ny1, nx2, ny2, float(conf), float(cls_id)]
-            
-            # B. 타겟 물건 찾기
+            # [Revert] Back to original logic requested by user
             if cls_id in target_props and conf >= LOGIC_CONF:
-                # 같은 물체가 여러 개면 더 확실한 것 우선
+                x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
+                nx1, ny1 = max(0.0, min(1.0, float(x1))), max(0.0, min(1.0, float(y1)))
+                nx2, ny2 = max(0.0, min(1.0, float(x2))), max(0.0, min(1.0, float(y2)))
+                
+                current_box = [nx1, ny1, nx2, ny2, float(conf), float(cls_id)]
+                
+                # Handling multiple props (Best conf)
                 if cls_id not in prop_boxes or conf > (prop_boxes.get(cls_id, [])[4] if len(prop_boxes.get(cls_id, [])) > 4 else -1):
-                     prop_boxes[cls_id] = current_box + [conf]
-                     if cls_id not in props_detected:
-                         props_detected.append(cls_id)
-    
-    # 디버그 프린트 제거 (혹은 주석 처리)
-    # print(f"[Detector] ...")
-    
+                        prop_boxes[cls_id] = current_box
+                        if cls_id not in props_detected:
+                            props_detected.append(cls_id)
+                    
+        # Register best props to detected_objects
+        for pid in props_detected:
+            if pid in prop_boxes:
+                detected_objects.append(prop_boxes[pid])
+
     has_target_pre = any(p in props_detected for p in target_props)
 
-    # --- Keypoint Parsing (Pet & Human) ---
-    pet_keypoints = []
+    # -------------------------------------------------
+    # C. 사람 처리 (From yolo11n-pose)
+    # -------------------------------------------------
     human_keypoints = []
-    pet_nose = None
-    pet_paws = []
+    
+    if results_human and results_human[0].boxes:
+         # [Fix] Add Human BBox to detected_objects/prop_boxes for Interaction Logic
+         # Assume index 0 is main user
+         box = results_human[0].boxes[0]
+         x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
+         nx1, ny1 = max(0.0, min(1.0, float(x1))), max(0.0, min(1.0, float(y1)))
+         nx2, ny2 = max(0.0, min(1.0, float(x2))), max(0.0, min(1.0, float(y2)))
+         
+         # Human is Class 0
+         human_box = [nx1, ny1, nx2, ny2, float(box.conf[0]), 0.0]
+         
+         # Add to visually detected objects
+         detected_objects.append(human_box)
+         
+         # Add to prop_boxes for distance calculation (interaction mode)
+         prop_boxes[0] = human_box
 
-    # 1. Pet Keypoints
-    if results_pet_pose and results_pet_pose[0].keypoints is not None:
-         if len(results_pet_pose[0].keypoints.data) > 0:
-              kps = results_pet_pose[0].keypoints.data[0].cpu().numpy()
-              for i, kp in enumerate(kps):
-                  safe_w = max(1.0, float(width))
-                  safe_h = max(1.0, float(height))
-                  norm_x = float(kp[0]) / safe_w
-                  norm_y = float(kp[1]) / safe_h
-                  conf_k = float(kp[2])
-                  pet_keypoints.append([norm_x, norm_y, conf_k])
-                  
-                  if conf_k > 0.5:
-                      if i == 2: pet_nose = [norm_x, norm_y] # Nose
-                      if i == 7: pet_paws.append([norm_x, norm_y]) # Left Front Paw
-                      if i == 10: pet_paws.append([norm_x, norm_y]) # Right Front Paw
-
-    # 2. Human Keypoints
-    if results_human_pose and results_human_pose[0].keypoints is not None:
-         if len(results_human_pose[0].keypoints.data) > 0:
-              kps = results_human_pose[0].keypoints.data[0].cpu().numpy()
+    if results_human and results_human[0].keypoints is not None:
+         if len(results_human[0].keypoints.data) > 0:
+              # Assume index 0 is main user (single user support)
+              kps = results_human[0].keypoints.data[0].cpu().numpy()
               for kp in kps:
                   safe_w = max(1.0, float(width))
                   safe_h = max(1.0, float(height))
@@ -195,12 +266,17 @@ def process_frame(
         "message": "",
         "feedback_message": "",
         "keypoints": [],
+        # [Fix] Include keypoints here so they are sent even if found_pet is False (Early Return)
+        "pet_keypoints": pet_keypoints,
+        "human_keypoints": human_keypoints,
         "skeleton_points": [] 
     }
 
     # [Case 1] 펫 미발견
     if not found_pet:
-        msg = f"반려동물 찾는 중..."
+        # Debug Info for user
+        raw_debug = f"(BestConf: {best_conf:.2f})"
+        msg = f"반려동물 찾는 중... {raw_debug}"
         feedback_code = "pet_not_found"
         is_spec = False
         
@@ -318,38 +394,9 @@ def process_frame(
              feedback_message = "not_interacting"
              is_specific_feedback = True
 
-        # 사람 포즈 추론 (교감 모드)
-        if mode == "interaction" and (0 in prop_boxes):
-            try:
-                # [Optimization] Thread-Safe Pose Inference
-                results_pose = None
-                with model_lock:
-                    results_pose = model_pose(frame_rgb, conf=0.45, classes=[0], verbose=False)
-                
-                # [Error Handling] 결과 검증 및 피드백
-                if not results_pose or results_pose[0].keypoints is None:
-                     # 중요: 에러를 발생시켜 catch 블록에서 피드백 리턴
-                     raise ValueError("No pose keypoints data")
-                
-                if len(results_pose[0].keypoints.data) > 0:
-                     kps = results_pose[0].keypoints.data[0].cpu().numpy()
-                     for kp in kps:
-                         safe_w = max(1.0, float(width))
-                         safe_h = max(1.0, float(height))
-                         norm_x = float(kp[0]) / safe_w
-                         norm_y = float(kp[1]) / safe_h
-                         normalized_keypoints.append([norm_x, norm_y, float(kp[2])])
-            
-            except Exception as e:
-                # [Optimization] 포즈 추정 실패 시 사용자 피드백 제공
-                # 기존 로직을 방해하지 않으면서 피드백만 교체
-                print(f"[Detector] Pose Error: {str(e)}")
-                return {
-                    "success": False,
-                    "message": "반려동물의 자세를 인식할 수 없습니다.", # 구체적인 피드백
-                    "feedback_message": "pose_error",
-                    "width": width, "height": height, "bbox": detected_objects # 화면이 멈추지 않게 최소 데이터 리턴
-                }
+        # [Cleanup] Legacy Pose Logic was here (lines 370-401).
+        # It caused duplicate inference and return flow issues.
+        # It has been removed because 'Role 3' above now handles human pose.
 
     base_response.update({
         "success": (action_detected is not None),
