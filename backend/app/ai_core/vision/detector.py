@@ -17,47 +17,11 @@ def load_models():
     with model_lock:
         if model_pose is None:
             print("Loading YOLO models... (AI 모델 로딩 중)")
-            model_pose = YOLO("yolo11n-pose.pt", verbose=False)
-            # model_detect = YOLO("yolo11n.pt", verbose=False) 
-            model_detect = YOLO("yolo11n.pt", verbose=False)
+            model_pose = YOLO("yolo11n-pose.pt", verbose=False) # 사람 포즈(주인용)
+            model_pet_pose = YOLO("best_pet_pose.pt", verbose=False) # 반려동물 포즈
+            model_detect = YOLO("yolo11n.pt", verbose=False) # 사물 탐지(장난감, 밥그릇 등)
             print("YOLO models loaded. (로딩 완료)")
-    return model_pose, model_detect
-
-def calculate_iou(box1, box2):
-    """
-    두 박스 간의 IoU (Intersection over Union)를 계산합니다.
-    box: [x1, y1, x2, y2] (정규화된 좌표)
-    """
-    xA = max(box1[0], box2[0])
-    yA = max(box1[1], box2[1])
-    xB = min(box1[2], box2[2])
-    yB = min(box1[3], box2[3])
-
-    interArea = max(0, xB - xA) * max(0, yB - yA)
-    if interArea == 0: return 0.0
-
-    box1Area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    box2Area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-
-    unionArea = box1Area + box2Area - interArea
-    if unionArea == 0: return 0.0
-
-    return interArea / unionArea
-
-def calculate_overlap_ratio(pet_box, obj_box):
-    """
-    물체가 반려동물 영역 안에 얼마나 들어와 있는지 계산 (포함 비율)
-    """
-    xA = max(pet_box[0], obj_box[0])
-    yA = max(pet_box[1], obj_box[1])
-    xB = min(pet_box[2], obj_box[2])
-    yB = min(pet_box[3], obj_box[3])
-    
-    interArea = max(0, xB - xA) * max(0, yB - yA)
-    objArea = (obj_box[2] - obj_box[0]) * (obj_box[3] - obj_box[1])
-    
-    if objArea == 0: return 0.0
-    return interArea / objArea
+    return model_pose, model_pet_pose, model_detect
 
 def process_frame(
     image_bytes: bytes, 
@@ -82,7 +46,7 @@ def process_frame(
         }
 
     # 2. 모델 로드 (Thread-Safe)
-    model_pose, model_detect = load_models()
+    model_pose, model_pet_pose, model_detect = load_models()
     
     # 3. 바이너리 이미지 디코딩
     try:
@@ -115,7 +79,9 @@ def process_frame(
     try:
         # [Optimization] Thread-Safe Inference
         with model_lock:
-            results_detect = model_detect(frame_rgb, conf=INFERENCE_CONF, imgsz=640, verbose=False)
+             results_detect = model_detect(frame_rgb, conf=INFERENCE_CONF, imgsz=640, verbose=False)
+             results_pet_pose = model_pet_pose(frame_rgb, conf=0.45, imgsz=640, verbose=False) if model_pet_pose else None
+             results_human_pose = model_pose(frame_rgb, conf=0.45, classes=[0], imgsz=640, verbose=False) if model_pose else None
     except Exception as e:
         return {"success": False, "message": f"객체 감지(YOLO) 중 오류 발생: {str(e)}"}
     
@@ -180,6 +146,40 @@ def process_frame(
     
     has_target_pre = any(p in props_detected for p in target_props)
 
+    # --- Keypoint Parsing (Pet & Human) ---
+    pet_keypoints = []
+    human_keypoints = []
+    pet_nose = None
+    pet_paws = []
+
+    # 1. Pet Keypoints
+    if results_pet_pose and results_pet_pose[0].keypoints is not None:
+         if len(results_pet_pose[0].keypoints.data) > 0:
+              kps = results_pet_pose[0].keypoints.data[0].cpu().numpy()
+              for i, kp in enumerate(kps):
+                  safe_w = max(1.0, float(width))
+                  safe_h = max(1.0, float(height))
+                  norm_x = float(kp[0]) / safe_w
+                  norm_y = float(kp[1]) / safe_h
+                  conf_k = float(kp[2])
+                  pet_keypoints.append([norm_x, norm_y, conf_k])
+                  
+                  if conf_k > 0.5:
+                      if i == 2: pet_nose = [norm_x, norm_y] # Nose
+                      if i == 7: pet_paws.append([norm_x, norm_y]) # Left Front Paw
+                      if i == 10: pet_paws.append([norm_x, norm_y]) # Right Front Paw
+
+    # 2. Human Keypoints
+    if results_human_pose and results_human_pose[0].keypoints is not None:
+         if len(results_human_pose[0].keypoints.data) > 0:
+              kps = results_human_pose[0].keypoints.data[0].cpu().numpy()
+              for kp in kps:
+                  safe_w = max(1.0, float(width))
+                  safe_h = max(1.0, float(height))
+                  norm_x = float(kp[0]) / safe_w
+                  norm_y = float(kp[1]) / safe_h
+                  human_keypoints.append([norm_x, norm_y, float(kp[2])])
+
     # 기본 리턴 구조
     base_response = {
         "success": False,
@@ -234,46 +234,44 @@ def process_frame(
     
     MIN_DIST_SETTINGS = DETECTION_SETTINGS["min_distance"].get(mode, {"easy": 0.25, "hard": 0.15})
     MIN_DISTANCE = MIN_DIST_SETTINGS.get(difficulty, MIN_DIST_SETTINGS["easy"])
-    MAX_OVERLAP_SETTINGS = DETECTION_SETTINGS["max_overlap"]
-    MAX_OVERLAP = MAX_OVERLAP_SETTINGS.get(difficulty, MAX_OVERLAP_SETTINGS["easy"])
+    MIN_DIST_SETTINGS = DETECTION_SETTINGS["min_distance"].get(mode, {"easy": 0.25, "hard": 0.15})
+    MIN_DISTANCE = MIN_DIST_SETTINGS.get(difficulty, MIN_DIST_SETTINGS["easy"])
     
     if has_target:
-        max_overlap_val = 0.0
         min_distance_val = 9999.0
         
-        pet_cx = (pet_box[0] + pet_box[2]) / 2
-        pet_cy = (pet_box[1] + pet_box[3]) / 2
+        # [Upgraded Logic] Keypoint Priority
+        src_points = []
+        if mode == "feeding":
+            if pet_nose: src_points.append(pet_nose)
+            else: src_points.append([(pet_box[0]+pet_box[2])/2, (pet_box[1]+pet_box[3])/2])
+        elif mode == "playing":
+            if pet_nose: src_points.append(pet_nose)
+            if pet_paws: src_points.extend(pet_paws)
+            if not src_points and pet_box: src_points.append([(pet_box[0]+pet_box[2])/2, (pet_box[1]+pet_box[3])/2])
+        elif mode == "interaction":
+             if pet_nose: src_points.append(pet_nose)
+             elif pet_box: src_points.append([(pet_box[0]+pet_box[2])/2, (pet_box[1]+pet_box[3])/2])
 
         for pid in target_props:
             if pid in prop_boxes:
                 obj_box = prop_boxes[pid]
-                
-                # 1. Overlap
-                overlap = calculate_overlap_ratio(pet_box, obj_box)
-                if overlap > max_overlap_val: max_overlap_val = overlap
-                    
-                # 2. Distance
                 obj_cx = (obj_box[0] + obj_box[2]) / 2
                 obj_cy = (obj_box[1] + obj_box[3]) / 2
-                dist = np.sqrt((pet_cx - obj_cx)**2 + (pet_cy - obj_cy)**2)
-                if dist < min_distance_val: min_distance_val = dist
+                
+                for sp in src_points:
+                    dist = np.sqrt((sp[0] - obj_cx)**2 + (sp[1] - obj_cy)**2)
+                    if dist < min_distance_val: min_distance_val = dist
         
-        # [모드별 판단]
         if mode == "feeding":
-            if max_overlap_val > MAX_OVERLAP or min_distance_val < MIN_DISTANCE: 
-                is_interacting = True
-            else:
-                distance_msg = "그릇 가까이 가야 해요!"
+            if min_distance_val < MIN_DISTANCE: is_interacting = True
+            else: distance_msg = "그릇 가까이 가야 해요!"
         elif mode == "playing":
-            if min_distance_val < MIN_DISTANCE:
-                is_interacting = True
-            else:
-                distance_msg = "장난감과 너무 멀어요"
+            if min_distance_val < MIN_DISTANCE: is_interacting = True
+            else: distance_msg = "장난감과 너무 멀어요"
         elif mode == "interaction":
-            if min_distance_val < MIN_DISTANCE:
-                is_interacting = True
-            else:
-                distance_msg = "주인님과 더 가까이!"
+            if min_distance_val < MIN_DISTANCE: is_interacting = True
+            else: distance_msg = "주인님과 더 가까이!"
     
     # --- 결과 구성 ---
     action_detected = None
@@ -358,7 +356,8 @@ def process_frame(
         "action_type": action_detected,
         "message": message,
         "feedback_message": feedback_message,
-        "keypoints": normalized_keypoints,
+        "pet_keypoints": pet_keypoints,
+        "human_keypoints": human_keypoints,
         "bbox": detected_objects,
         "base_reward": base_reward,
         "bonus_points": bonus_points,

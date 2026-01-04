@@ -28,7 +28,9 @@ class TrainingController extends ChangeNotifier {
   
   // For Overlay
   List<dynamic> bbox = [];
-  List<dynamic> keypoints = [];
+  List<dynamic> keypoints = []; // Legacy or Mixed
+  List<dynamic> petKeypoints = [];
+  List<dynamic> humanKeypoints = [];
   double imageWidth = 0;
   double imageHeight = 0;
   
@@ -92,6 +94,8 @@ class TrainingController extends ChangeNotifier {
     // Reset State
     bbox = [];
     keypoints = [];
+    petKeypoints = [];
+    humanKeypoints = [];
     feedback = "";
     trainingState = TrainingStatus.ready;
     stayProgress = 0.0;
@@ -184,7 +188,13 @@ class TrainingController extends ChangeNotifier {
 
        // Update Overlay Data
        if (data.containsKey('bbox')) bbox = data['bbox'];
-       if (data.containsKey('keypoints')) keypoints = data['keypoints'];
+       
+       // Handle New Dual Skeleton
+       if (data.containsKey('pet_keypoints')) petKeypoints = data['pet_keypoints'];
+       if (data.containsKey('human_keypoints')) humanKeypoints = data['human_keypoints'];
+       
+       // Fallback
+       if (data.containsKey('keypoints') && humanKeypoints.isEmpty) keypoints = data['keypoints']; // Legacy
        if (data.containsKey('image_width')) imageWidth = (data['image_width'] as num).toDouble();
        if (data.containsKey('image_height')) imageHeight = (data['image_height'] as num).toDouble();
        
