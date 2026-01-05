@@ -181,14 +181,16 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
   }
 
   // --- UI Builders ---
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(widget.isInviteMode ? "친구랑 놀기" : "친구 목록"),
-        // backgroundColor: Transparent by theme
+        title: const Text("친구 목록",
+          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.softCharcoal)),
+        centerTitle: true,
+        elevation: 0,
+        backgroundColor: Colors.white,
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: AppColors.secondaryPink,
@@ -466,7 +468,6 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
   }
 
   void _handleChallenge(dynamic user) async {
-     // [Implementation]
      if (user['id'] == null) return;
      
      final battleService = BattleService();
@@ -479,7 +480,6 @@ class _UserListScreenState extends State<UserListScreen> with SingleTickerProvid
      final roomId = await battleService.sendInvite(user['id']);
      
      if (roomId != null && mounted) {
-       // Navigate to Battle Page (Waiting Mode)
         Navigator.push(
           context,
           MaterialPageRoute(

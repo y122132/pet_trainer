@@ -103,6 +103,7 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
 
   void _handleLogout(BuildContext context) async {
     Provider.of<ChatProvider>(context, listen: false).disconnect();
+    Provider.of<CharProvider>(context, listen: false).clearData();
     final auth = AuthService();
     await auth.logout();
     if (mounted) {
