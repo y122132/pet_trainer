@@ -192,9 +192,10 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
               ],
               const SizedBox(width: 8),
               ElevatedButton(
-                onPressed: widget.availablePoints == 0 || remainingPoints == 0 ? () {
+                // 변경: 남은 포인트가 있어도 적용 가능하도록 수정
+                onPressed: () {
                   widget.onConfirm(allocated, remainingPoints);
-                } : null, 
+                }, 
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -217,19 +218,40 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(label, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 12)),
-        InkWell(
-           onTap: remainingPoints > 0 ? () => _allocate(key) : null,
-           onLongPress: () => _deallocate(key),
-           child: Container(
-             margin: const EdgeInsets.only(top: 2),
-             decoration: BoxDecoration(
-               color: remainingPoints > 0 ? color : Colors.grey[300], 
-               shape: BoxShape.circle
-             ),
-             width: 32, height: 32,
-             child: const Icon(Icons.add, size: 20, color: Colors.white),
-           ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 감소 버튼 (-)
+            InkWell(
+              onTap: (allocated[key] ?? 0) > 0 ? () => _deallocate(key) : null,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: (allocated[key] ?? 0) > 0 ? Colors.redAccent.withOpacity(0.8) : Colors.grey[300], 
+                  shape: BoxShape.circle
+                ),
+                width: 28, height: 28,
+                alignment: Alignment.center,
+                child: const Icon(Icons.remove, size: 18, color: Colors.white),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // 증가 버튼 (+)
+            InkWell(
+               onTap: remainingPoints > 0 ? () => _allocate(key) : null,
+               onLongPress: () => _deallocate(key), // 롱프레스 감소 기능 유지
+               child: Container(
+                 decoration: BoxDecoration(
+                   color: remainingPoints > 0 ? color : Colors.grey[300], 
+                   shape: BoxShape.circle
+                 ),
+                 width: 32, height: 32,
+                 child: const Icon(Icons.add, size: 20, color: Colors.white),
+               ),
+            ),
+          ],
         ),
+        const SizedBox(height: 2),
         Text("+${allocated[key] ?? 0}", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
       ],
     );

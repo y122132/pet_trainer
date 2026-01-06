@@ -56,6 +56,14 @@ class BattleCalculator:
         # 2. 기본 데미지
         damage = (atk_val / def_val) * power * 0.5 + 2
 
+        # 2.1 [New] HP Scaling Logic (e.g. 본능 각성)
+        scaling = move.get("scaling")
+        if scaling == "hp_loss":
+            # HP가 낮을수록 데미지 증가 (최소 1.0 ~ 최대 2.0)
+            hp_pct = attacker_state.current_hp / attacker_state.max_hp
+            scale_multiplier = 1.0 + (1.0 - hp_pct) # 100%->1.0, 0%->2.0
+            damage *= scale_multiplier
+
         # 3. 크리티컬 (Luck + Crit Stage 기반)
         base_crit = 5.0 + (attacker_stat.luck * 0.5)
         

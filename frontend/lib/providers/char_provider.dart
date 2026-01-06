@@ -131,6 +131,48 @@ class CharProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// 스탯 초기화 (포인트 회수 및 초기 상태 복구)
+  void resetStats() {
+    if (_character == null || _character!.stat == null) return;
+    
+    // 1. 현재 총 스탯 중, 초기값(Base Stat)을 제외한 증가분 계산
+    // 기본값: STR 0, INT 0, AGI 0, DEF 10, LUK 5, HAP 0, HP 100
+    int refundPoints = 0;
+    
+    refundPoints += _character!.stat!.strength;      // Base 0
+    refundPoints += _character!.stat!.intelligence;  // Base 0
+    refundPoints += _character!.stat!.agility;       // Base 0
+    
+    // 방어력: Base 10
+    if (_character!.stat!.defense > 10) {
+      refundPoints += (_character!.stat!.defense - 10);
+    }
+    
+    // 운: Base 5
+    if (_character!.stat!.luck > 5) {
+      refundPoints += (_character!.stat!.luck - 5);
+    }
+    
+    // 그 외 (행복도/체력 등은 포인트로 올리는 것이 아니라면 제외, 
+    // 만약 포인트로 올린 것이라면 로직 추가 필요. 여기선 주요 5대 스탯만 리셋 가정)
+    
+    // 2. 스탯 포인트 환불
+    _unusedStatPoints += refundPoints;
+    
+    // 3. 스탯 초기화
+    _character!.stat!.strength = 0;
+    _character!.stat!.intelligence = 0;
+    _character!.stat!.agility = 0;
+    _character!.stat!.defense = 10;
+    _character!.stat!.luck = 5;
+    
+    print("[Provider] 스탯 초기화 완료. 환불된 포인트: $refundPoints, 총 보유 포인트: $_unusedStatPoints");
+    
+    // 4. 서버 동기화 & UI 갱신
+    syncStatToBackend();
+    notifyListeners();
+  }
+
   /// 보상 획득 로직 (AI 분석 결과 반영)
   /// [baseReward]: 기본 스탯 증가량 {stat_type, value}
   /// [bonusPoints]: 추가 할당 가능한 포인트 (사용자 분배용)
@@ -153,19 +195,13 @@ class CharProvider with ChangeNotifier {
       }
     }
     
-    // 2. 보너스 포인트 적립 (즉시 분배가 아니라 저장해둠)
+    // 2. 보너스 포인트 적립
     if (bonusPoints > 0) {
       _unusedStatPoints += bonusPoints;
     }
     
-    // 3. 경험치 추가 및 레벨업 로직 (예시)
-    _character!.stat!.exp += 15;
-    if (_character!.stat!.exp >= 100) {
-      _character!.stat!.level += 1;
-      _character!.stat!.exp = 0;
-      _unusedStatPoints += 5; // 레벨업 보너스
-      _statusMessage = "레벨업! 🎉 (포인트 +5)";
-    }
+    // 3. 경험치 획득 및 레벨업 체크 (기본 경험치 보상 15로 가정)
+    gainExp(15);
     
     _balanceStats();
     syncStatToBackend();
@@ -173,16 +209,38 @@ class CharProvider with ChangeNotifier {
     notifyListeners();
   }
   
-  // 간단한 경험치 획득 (테스트용)
+  // 경험치 획득 및 레벨업 통합 로직
   void gainExp(int amount) {
     if (_character != null && _character!.stat != null) {
       _character!.stat!.exp += amount;
+      _checkLevelUp();
+      _updateImage();
       if (_character!.stat!.exp >= 100) {
         _character!.stat!.level += 1;
         _character!.stat!.exp -= 100;
         _statusMessage = "레벨 업!!";
       }
       notifyListeners();
+    }
+  }
+
+  // 레벨업 체크 로직 (Recursive/For loop for multiple level ups)
+  void _checkLevelUp() {
+    bool leveledUp = false;
+    int earnedPoints = 0;
+
+    // 경험치가 maxExp보다 많은 동안 계속 레벨업 (이월)
+    while (_character!.stat!.exp >= maxExp) {
+      _character!.stat!.exp -= maxExp;
+      _character!.stat!.level += 1;
+      _unusedStatPoints += 4; // 레벨업 보상: 4포인트
+      earnedPoints += 4;
+      leveledUp = true;
+    }
+
+    if (leveledUp) {
+      _statusMessage = "레벨업! 🎉 (포인트 +$earnedPoints)";
+      print("[Provider] 레벨업 완료! 현재 레벨: ${_character!.stat!.level}, 남은 경험치: ${_character!.stat!.exp}");
     }
   }
 
@@ -277,8 +335,36 @@ class CharProvider with ChangeNotifier {
     }
   }
 
+  // [New] 강제 레벨업 요청 (테스트용)
+  Future<void> manualLevelUp() async {
+    if (_character == null) return;
+    try {
+      final token = await AuthService().getToken();
+      final response = await http.post(
+        Uri.parse('${AppConfig.charactersUrl}/${_character!.id}/level-up'),
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json",
+        },
+      );
+
+      if (response.statusCode == 200) {
+        print("[Provider] Manual Level-up Success");
+        // 레벨업 후 정보 갱신
+        await fetchCharacter(_character!.id);
+        _statusMessage = "레벨업 성공! 🎉";
+        notifyListeners();
+      } else {
+        print("manualLevelUp failed: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("manualLevelUp error: $e");
+    }
+  }
+
   // 서버로 현재 스탯 상태 동기화 (저장)
   Future<void> syncStatToBackend() async {
+
     if (_character == null) return;
     try {
       // [추가] 기기에 저장된 JWT 토큰 가져오기
