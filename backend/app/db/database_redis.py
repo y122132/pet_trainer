@@ -1,22 +1,22 @@
-import redis.asyncio as redis
+# backend/app/db/database_redis.py
 import os
+import json
+import redis.asyncio as redis
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# .env_example 설정과 일치하도록 수정 (유지보수성 향상)
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 REDIS_DB = os.getenv("REDIS_DB", "0")
-
-# [Fix] REDIS_URL이 환경 변수에 있다면 우선 사용 (Docker Compose 호환)
 REDIS_URL = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
 
-# Connection Pool (Reusable)
-# decode_responses=True는 텍스트 기반의 배틀 로그/채팅 처리에 적합합니다.
 pool = redis.ConnectionPool.from_url(REDIS_URL, decode_responses=True)
 
 class RedisManager:
+
+    ONLINE_USERS_KEY = "online_users"
+
     @staticmethod
     def get_client() -> redis.Redis:
         """
@@ -26,7 +26,25 @@ class RedisManager:
 
     @staticmethod
     async def close():
-        """
-        서버 종료 시 커넥션 풀을 안전하게 닫습니다.
-        """
         await pool.disconnect()
+
+    @classmethod
+    async def set_user_online(cls, user_id: int):
+        client = cls.get_client()
+        await client.sadd(cls.ONLINE_USERS_KEY, user_id)
+
+    @classmethod
+    async def set_user_offline(cls, user_id: int):
+        client = cls.get_client()
+        await client.srem(cls.ONLINE_USERS_KEY, user_id)
+
+    @classmethod
+    async def is_user_online(cls, user_id: int) -> bool:
+        client = cls.get_client()
+        return await client.sismember(cls.ONLINE_USERS_KEY, user_id)
+
+    @classmethod
+    async def publish_chat_notification(cls, receiver_id: int, payload: dict):
+        client = cls.get_client()
+        message = json.dumps(payload, ensure_ascii=False)
+        await client.publish(f"user_notify_{receiver_id}", message)

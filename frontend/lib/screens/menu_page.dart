@@ -1,16 +1,25 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'my_room_page.dart';
-import 'mode_select_page.dart';
+import 'dart:io';
+import 'dart:async'; 
 import 'battle_page.dart';
-import 'battle_lobby_screen.dart'; // [New]
-import 'user_list_screen.dart'; // [New]
-import '../providers/char_provider.dart';
+import 'dart:math' as math;
+import 'login_screen.dart'; 
+import 'my_room_page.dart';
 import '../config/theme.dart';
-import '../providers/chat_provider.dart'; // [New]
-import '../services/auth_service.dart'; // [New]
-import '../providers/battle_provider.dart'; // [New]
-import 'dart:async'; // [New]
+import 'user_list_screen.dart';
+import 'mode_select_page.dart';
+import 'pet_universe_screen.dart'; 
+import 'battle_lobby_screen.dart';
+import 'package:flutter/material.dart';
+import '../services/auth_service.dart'; 
+import 'package:provider/provider.dart';
+import '../providers/char_provider.dart';
+import '../providers/chat_provider.dart'; 
+import '../providers/battle_provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; 
+import 'package:pet_trainer_frontend/api_config.dart'; 
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class MenuPage extends StatefulWidget {
   const MenuPage({super.key});
@@ -29,7 +38,7 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     super.initState();
     _breathingController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1500));
-    _breathingAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+    _breathingAnimation = Tween<double>(begin: 1.0, end: 1.02).animate(
       CurvedAnimation(parent: _breathingController, curve: Curves.easeInOut),
     );
     _breathingController.repeat(reverse: true);
@@ -37,7 +46,10 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     // Auto-fetch data and connect chat
     WidgetsBinding.instance.addPostFrameCallback((_) {
         final charProvider = Provider.of<CharProvider>(context, listen: false);
-        charProvider.fetchMyCharacter();
+        // Don't fetch if there's a temporary image or if character is already loaded nicely
+        if (charProvider.tempFrontImage == null && charProvider.character == null) {
+          charProvider.fetchMyCharacter();
+        }
         
         _initChatConnection(); // [New]
     });
@@ -119,270 +131,357 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
       );
   }
 
-  @override
-  void dispose() {
-    _chatSubscription?.cancel(); // [New]
-    _breathingController.dispose();
-    super.dispose();
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("설정", style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text("로그아웃"),
+              onTap: () => _handleLogout(context),
+            ),
+            // [추가 가능] 알림 설정, 다크모드 등 ListTile을 여기에 추가
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleLogout(BuildContext context) async {
+    Provider.of<ChatProvider>(context, listen: false).disconnect();
+    Provider.of<CharProvider>(context, listen: false).clearData();
+
+    final auth = AuthService();
+    await auth.logout();
+
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("안전하게 로그아웃 되었습니다."),
+          backgroundColor: AppColors.softCharcoal,
+        )
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // 1. Background (Gradient)
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFFFFF0F5), // Lavender Blush
-                  Color(0xFFE0F7FA), // Cyan Mist
-                ],
-              ),
-            ),
-          ),
-          // Decor Circles (Softened)
-          Positioned(
-            top: -100,
-            right: -100,
-            child: _buildDecorCircle(300, AppColors.secondaryPink.withOpacity(0.1)),
-          ),
-          Positioned(
-            bottom: -50,
-            left: -50,
-            child: _buildDecorCircle(200, AppColors.primaryMint.withOpacity(0.1)),
-          ),
+    final charProvider = Provider.of<CharProvider>(context);
+    final characterName = charProvider.character?.name ?? "펫";
+    final characterType = charProvider.character?.petType ?? "dog";
+    dynamic characterImage;
+    if (charProvider.tempFrontImage != null) {
+        characterImage = charProvider.tempFrontImage!;
+    } else if (charProvider.character?.frontUrl != null && charProvider.character!.frontUrl!.isNotEmpty) {
+        characterImage = charProvider.character!.frontUrl!;
+    }
 
-          // 2. Main Character (Center - Lobby Style)
-          Positioned.fill(
+    return Scaffold(
+      backgroundColor: const Color(0xFFFFF9E6),
+      body: Stack(
+        children: [
+          _buildBackgroundPattern(),
+          SafeArea(
+            bottom: false,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const SizedBox(height: 50), // Header Offset
-                Expanded(
-                  child: Consumer<CharProvider>(
-                    builder: (context, provider, child) {
-                      final imagePath = provider.character?.imageUrl ?? 
-                                      'assets/images/characters/닌자옷.png';
-                      
-                      return AnimatedBuilder(
-                        animation: _breathingAnimation,
-                        builder: (context, child) {
-                          return Transform.scale(
-                            scale: _breathingAnimation.value,
-                            child: child,
-                          );
-                        },
-                        child: GestureDetector(
-                           onTap: () {
-                              // Simple interaction feedback
-                              provider.updateStatusMessage("오늘도 훈련하러 가볼까요? 멍!");
-                           },
-                           child: Image.asset(imagePath, fit: BoxFit.contain),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 180), // Space for Bottom Menu
+                _buildHeader(characterName, characterType),
+                const Spacer(flex: 1),
+                _buildCenterpiece(characterImage),
+                const Spacer(flex: 1),
+                _buildTrainingButton(context),
+                const Spacer(flex: 3),
               ],
             ),
           ),
-
-          // 3. UI Overlay - Header (User Info)
           Positioned(
-            top: 0,
+            bottom: 0,
             left: 0,
             right: 0,
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                     // User Profile Badge
-                     Consumer<CharProvider>(
-                       builder: (context, provider, child) {
-                         String name = provider.character?.name ?? "트레이너";
-                         String type = provider.character?.petType ?? "";
-                         return Container(
-                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                           decoration: BoxDecoration(
-                             color: Colors.white,
-                             borderRadius: BorderRadius.circular(30),
-                             boxShadow: [
-                               BoxShadow(color: Colors.black12, blurRadius: 8, offset: const Offset(0, 4))
-                             ]
-                           ),
-                           child: Row(
-                             children: [
-                               CircleAvatar(
-                                 radius: 14,
-                                 backgroundColor: AppColors.navy,
-                                 child: const Icon(Icons.person, size: 16, color: Colors.white),
-                               ),
-                               const SizedBox(width: 8),
-                               Text("$name ($type)", style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.navy)),
-                             ],
-                           ),
-                         );
-                       },
-                     ),
-                     // Login/Switch User Buttons (Minified for Lobby)
-                     Row(
-                       children: [
-                         _buildMiniUserButton(context, 1, Colors.blue),
-                         const SizedBox(width: 8),
-                         _buildMiniUserButton(context, 2, Colors.pink),
-                       ],
-                     )
-                  ],
-                ),
-              ),
-            ),
-          ),
-          
-          // 4. UI Overlay - Bottom Menu (Action Cards)
-          Positioned(
-            bottom: 30,
-            left: 20,
-            right: 20,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-               children: [
-                 // Primary Action
-                 _buildLobbyCard(
-                   context,
-                   title: "TRAINING",
-                   subtitle: "스탯을 성장시키세요",
-                   icon: Icons.fitness_center,
-                   color: AppColors.navy,
-                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ModeSelectPage())),
-                   isPrimary: true,
-                 ),
-                 const SizedBox(height: 12),
-                 // Secondary Row
-                 Row(
-                   children: [
-                     Expanded(
-                       child: _buildLobbyCard(
-                         context,
-                         title: "MY ROOM",
-                         subtitle: "휴식 & 상태",
-                         icon: Icons.home_rounded,
-                         color: Colors.orangeAccent,
-                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MyRoomPage())),
-                       ),
-                     ),
-                     const SizedBox(width: 8),
-                     // Friends Button [New]
-                     Expanded(
-                       child: _buildLobbyCard(
-                         context,
-                         title: "FRIENDS",
-                         subtitle: "채팅",
-                         icon: Icons.people_alt_rounded,
-                         color: Colors.teal,
-                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const UserListScreen())),
-                       ),
-                     ),
-                     const SizedBox(width: 8),
-                     Expanded(
-                       child: _buildLobbyCard(
-                         context,
-                         title: "BATTLE",
-                         subtitle: "실전 대결",
-                         icon: Icons.sports_kabaddi_rounded, 
-                         color: AppColors.danger,
-                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => BattleLobbyScreen())),
-                       ),
-                     ),
-                   ],
-                 )
-               ],
-            ),
+            child: _buildBottomBar(context),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDecorCircle(double size, Color color) {
+  Widget _buildBackgroundPattern() {
     return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-    );
-  }
-
-  Widget _buildMiniUserButton(BuildContext context, int id, Color color) {
-    return GestureDetector(
-      onTap: () => Provider.of<CharProvider>(context, listen: false).fetchCharacter(id),
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(color: color.withOpacity(0.2), shape: BoxShape.circle),
-        child: Text("U$id", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 10)),
-      ),
-    );
-  }
-
-  Widget _buildLobbyCard(BuildContext context, {
-    required String title, required String subtitle, required IconData icon, 
-    required Color color, required VoidCallback onTap, bool isPrimary = false
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: isPrimary ? 100 : 120, // Slightly taller
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(color: color.withOpacity(0.2), blurRadius: 15, offset: const Offset(0, 8))
-          ],
-          border: Border.all(color: color.withOpacity(0.1), width: 1),
+      width: double.infinity,
+      height: double.infinity,
+      child: GridView.builder(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 5,
+          mainAxisSpacing: 80,
+          crossAxisSpacing: 80,
         ),
-        child: isPrimary 
-          ? Row( // Horizontal Layout for Primary
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-                  child: Icon(icon, color: color, size: 30),
-                ),
-                const SizedBox(width: 20),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppColors.softCharcoal, letterSpacing: 1.0)),
-                    const SizedBox(height: 4),
-                    Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w500)),
-                  ],
-                ),
-                const Spacer(),
-                Icon(Icons.arrow_forward_ios_rounded, color: color.withOpacity(0.5), size: 18)
-              ],
-            )
-          : Column( // Vertical Layout for Secondary
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                 Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-                    child: Icon(icon, color: color, size: 28)
-                 ),
-                 const SizedBox(height: 12),
-                 Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.softCharcoal)),
-              ],
+        itemBuilder: (context, index) {
+          bool isPaw = index % 3 == 0;
+          return Transform.rotate(
+            angle: isPaw ? -math.pi / 12 : math.pi / 6,
+            child: Icon(
+              isPaw ? FontAwesomeIcons.paw : FontAwesomeIcons.bone,
+              color: Colors.brown.withOpacity(0.05),
+              size: 40,
             ),
+          );
+        },
       ),
+    );
+  }
+
+  Widget _buildHeader(String name, String type) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _buildBoneContainer(name, type),
+          Row(
+            children: [
+              _buildHeaderIcon(FontAwesomeIcons.envelope),
+              const SizedBox(width: 12),
+              _buildHeaderIcon(FontAwesomeIcons.bell),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: _showSettingsDialog,
+                child: _buildHeaderIcon(Icons.settings), // Use standard icon for settings
+              )
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBoneContainer(String name, String type) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      decoration: ShapeDecoration(
+        color: Colors.white,
+        shape: const StadiumBorder(),
+        shadows: [
+          BoxShadow(
+            color: Colors.brown.withOpacity(0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Text(
+        '$name ($type)',
+        style: GoogleFonts.jua(
+          color: const Color(0xFF4E342E),
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeaderIcon(IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.brown.withOpacity(0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: FaIcon(icon, color: const Color(0xFF4E342E), size: 20),
+    );
+  }
+
+  Widget _buildCenterpiece(dynamic image) {
+    Widget imageWidget;
+    if (image is XFile) {
+        if (kIsWeb) {
+            imageWidget = Image.network(image.path, fit: BoxFit.cover,);
+        } else {
+            imageWidget = Image.file(File(image.path), fit: BoxFit.cover,);
+        }
+    } else if (image is String && image.isNotEmpty) {
+        // [Fix] 상대 경로(/uploads/...)인 경우 서버 도메인 붙이기
+        String imageUrl = image;
+        if (image.startsWith('/')) {
+            imageUrl = "${AppConfig.serverBaseUrl}$image";
+        }
+        imageWidget = Image.network(imageUrl, fit: BoxFit.cover,);
+    } else {
+        imageWidget = Image.asset('assets/images/단팥 기본.png', fit: BoxFit.contain,);
+    }
+    
+    return Container(
+      width: 200,
+      height: 200,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0xFF5D4037),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.brown.withOpacity(0.3),
+              blurRadius: 15,
+              offset: const Offset(0, 8))
+        ],
+      ),
+      child: Center(
+        child: ClipOval(
+          child: Container(
+            width: 180,
+            height: 180,
+            color: Colors.white,
+            child: ClipOval(
+                child: imageWidget
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTrainingButton(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+              color: Colors.brown.withOpacity(0.4),
+              blurRadius: 12,
+              offset: const Offset(0, 8))
+        ],
+        borderRadius: BorderRadius.circular(50),
+      ),
+      child: ElevatedButton.icon(
+        onPressed: () =>
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const ModeSelectPage())),
+        icon: const FaIcon(FontAwesomeIcons.dumbbell, color: Colors.white, size: 28),
+        label: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "TRAINING",
+                style: GoogleFonts.jua(
+                  fontSize: 32,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
+                ),
+              ),
+              Text(
+                "스탯을 성장시키세요",
+                style: GoogleFonts.jua(fontSize: 14, color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF5D4037),
+          shape: const StadiumBorder(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(BuildContext context) {
+    final charProvider = Provider.of<CharProvider>(context, listen: false);
+
+    final myData = {
+      "id": charProvider.character?.id ?? 0,
+      "nickname": charProvider.character?.name ?? "나의 펫",
+      "pet_type": charProvider.character?.petType ?? "dog",
+      "level": charProvider.character?.stat?.level ?? 1,
+    };
+
+    return Container(
+      height: 125,
+      decoration: BoxDecoration(
+        color: const Color(0xFF6D4C41), // Wood color
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, -5),
+          ),
+        ],
+        border: Border(
+          top: BorderSide(color: Colors.black.withOpacity(0.1), width: 2),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildBottomNavButton(
+            context: context,
+            icon: FontAwesomeIcons.houseUser,
+            label: "MY ROOM",
+            onPressed: () =>
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const MyRoomPage())),
+          ),
+          _buildBottomNavButton(
+            context: context,
+            icon: FontAwesomeIcons.earthAmericas, // 우주/지구 아이콘
+            label: "UNIVERSE",
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => PetUniverseScreen(user: myData)),
+            ),
+          ),
+          _buildBottomNavButton(
+            context: context,
+            icon: FontAwesomeIcons.userGroup,
+            label: "FRIENDS",
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (context) => const UserListScreen())),
+          ),
+          _buildBottomNavButton(
+            context: context,
+            icon: FontAwesomeIcons.khanda,
+            label: "BATTLE",
+            onPressed: () => Navigator.push(
+                context, MaterialPageRoute(builder: (context) => const BattleLobbyScreen())),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNavButton(
+      {required BuildContext context,
+      required IconData icon,
+      required String label,
+      required VoidCallback onPressed}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ElevatedButton(
+          onPressed: onPressed,
+          style: ElevatedButton.styleFrom(
+            shape: const CircleBorder(),
+            backgroundColor: const Color(0xFF4E342E),
+            padding: const EdgeInsets.all(20),
+            side: const BorderSide(color: Colors.white, width: 2),
+          ),
+          child: FaIcon(icon, color: Colors.white, size: 28),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: GoogleFonts.jua(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+      ],
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 class AppConfig {
+
   // [중요] AWS 탄력적 IP(Elastic IP) 또는 도메인을 여기에 입력하세요.
   // Web(Chrome)일 경우 localhost, 안드로이드 에뮬레이터일 경우 10.0.2.2 사용
   // [Fix] kIsWeb 인식이 안될 경우를 대비해 우선 localhost로 고전합니다.
@@ -13,6 +14,7 @@ class AppConfig {
   // 1. API 기본 경로 (v1 프리픽스 포함)
   // 이제 모든 REST API는 이 baseUrl을 통해 v1 경로로 접속합니다.
   static String get baseUrl => 'http://$serverIp:$serverPort/v1';
+  static String get serverBaseUrl => 'http://$serverIp:$serverPort'; // 이미지 로딩용 루트 URL
 
   // 2. HTTP 엔드포인트 (Auth & Characters)
   static String get loginUrl => '$baseUrl/auth/login';

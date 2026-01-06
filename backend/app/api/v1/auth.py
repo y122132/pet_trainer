@@ -61,3 +61,8 @@ async def get_friends(current_user_id: int = Depends(get_current_user_id), db: A
 async def get_pending_requests(current_user_id: int = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     """나에게 온 대기 중인 친구 요청 조회"""
     return await friend_service.get_pending_requests(db, current_user_id)
+
+@router.get("/me")
+async def check_token(current_user_id: int = Depends(get_current_user_id)):
+    """토큰 유효성 검사 (Ping)"""
+    return {"user_id": current_user_id, "valid": True}

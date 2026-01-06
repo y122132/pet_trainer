@@ -1,12 +1,13 @@
 import 'dart:convert';
+import 'friend_play_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:pet_trainer_frontend/config/theme.dart';
-import 'package:pet_trainer_frontend/screens/user_list_screen.dart'; // For friend selection
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:pet_trainer_frontend/api_config.dart';
-import 'package:pet_trainer_frontend/services/auth_service.dart';
 import 'package:provider/provider.dart';
+import 'package:pet_trainer_frontend/api_config.dart';
+import 'package:pet_trainer_frontend/config/theme.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:pet_trainer_frontend/screens/battle_page.dart';
+import 'package:pet_trainer_frontend/services/auth_service.dart';
+import 'package:pet_trainer_frontend/screens/user_list_screen.dart'; // For friend selection
 import 'package:pet_trainer_frontend/providers/battle_provider.dart';
 
 class BattleLobbyScreen extends StatefulWidget {
@@ -141,9 +142,8 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen> with SingleTicker
 
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => const UserListScreen(initialTab: 0, isInviteMode: true)), 
+      MaterialPageRoute(builder: (context) => const FriendPlayScreen()),
     );
-    // ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("친구와 채팅방에서 '초대'를 보내보세요! (기능 준비중)")));
   }
 
   @override

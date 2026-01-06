@@ -15,6 +15,7 @@ services:
       - redis
     volumes:
       - ./backend:/app
+      - ./uploads:/app/uploads
 
   db:
     image: postgres:14

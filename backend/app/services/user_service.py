@@ -1,9 +1,9 @@
 # backend/app/services/user_service.py
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 from app.db.models.user import User
-from app.core.security import get_password_hash, verify_password, create_access_token
+from sqlalchemy.future import select
 from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.security import get_password_hash, verify_password, create_access_token
 
 async def register_user(db: AsyncSession, user_in):
     """
@@ -79,3 +79,7 @@ async def get_all_users(db: AsyncSession, query: str = None):
         {"id": u.id, "username": u.username, "nickname": u.nickname}
         for u in users
     ]
+
+async def get_user(db: AsyncSession, user_id: int):
+    result = await db.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()

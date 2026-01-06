@@ -186,7 +186,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                          Expanded(flex: 1, child: Container(
                             width: double.infinity, color: Colors.white,
                             child: Column(children: [
-                               Expanded(child: Image.asset(charProvider.character?.imageUrl ?? "assets/images/characters/닌자옷.png", fit: BoxFit.contain)),
+                               Expanded(child: Image.asset(charProvider.character?.imagePath ?? "assets/images/characters/닌자옷.png", fit: BoxFit.contain)),
                                ChatBubble(message: charProvider.statusMessage, isAnalyzing: trainingCtrl.isAnalyzing)
                             ])
                          ))
