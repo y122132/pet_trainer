@@ -8,6 +8,7 @@ import 'package:pet_trainer_frontend/models/pet_config.dart';
 import 'package:pet_trainer_frontend/api_config.dart';
 
 import 'package:pet_trainer_frontend/services/auth_service.dart'; // [추가] AuthService 임포트
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class CharProvider with ChangeNotifier {
   // 캐릭터 상태 데이터 (Private 변수)
@@ -46,6 +47,10 @@ class CharProvider with ChangeNotifier {
   // 현재 진행 중인 미션/메시지
   String _statusMessage = "시작하려면 버튼을 누르세요!";
   String get statusMessage => _statusMessage;
+
+  // 로딩 상태
+  bool _isLoading = false;
+  bool get isLoading => _isLoading;
   
   // 백엔드 주소 (Config 파일에서 로드)
   final String _baseUrl = AppConfig.baseUrl; // 예: http://192.168.1.5:8000
@@ -194,11 +199,8 @@ class CharProvider with ChangeNotifier {
 
   // 데이터 로드 (서버에서 캐릭터 정보 가져오기)
   Future<void> fetchCharacter([int id = 1]) async {
-    // Clear temporary images on any server fetch
-    tempFrontImage = null;
-    tempBackImage = null;
-    tempSideImage = null;
-    tempFaceImage = null;
+    // Clear temporary images on any server fetch -> [Moved to success block]
+    // tempFrontImage = null; ... 
 
     try {
       final token = await AuthService().getToken();
@@ -237,6 +239,12 @@ class CharProvider with ChangeNotifier {
         if (_character!.stat != null) {
             _unusedStatPoints = _character!.stat!.unused_points;
         }
+
+        // [Fix] 데이터 로드 성공 시에만 임시 이미지 클리어 (깜빡임 방지)
+        tempFrontImage = null;
+        tempBackImage = null;
+        tempSideImage = null;
+        tempFaceImage = null;
         
         notifyListeners();
       } else {
@@ -304,5 +312,84 @@ class CharProvider with ChangeNotifier {
   void _balanceStats() {
     // 예시: 행복도가 100을 넘지 않도록 제한
     if (_character!.stat!.happiness > 100) _character!.stat!.happiness = 100;
+  }
+
+  // [New] 캐릭터 생성 및 이미지 업로드 통합 메서드 (Atomic)
+  Future<bool> createCharacterWithImages(String name, Map<String, XFile?> images) async {
+    _isLoading = true;
+    _statusMessage = "캐릭터 생성 중 (사진 전송)...";
+    notifyListeners();
+
+    try {
+      final token = await AuthService().getToken();
+      if (token == null) throw Exception("로그인이 필요합니다.");
+
+      // [Atomic Creation] 한번에 요청
+      var uri = Uri.parse("${AppConfig.baseUrl}/characters/compose");
+      var request = http.MultipartRequest("POST", uri);
+      
+      request.headers.addAll({
+        "Authorization": "Bearer $token",
+      });
+      
+      request.fields['name'] = name;
+      request.fields['pet_type'] = "dog"; // 기본값
+
+      // 파일 추가
+      for (var entry in images.entries) {
+          if (entry.value != null) {
+              String fieldName = "${entry.key.toLowerCase()}_image";
+              // XFile -> Byte Stream (Cross-platform safe)
+              // fromPath는 dart:io에 의존하므로 웹/일부 환경에서 에러 발생
+              // readAsBytes()는 모든 플랫폼에서 안전함
+              var bytes = await entry.value!.readAsBytes();
+              var pic = http.MultipartFile.fromBytes(
+                  fieldName, 
+                  bytes,
+                  filename: entry.value!.name
+              );
+              request.files.add(pic);
+          } else {
+             throw Exception("${entry.key} 사진이 누락되었습니다.");
+          }
+      }
+
+      print("[Provider] Sending atomic creation request...");
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+          final data = jsonDecode(response.body);
+          final newCharId = data['id'];
+          
+          print("[Provider] Creation Success: ID $newCharId");
+          
+          // ID 저장
+          await const FlutterSecureStorage().write(key: 'character_id', value: newCharId.toString());
+          
+          // 로컬 상태 업데이트 (화면 즉시 반영용)
+          setTemporaryImages(images);
+          
+          // 캐릭터 정보 새로고침
+          await fetchCharacter(newCharId);
+          
+          _isLoading = false;
+          return true;
+      } else {
+          final errorParams = jsonDecode(response.body);
+          throw Exception(errorParams['detail'] ?? "생성 실패 (${response.statusCode})");
+      }
+
+    } catch (e) {
+      print("[Provider] Creation Error: $e");
+      _statusMessage = "생성 오류: $e";
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+  void clearData() {
+    // 필요한 다른 변수들이 있다면 여기서 모두 null이나 기본값으로 초기화하세요.
+    notifyListeners();
   }
 }

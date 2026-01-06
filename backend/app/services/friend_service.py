@@ -1,7 +1,8 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_
-from app.db.models.friendship import Friendship
 from app.db.models.user import User
+from sqlalchemy import select, or_, and_, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.models.friendship import Friendship
+from app.db.models.chat_data import ChatMessage
 
 async def request_friend(db: AsyncSession, requester_id: int, receiver_id: int):
     # 중복 요청 체크
@@ -44,7 +45,6 @@ async def accept_friend(db: AsyncSession, receiver_id: int, requester_id: int):
     return {"message": "Friend request accepted", "status": "success"}
 
 async def get_friends(db: AsyncSession, user_id: int):
-    # 내가 요청했거나 받은 것 중 status='accepted'인 관계 조회
     stmt = select(Friendship).where(
         or_(Friendship.requester_id == user_id, Friendship.receiver_id == user_id),
         Friendship.status == "accepted"
@@ -62,11 +62,6 @@ async def get_friends(db: AsyncSession, user_id: int):
     if not friend_ids:
         return []
         
-    # 친구 정보 조회 (Join Character to get level/pet_type)
-    # user_stmt = select(User).where(User.id.in_(friend_ids))
-    # users = user_res.scalars().all()
-    # return [{"id": u.id, "username": u.username, "nickname": u.nickname} for u in users]
-    
     from app.db.models.character import Character, Stat
     
     stmt_users = (
@@ -78,14 +73,32 @@ async def get_friends(db: AsyncSession, user_id: int):
     result_users = await db.execute(stmt_users)
     rows = result_users.all()
     
+    # [Optimization] N+1 문제 해결: 모든 친구의 안 읽은 메시지 수를 한 번의 쿼리로 조회
+    unread_stmt = (
+        select(ChatMessage.sender_id, func.count(ChatMessage.id))
+        .where(
+            and_(
+                ChatMessage.sender_id.in_(friend_ids),   # 친구가 보낸 것
+                ChatMessage.receiver_id == user_id,      # 나에게 온 것
+                ChatMessage.is_read == False             # 안 읽음
+            )
+        )
+        .group_by(ChatMessage.sender_id)
+    )
+    result_unread = await db.execute(unread_stmt)
+    unread_map = {row[0]: row[1] for row in result_unread.all()}
+    
     friends_list = []
     for user, character, stat in rows:
+        unread_count = unread_map.get(user.id, 0)
+
         friend_data = {
             "id": user.id,
             "username": user.username,
             "nickname": user.nickname,
-            "level": stat.level if stat else 1, # [Fix] Access level from Stat
-            "pet_type": character.pet_type if character else "dog"
+            "level": stat.level if stat else 1,
+            "pet_type": character.pet_type if character else "dog",
+            "unread_count": unread_count
         }
         friends_list.append(friend_data)
         

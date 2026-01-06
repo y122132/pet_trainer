@@ -1,19 +1,48 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from fastapi.concurrency import run_in_threadpool
-from app.ai_core.vision import detector
-from app.services import char_service
-from app.db.database import AsyncSessionLocal
-from app.core.pet_constants import PET_CLASS_MAP
-from app.ai_core.brain.graphs import get_character_response # [NEW] LLM 호출 함수
-from app.core.security import verify_websocket_token # [Security]
+# backend/app/sockets/analysis_socket.py
 import json
 import time
 import asyncio
+from fastapi import Depends
+from app.db.database import get_db
+from app.services import char_service
+from app.ai_core.vision import detector
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.database import AsyncSessionLocal
+from app.db.database_redis import RedisManager
+from app.core.pet_constants import PET_CLASS_MAP
+from fastapi.concurrency import run_in_threadpool
+from app.core.security import verify_websocket_token
+from app.ai_core.brain.graphs import get_character_response
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 router = APIRouter()
-
+async def listen_to_notifications(websocket: WebSocket, user_id: int):
+    """Redis Pub/Sub을 구독하여 훈련 중에도 채팅 알림을 전달합니다."""
+    redis_client = RedisManager.get_client()
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(f"user_notify_{user_id}")
+    
+    try:
+        async for message in pubsub.listen():
+            if message['type'] == 'message':
+                # Redis 채널에서 알림이 오면 프론트엔드로 즉시 전송
+                # 프론트엔드는 이 JSON의 'type'을 보고 상단 알림 배너를 띄웁니다.
+                await websocket.send_text(message['data'])
+    except Exception as e:
+        print(f"[NOTIFY_ERROR] User {user_id}: {e}")
+    finally:
+        await pubsub.unsubscribe(f"user_notify_{user_id}")
+        
 @router.websocket("/ws/analysis/{user_id}")
-async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "playing", pet_type: str = "none", difficulty: str = "easy", token: str | None = None):
+async def analysis_endpoint(
+    websocket: WebSocket, 
+    user_id: int, 
+    mode: str = "playing", 
+    pet_type: str = "none", 
+    difficulty: str = "easy", 
+    token: str | None = None,
+    db: AsyncSession = Depends(get_db)
+    ):
     """
     실시간 분석을 위한 웹소켓 엔드포인트입니다.
     클라이언트(Flutter)로부터 실시간 카메라 프레임을 받아 AI로 분석하고 결과를 반환합니다.
@@ -29,9 +58,16 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
     try:
         # [Security] 연결 수락 전 토큰 검증
         await verify_websocket_token(websocket, token)
-        
         await websocket.accept()
+
+        from app.services import user_service
+        user = await user_service.get_user(db, user_id)
+        nickname = user.nickname if user else f"User_{user_id}"
+
         print(f"[FSM_WS] 연결 수락: User {user_id}, 모드 {mode}, 펫 {pet_type}, 난이도 {difficulty}", flush=True)
+        
+        notification_task = asyncio.create_task(listen_to_notifications(websocket, user_id))
+
     except Exception as e:
         print(f"[FSM_WS] 연결 실패: {e}")
         return
@@ -131,11 +167,9 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
     try:
         while True:
             # 타임아웃을 두어 receive_bytes가 무한정 막히지 않게 할 수도 있지만,
-            # 여기서는 클라이언트가 주기적으로 보내준다고 가정.
             # Idle 처리를 위해 asyncio.wait_for를 쓸 수도 있음.
             # [Fix] 타임아웃 방식이 아닌, 프레임 수신 여부와 관계없이 시간 체크
             try:
-                # 프레임을 기다림 (타임아웃 없이, 혹은 넉넉하게)
                 image_bytes = await websocket.receive_bytes()
             except Exception:
                 break
@@ -145,12 +179,8 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
             # 1. Idle 체크 (매 프레임마다 시간 비교)
             # 마지막 상호작용(성공, 실패, 감지 등)으로부터 20초 경과 시
             if time.time() - last_interaction_time > 20.0:
-                 # 20초 이상 잠수 -> 심심함 표현
-                 # trigger_llm 내부 쿨타임이 있으므로 빈번한 호출 방지됨
-                 # 하지만 Idle 메시지는 20초마다 한 번만 나가야 하므로 여기서 시간 리셋을 하거나
-                 # trigger_llm이 성공했을 때만 리셋 등 전략 필요.
-                 # 여기서는 trigger_llm 호출 후 시간을 리셋하여 20초 뒤에 다시 칭얼대도록 함.
-                 
+                 # 20초 이상 잠수 -> 심심함 표현# trigger_llm이 성공했을 때만 리셋 등 전략 필요.
+                 # 여기서는 trigger_llm 호출 후 시간을 리셋하여 20초 뒤에 다시 칭얼대도록 함
                  # 비동기 호출 (결과 기다리지 않음)
                  await trigger_llm("idle", is_success=False)
                  
@@ -317,9 +347,11 @@ async def analysis_endpoint(websocket: WebSocket, user_id: int, mode: str = "pla
                 last_detected_time = None
 
     except WebSocketDisconnect:
-        print(f"[FSM_WS] 사용자 {user_id} 연결 종료", flush=True)
+        print(f"[FSM_WS] 사용자 {nickname} 연결 종료", flush=True)
     except Exception as e:
         print(f"[FSM_WS] 소켓 에러 발생: {e}", flush=True)
+    finally:
+        notification_task.cancel()
         try:
             await websocket.close()
         except:

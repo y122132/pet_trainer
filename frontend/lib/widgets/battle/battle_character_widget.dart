@@ -4,6 +4,8 @@ import 'dart:ui'; // For ImageFilter
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 
+import 'package:pet_trainer_frontend/api_config.dart'; // [New]
+
 // --- NEW WIDGETS ---
 
 class BattleAvatarWidget extends StatelessWidget {
@@ -99,7 +101,14 @@ class BattleAvatarWidget extends StatelessWidget {
           ? Image.network(tempImage.path, height: size, fit: BoxFit.contain)
           : Image.file(File(tempImage.path), height: size, fit: BoxFit.contain);
     } else if (remoteUrl != null && remoteUrl.isNotEmpty) {
-      imageWidget = Image.network(remoteUrl, height: size, fit: BoxFit.contain);
+      // [Fix] 상대 경로 및 localhost 레거시 처리
+      String finalUrl = remoteUrl;
+      if (finalUrl.startsWith('/')) {
+        finalUrl = "${AppConfig.serverBaseUrl}$finalUrl";
+      } else if (finalUrl.contains('localhost')) {
+        finalUrl = finalUrl.replaceFirst('localhost', AppConfig.serverIp);
+      }
+      imageWidget = Image.network(finalUrl, height: size, fit: BoxFit.contain);
     } else {
       imageWidget = Image.asset(_getAssetPath(petType), height: size, fit: BoxFit.contain);
     }

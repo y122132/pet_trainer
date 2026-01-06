@@ -16,6 +16,10 @@ venv/
 *.log
 backend/app/db/pet_trainer.db
 
+# Root
+# 이미지 저장폴더
+uploads/   
+
 # Docker
 docker-compose.override.yml
 

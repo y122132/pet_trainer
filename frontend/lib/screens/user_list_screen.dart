@@ -1,11 +1,19 @@
+// frontend/lib/screens/user_list_screen.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'battle_page.dart';
 import 'chat_screen.dart';
-import '../services/auth_service.dart';
 import '../api_config.dart';
+import '../config/theme.dart';
 import '../widgets/cute_avatar.dart';
+import '../services/auth_service.dart';
+import '../services/chat_service.dart';
+import 'package:provider/provider.dart';
+import '../services/battle_service.dart';
+import '../providers/chat_provider.dart';
+import '../providers/battle_provider.dart';
 
 class UserListScreen extends StatefulWidget {
   final int initialTab;
@@ -25,11 +33,11 @@ class _UserListScreenState extends State<UserListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
-
+  
   List<dynamic> _friends = [];
   List<dynamic> _searchResults = [];
   List<dynamic> _pendingRequests = [];
-
+  
   bool _isLoading = false;
   int? _myId;
   String? _token;
@@ -78,6 +86,7 @@ class _UserListScreenState extends State<UserListScreen>
 
   Future<void> _fetchFriends() async {
     if (_token == null) return;
+    setState(() => _isLoading = true);
     try {
       final response = await http.get(
         Uri.parse('${AppConfig.baseUrl}/auth/friends'),
@@ -87,9 +96,19 @@ class _UserListScreenState extends State<UserListScreen>
         setState(() {
           _friends = jsonDecode(utf8.decode(response.bodyBytes));
         });
+        if (mounted) {
+           Provider.of<ChatProvider>(context, listen: false).setInitialUnreadCounts(_friends);
+        }
       }
     } catch (e) {
       debugPrint("Error fetching friends: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("친구 목록 로드 실패: $e"), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -174,19 +193,15 @@ class _UserListScreenState extends State<UserListScreen>
     }
   }
 
-  void _goToChat(dynamic user) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(
-          myId: _myId!,
-          toUserId: user['id'],
-          toUsername: user['nickname'] ?? user['username'],
-        ),
-      ),
-    );
+  // --- ACTIONS ---
+
+  void _onChallengeFriend(int friendId, String nickname) async {
+    // 1. Send Invite via API
+    // 2. Get Room ID
+    // 3. Go to Battle Page (Waiting)
   }
 
+  // --- UI Builders ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -370,58 +385,216 @@ class _UserListScreenState extends State<UserListScreen>
 
   // 4. 친구 목록 아이템 위젯
   Widget _buildFriendCard(dynamic user) {
-    return Container(
-      height: 100, // 고정 높이
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: darkBrown.withOpacity(0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 5,
-            offset: const Offset(0, 3),
+    final int userId = user['id'];
+
+    return Consumer<ChatProvider>(
+      builder: (context, chatProvider, child) {
+        bool isOnline = chatProvider.onlineStatus[userId] ?? false;
+        int unreadCount = chatProvider.unreadCounts[userId] ?? 0;
+
+        return Container(
+          height: 100,
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primaryMint.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              )
+            ],
           ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 25.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            CuteAvatar(petType: user['pet_type'] ?? 'dog', size: 50), // Fix: 크기 55->50
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
+            children: [
+              // 1. 아바타와 상태 표시 점 (Stack 사용)
+              Stack(
                 children: [
-                  Text(
-                    user['nickname'] ?? user['username'],
-                    style: GoogleFonts.jua(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                      color: darkBrown,
+                  CuteAvatar(petType: user['pet_type'] ?? 'dog', size: 55),
+                  Positioned(
+                    right: 1,
+                    bottom: 1,
+                    child: Container(
+                      width: 14,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: isOnline ? Colors.green : Colors.grey, // 온라인: 초록, 오프라인: 회색
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2), // 경계선 추가
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2), // Fix: 간격 4->2
-                  Text(
-                    "Lv.${user['level'] ?? 1} ${user['pet_type'] ?? 'Pet'}",
-                    style: TextStyle(fontSize: 13, color: darkBrown.withOpacity(0.8)),
                   ),
                 ],
               ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.chat_bubble_rounded,
-                  color: darkBrown, size: 30),
-              onPressed: () => _goToChat(user),
-            ),
-          ],
+              const SizedBox(width: 16),
+              
+              // 2. 유저 정보
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            user['nickname'] ?? user['username'],
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold, 
+                              fontSize: 16,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            maxLines: 1,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        // 상태 텍스트 표시
+                        Text(
+                          isOnline ? "접속 중" : "오프라인",
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isOnline ? Colors.green : Colors.grey,
+                          ),
+                        ),
+                        const Spacer(),
+                                                
+                        Consumer<ChatProvider>(
+                          builder: (context, chat, _) {
+                            int count = chat.unreadCounts[user['id']] ?? 0;
+                            if (count == 0) return const SizedBox.shrink();
+                            
+                            return Container(
+                              margin: const EdgeInsets.only(right: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.red.withOpacity(0.3), 
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2)
+                                  )
+                                ],
+                              ),
+                              child: Text(
+                                count > 99 ? "99+" : "$count",
+                                style: const TextStyle(
+                                  color: Colors.white, 
+                                  fontSize: 10, 
+                                  fontWeight: FontWeight.w900
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.neutral.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        "Lv.${user['level'] ?? 1} ${user['pet_type'] ?? 'Pet'}",
+                        style: const TextStyle(fontSize: 12, color: AppColors.softCharcoal),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // 3. 액션 버튼 (인바이트 모드 여부에 따라)
+              if (widget.isInviteMode)
+                _buildActionButton(
+                  label: "같이 놀자!",
+                  icon: Icons.gamepad,
+                  // 오프라인이면 버튼 색상을 회색으로 변경
+                  color: isOnline ? AppColors.secondaryPink : Colors.grey,
+                  onTap: isOnline 
+                    ? () => _handleChallenge(user) 
+                    : () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("현재 오프라인인 친구에게는 요청을 보낼 수 없습니다."))
+                        );
+                      },
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.chat_bubble_outline_rounded, color: AppColors.primaryMint),
+                  onPressed: () => _goToChat(user),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+
+  Widget _buildActionButton({required String label, required IconData icon, required Color color, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: color.withOpacity(0.4), blurRadius: 6, offset: const Offset(0, 2))]
+        ),
+        child: Row(
+           children: [
+             Icon(icon, color: Colors.white, size: 16),
+             const SizedBox(width: 4),
+             Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+           ],
         ),
       ),
     );
+  }
+
+  void _goToChat(dynamic user) {
+     Navigator.push(
+       context,
+       MaterialPageRoute(
+         builder: (context) => ChatScreen(
+           myId: _myId!,
+           toUserId: user['id'],
+           toUsername: user['nickname'] ?? user['username'],
+         ),
+       ),
+     );
+  }
+
+  void _handleChallenge(dynamic user) async {
+     if (user['id'] == null) return;
+     
+     final battleService = BattleService();
+     
+     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+       content: Text("${user['nickname']}님에게 도전장을 보내는 중..."),
+       duration: const Duration(seconds: 1),
+     ));
+     
+     final roomId = await battleService.sendInvite(user['id']);
+     
+     if (roomId != null && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ChangeNotifierProvider(
+              create: (_) => BattleProvider()..setRoomId(roomId), 
+              child: const BattleView(),
+            ),
+          ),
+        );
+     } else {
+       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("초대 실패")));
+     }
   }
 
   Widget _buildSearchTab() {

@@ -1,24 +1,15 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
-
 class AppConfig {
-  static String get serverIp {
-    if (kIsWeb) {
-      return 'localhost'; // 웹에서는 localhost
-    } else if (Platform.isAndroid) {
-      return '10.0.2.2'; // 안드로이드 에뮬레이터
-    } else {
-      return 'localhost'; // iOS 에뮬레이터 또는 실제 기기 (네트워크 설정에 따라 다름)
-    }
-  }
 
   // [중요] AWS 탄력적 IP(Elastic IP) 또는 도메인을 여기에 입력하세요.
+  static const String serverIp = 'localhost'; // 로컬 테스트용
+  // static const String serverIp = '10.0.2.2'; // Android 에뮬레이터용
   // static const String serverIp = '54.116.28.3'; // AWS 배포용 
   static const int serverPort = 8000;
 
   // 1. API 기본 경로 (v1 프리픽스 포함)
   // 이제 모든 REST API는 이 baseUrl을 통해 v1 경로로 접속합니다.
   static String get baseUrl => 'http://$serverIp:$serverPort/v1';
+  static String get serverBaseUrl => 'http://$serverIp:$serverPort'; // 이미지 로딩용 루트 URL
 
   // 2. HTTP 엔드포인트 (Auth & Characters)
   static String get loginUrl => '$baseUrl/auth/login';

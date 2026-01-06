@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pet_trainer_frontend/screens/login_screen.dart';
 import 'package:pet_trainer_frontend/screens/menu_page.dart';
+import 'package:pet_trainer_frontend/screens/creation_name_screen.dart';
 import 'package:pet_trainer_frontend/services/auth_service.dart';
 
 class MainTitleScreen extends StatefulWidget {
@@ -22,6 +23,9 @@ class _MainTitleScreenState extends State<MainTitleScreen>
   late Animation<double> _backgroundScaleAnimation;
 
   final String _backgroundImagePath = 'assets/images/메인3.png';
+  
+  // [Fix] 로딩 상태 추가 (터치 피드백용)
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -76,18 +80,67 @@ class _MainTitleScreenState extends State<MainTitleScreen>
   }
 
   void _navigateToNextScreen() async {
-    final authService = AuthService();
-    final String? token = await authService.getToken();
+    if (_isLoading) return; // 중복 터치 방지
+    
+    setState(() => _isLoading = true); // 로딩 시작
+    
+    try {
+      final authService = AuthService();
+      
+      // [Optimized] 서버 엄격 검사(validateToken) 대신 로컬 토큰 존재 여부만 확인
+      // 이유: 서버가 끊겨 있어도, 이미 로그인된 유저는 앱을 쓸 수 있어야 합니다.
+      // 서버 연결이 필요한 시점에 에러가 나더라도 입장부터 막으면 안 됩니다.
+      final String? token = await authService.getToken();
+      final String? charId = await authService.getCharacterId();
 
-    if (!mounted) return;
+      print("[MainTitle] Token: $token, CharId: $charId"); // [Debug]
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            token != null ? const MenuPage() : const LoginScreen(),
-      ),
-    );
+      if (!mounted) return;
+
+      if (token != null) {
+        if (charId != null) {
+          // 1. 캐릭터 보유 -> 메인 로비
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const MenuPage()),
+          );
+        } else {
+          // 2. 캐릭터 미보유 -> 캐릭터 생성 (1단계)
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const CreationNameScreen()),
+          );
+        }
+      } else {
+        // 3. 토큰 없음 -> 로그인 화면
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+        );
+      }
+    } catch (e) {
+      // [Safety] 치명적 에러 발생 시 사용자에게 알림 후 로그인 화면으로 이동
+      print("[MainTitle] Critical Error: $e");
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("시스템 오류: $e"),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        
+        // 에러를 읽을 시간을 주고 이동
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -96,6 +149,7 @@ class _MainTitleScreenState extends State<MainTitleScreen>
       backgroundColor: Colors.black,
       body: GestureDetector(
         onTap: _navigateToNextScreen,
+        behavior: HitTestBehavior.translucent, // [Fix] 투명 영역도 터치 인식
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -104,6 +158,15 @@ class _MainTitleScreenState extends State<MainTitleScreen>
 
             // Layer 2: 로고와 텍스트
             _buildContent(),
+            
+            // Layer 3: 로딩 인디케이터 (터치 시 피드백)
+            if (_isLoading)
+              Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+              ),
           ],
         ),
       ),

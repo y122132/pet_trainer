@@ -289,3 +289,17 @@ async def update_character_image_urls(db: AsyncSession, char_id: int, image_urls
     await db.commit()
     await db.refresh(character)
     return character
+
+async def delete_character(db: AsyncSession, char_id: int) -> bool:
+    """
+    캐릭터를 DB에서 완전히 삭제합니다. (생성 실패 시 롤백용)
+    """
+    stmt = select(Character).where(Character.id == char_id)
+    result = await db.execute(stmt)
+    character = result.scalar_one_or_none()
+    
+    if character:
+        await db.delete(character)
+        await db.commit()
+        return True
+    return False

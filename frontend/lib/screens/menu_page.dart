@@ -1,22 +1,27 @@
 import 'dart:io';
-import 'dart:async';
+import 'dart:async'; 
+import 'battle_page.dart';
 import 'dart:math' as math;
+import 'login_screen.dart'; 
+import 'my_room_page.dart';
+
+import 'user_list_screen.dart';
+import 'mode_select_page.dart';
+import 'pet_universe_screen.dart'; 
+import 'battle_lobby_screen.dart';
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart'; 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
+import '../providers/char_provider.dart';
+import '../providers/chat_provider.dart'; 
+import '../providers/battle_provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:pet_trainer_frontend/api_config.dart'; 
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../config/design_system.dart';
-import 'my_room_page.dart';
-import 'mode_select_page.dart';
-import 'battle_page.dart';
-import 'battle_lobby_screen.dart';
-import 'user_list_screen.dart';
-import '../providers/char_provider.dart';
-import '../providers/chat_provider.dart';
-import '../services/auth_service.dart';
-import '../providers/battle_provider.dart';
 
 class MenuPage extends StatefulWidget {
   const MenuPage({super.key});
@@ -41,11 +46,13 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     _breathingController.repeat(reverse: true);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final charProvider = Provider.of<CharProvider>(context, listen: false);
-      if (charProvider.tempFrontImage == null) {
-        charProvider.fetchMyCharacter();
-      }
-      _initChatConnection();
+        final charProvider = Provider.of<CharProvider>(context, listen: false);
+        // Don't fetch if there's a temporary image or if character is already loaded nicely
+        if (charProvider.tempFrontImage == null && charProvider.character == null) {
+          charProvider.fetchMyCharacter();
+        }
+        
+        _initChatConnection(); // [New]
     });
   }
 
@@ -109,6 +116,44 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
         });
   }
 
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("설정", style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text("로그아웃"),
+              onTap: () => _handleLogout(context),
+            ),
+            // [추가 가능] 알림 설정, 다크모드 등 ListTile을 여기에 추가
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleLogout(BuildContext context) async {
+    Provider.of<ChatProvider>(context, listen: false).disconnect();
+    Provider.of<CharProvider>(context, listen: false).clearData();
+
+    final auth = AuthService();
+    await auth.logout();
+
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("안전하게 로그아웃 되었습니다."),
+          backgroundColor: AppColors.softCharcoal,
+        )
+      );
+    }
+  }
   @override
   void dispose() {
     _chatSubscription?.cancel();
@@ -162,6 +207,11 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
               _buildHeaderIcon(FontAwesomeIcons.envelope),
               const SizedBox(width: 18),
               _buildHeaderIcon(FontAwesomeIcons.bell),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: _showSettingsDialog,
+                child: _buildHeaderIcon(Icons.settings), // Use standard icon for settings
+              )
             ],
           )
         ],
@@ -191,7 +241,14 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
         imageWidget = Image.file(File(image.path), fit: BoxFit.cover, filterQuality: FilterQuality.high);
       }
     } else if (image is String && image.isNotEmpty) {
-      imageWidget = Image.network(image, fit: BoxFit.cover, filterQuality: FilterQuality.high);
+        // [Fix] 상대 경로(/uploads/...) 및 로컬호스트 레거시 데이터 처리
+        String imageUrl = image;
+        if (imageUrl.startsWith('/')) {
+            imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
+        } else if (imageUrl.contains('localhost')) {
+            imageUrl = imageUrl.replaceFirst('localhost', AppConfig.serverIp);
+        }
+        imageWidget = Image.network(imageUrl, fit: BoxFit.cover,);
     } else {
       imageWidget = Image.asset('assets/images/단팥 기본.png', fit: BoxFit.contain);
     }
@@ -251,6 +308,15 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
   }
 
   Widget _buildBottomBar(BuildContext context) {
+    final charProvider = Provider.of<CharProvider>(context, listen: false);
+
+    final myData = {
+      "id": charProvider.character?.id ?? 0,
+      "nickname": charProvider.character?.name ?? "나의 펫",
+      "pet_type": charProvider.character?.petType ?? "dog",
+      "level": charProvider.character?.stat?.level ?? 1,
+    };
+
     return Container(
       height: 150,
       padding: const EdgeInsets.only(top: 10, bottom: 20),
@@ -263,9 +329,36 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          _buildBottomNavButton(context: context, icon: FontAwesomeIcons.houseUser, label: "MY ROOM", onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MyRoomPage()))),
-          _buildBottomNavButton(context: context, icon: FontAwesomeIcons.userGroup, label: "FRIENDS", onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const UserListScreen()))),
-          _buildBottomNavButton(context: context, icon: FontAwesomeIcons.khanda, label: "BATTLE", onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => BattleLobbyScreen()))),
+          _buildBottomNavButton(
+            context: context,
+            icon: FontAwesomeIcons.houseUser,
+            label: "MY ROOM",
+            onPressed: () =>
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const MyRoomPage())),
+          ),
+          _buildBottomNavButton(
+            context: context,
+            icon: FontAwesomeIcons.earthAmericas, // 우주/지구 아이콘
+            label: "UNIVERSE",
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => PetUniverseScreen(user: myData)),
+            ),
+          ),
+          _buildBottomNavButton(
+            context: context,
+            icon: FontAwesomeIcons.userGroup,
+            label: "FRIENDS",
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (context) => const UserListScreen())),
+          ),
+          _buildBottomNavButton(
+            context: context,
+            icon: FontAwesomeIcons.khanda,
+            label: "BATTLE",
+            onPressed: () => Navigator.push(
+                context, MaterialPageRoute(builder: (context) => const BattleLobbyScreen())),
+          ),
         ],
       ),
     );
