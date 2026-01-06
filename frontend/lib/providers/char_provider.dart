@@ -214,12 +214,6 @@ class CharProvider with ChangeNotifier {
     if (_character != null && _character!.stat != null) {
       _character!.stat!.exp += amount;
       _checkLevelUp();
-      _updateImage();
-      if (_character!.stat!.exp >= 100) {
-        _character!.stat!.level += 1;
-        _character!.stat!.exp -= 100;
-        _statusMessage = "레벨 업!!";
-      }
       notifyListeners();
     }
   }
