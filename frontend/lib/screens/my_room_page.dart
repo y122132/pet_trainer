@@ -4,19 +4,22 @@ import 'camera_screen.dart';
 import '../config/theme.dart';
 import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'camera_screen.dart'; // Keep for image upload references if any
+import 'package:image_picker/image_picker.dart';
+
+import '../models/character_model.dart';
 import '../providers/char_provider.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/common/stat_widgets.dart';
 import '../widgets/char_message_bubble.dart'; 
 import '../widgets/stat_distribution_dialog.dart'; // New from frontend_1
-import '../config/theme.dart'; 
 import 'package:pet_trainer_frontend/api_config.dart'; // [Fix] Import AppConfig
 
+// Note: This version is a complete rewrite focusing on stability with standard widgets and inline styles.
 class MyRoomPage extends StatefulWidget {
   const MyRoomPage({super.key});
 
@@ -33,16 +36,12 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _breathingController = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 2000));
-    _breathingAnimation = Tween<double>(begin: 1.0, end: 1.03).animate(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    _breathingAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
       CurvedAnimation(parent: _breathingController, curve: Curves.easeInOut),
     );
-    _breathingController.repeat(reverse: true);
-    
-    // Auto-show bubble initially
-    Future.delayed(const Duration(milliseconds: 500), () {
-        if(mounted) setState(() => _showBubble = true);
-    });
   }
 
   @override
@@ -50,16 +49,10 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
     _breathingController.dispose();
     super.dispose();
   }
-
+  // Business logic methods are preserved
   void _onCharacterTap(CharProvider provider) {
-    // 1. Haptic feedback or sound could go here
-    // 2. Change message
     List<String> messages = [
-       "오늘 운동은 언제 하시나요?",
-       "간식이 먹고 싶어요! 멍!",
-       "쓰담쓰담 해주세요~",
-       "같이 놀아요!",
-       "근육이 불끈불끈!"
+      "오늘 운동은 언제 하시나요?", "간식이 먹고 싶어요! 멍!", "쓰담쓰담 해주세요~", "같이 놀아요!", "근육이 불끈불끈!"
     ];
     String randomMsg = (messages..shuffle()).first;
     provider.updateStatusMessage(randomMsg);
@@ -179,6 +172,8 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                    String imageUrl = provider.character!.frontUrl!;
                    if (imageUrl.startsWith('/')) {
                        imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
+                   } else if (imageUrl.contains('localhost')) {
+                       imageUrl = imageUrl.replaceFirst('localhost', AppConfig.serverIp);
                    }
                    imageWidget = Image.network(
                      imageUrl,
@@ -418,10 +413,10 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
         ),
       );
   }
-  
+
   void _applyAllocated(CharProvider provider, String type, int amount) {
-    for (int i=0; i<amount; i++) {
-      provider.allocateStatSpecific(type); 
+    for (int i = 0; i < amount; i++) {
+      provider.allocateStatSpecific(type);
     }
   }
 }

@@ -6,6 +6,7 @@ import 'package:pet_trainer_frontend/providers/training_controller.dart';
 import 'package:pet_trainer_frontend/widgets/char_message_bubble.dart';
 import 'package:pet_trainer_frontend/widgets/stat_distribution_dialog.dart';
 import 'package:pet_trainer_frontend/widgets/camera/camera_painters.dart';
+import 'package:pet_trainer_frontend/api_config.dart'; // [Fix] Import AppConfig
 import 'my_room_page.dart'; // For navigation context if needed
 
 class CameraScreen extends StatelessWidget {
@@ -186,8 +187,26 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                          Expanded(flex: 1, child: Container(
                             width: double.infinity, color: Colors.white,
                             child: Column(children: [
-                               Expanded(child: Image.asset(charProvider.character?.imagePath ?? "assets/images/characters/닌자옷.png", fit: BoxFit.contain)),
-                               ChatBubble(message: charProvider.statusMessage, isAnalyzing: trainingCtrl.isAnalyzing)
+                              Expanded(child: Builder(
+                                builder: (context) {
+                                  final char = charProvider.character;
+                                  String? imageUrl = char?.frontUrl;
+                                  
+                                  if (imageUrl != null && imageUrl.isNotEmpty) {
+                                       // [Fix] Handle Localhost & Relative Paths
+                                       if (imageUrl.startsWith('/')) {
+                                           imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
+                                       } else if (imageUrl.contains('localhost')) {
+                                           imageUrl = imageUrl.replaceFirst('localhost', AppConfig.serverIp);
+                                       }
+                                       return Image.network(imageUrl!, fit: BoxFit.contain);
+                                  } else {
+                                       // Fallback Asset
+                                       return Image.asset(char?.imagePath ?? "assets/images/characters/닌자옷.png", fit: BoxFit.contain);
+                                  }
+                                }
+                              )),
+                              ChatBubble(message: charProvider.statusMessage, isAnalyzing: trainingCtrl.isAnalyzing)
                             ])
                          ))
                       ];
