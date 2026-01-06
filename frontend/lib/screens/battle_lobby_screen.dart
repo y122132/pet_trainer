@@ -116,7 +116,41 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
     );
   }
 
+  void _startAIBattle() async {
+    setState(() => _isSearching = true);
+    
+    final idStr = await _authService.getUserId();
+    int? userId = (idStr != null) ? int.tryParse(idStr) : null;
+    
+    if (userId == null) {
+       setState(() => _isSearching = false);
+       return;
+    }
+
+    final socketUrl = AppConfig.matchMakingSocketUrl(userId);
+    try {
+      _matchSocket = WebSocketChannel.connect(Uri.parse(socketUrl));
+      
+      _matchSocket!.stream.listen((data) {
+        final decoded = jsonDecode(data);
+        if (decoded['type'] == 'MATCH_FOUND') {
+           _onMatchFound(decoded['room_id']);
+        } else if (decoded['type'] == 'ERROR') {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(decoded['message'])));
+          _cancelMatch();
+        }
+      });
+      
+      // [Key] Send AI_BATTLE Request
+      _matchSocket!.sink.add("AI_BATTLE");
+      
+    } catch (e) {
+      _cancelMatch();
+    }
+  }
+
   void _onInviteFriend() {
+
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const FriendPlayScreen()),
@@ -172,6 +206,13 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
                 subtitle: "친구와 함께 즐겨요!",
                 icon: Icons.person,
                 onTap: _onInviteFriend,
+              ),
+              const SizedBox(height: 24),
+              _buildModeCard(
+                title: "AI 대전 (연습)",
+                subtitle: "봇과 함께 스킬을 테스트해보세요!",
+                icon: Icons.smart_toy_rounded,
+                onTap: _startAIBattle,
               ),
             ],
           ),
@@ -322,4 +363,6 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
       ],
     );
   }
+
+
 }

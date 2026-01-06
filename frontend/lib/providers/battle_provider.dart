@@ -89,6 +89,12 @@ class BattleProvider extends ChangeNotifier {
   void sendMove(int moveId) {
     if (!_state.isConnected || !_state.isMyTurn) return;
     
+    // [Temp] Client-side Simulation for new skills
+    if (moveId >= 300) {
+        _simulateLocalTurn(moveId);
+        return;
+    }
+
     _state = _state.copyWith(isMyTurn: false); // Lock input
     notifyListeners();
 
@@ -96,6 +102,81 @@ class BattleProvider extends ChangeNotifier {
       "action": "select_move",
       "move_id": moveId
     });
+  }
+
+  // [Temp] Simulate Turn Locally
+  void _simulateLocalTurn(int moveId) async {
+      _state = _state.copyWith(isMyTurn: false);
+      notifyListeners();
+
+      // 1. My Attack
+      final skill = _skillData[moveId.toString()] ?? _skillData[moveId] ?? {};
+      String moveName = skill['name'] ?? 'Unknown';
+      int power = skill['power'] ?? 0;
+      
+      // Stat Scaling Calculation (Mock)
+      // Since we don't have CharProvider here, we assume default stats or fetch if possible.
+      // Ideally pass stats in connect(), but for now use defaults.
+      int strength = 20; // Default
+      int intelligence = 20; // Default
+      int happiness = 20; // Default
+      
+      double factor = (skill['scaling_factor'] ?? 1.0).toDouble();
+      String statType = skill['scaling_stat'] ?? 'strength';
+      
+      int scalingDamage = 0;
+      if (statType == 'strength') scalingDamage = (strength * factor).round();
+      else if (statType == 'intelligence') scalingDamage = (intelligence * factor).round();
+      else if (statType == 'happiness') scalingDamage = (happiness * factor).round();
+
+      int finalDamage = power + scalingDamage;
+      String type = skill['type'] ?? 'normal';
+
+      _addLog("You used $moveName!");
+      
+      if (type == 'heal') {
+           int healAmount = (finalDamage * 1.5).round(); // Heal is stronger
+           _handleHpChange(_myId!, healAmount);
+           _animationManager.emitEvent(BattleEvent(type: BattleEventType.heal, targetId: _myId, value: healAmount));
+           _addLog("Recovered $healAmount HP!");
+      } else {
+           // Attack
+           _animationManager.emitEvent(BattleEvent(type: BattleEventType.attack, actorId: _myId));
+           await Future.delayed(const Duration(milliseconds: 500));
+           
+           _animationManager.emitEvent(BattleEvent(type: BattleEventType.shake, targetId: _opponentId));
+           _animationManager.emitEvent(BattleEvent(type: BattleEventType.damage, targetId: _opponentId, value: finalDamage));
+           _handleHpChange(_opponentId!, -finalDamage);
+           
+           _addLog("Hit! Dealt $finalDamage damage! ($statType x$factor)");
+      }
+
+      await Future.delayed(const Duration(milliseconds: 1000));
+
+      // 2. Opponent Turn (Mock)
+      if (_state.oppHp > 0) {
+         _addLog("${_state.oppName} attacks!");
+         await Future.delayed(const Duration(milliseconds: 500));
+         
+         int oppDmg = 15;
+         _animationManager.emitEvent(BattleEvent(type: BattleEventType.attack, actorId: _opponentId));
+         await Future.delayed(const Duration(milliseconds: 500));
+         
+         _animationManager.emitEvent(BattleEvent(type: BattleEventType.shake, targetId: _myId));
+         _animationManager.emitEvent(BattleEvent(type: BattleEventType.damage, targetId: _myId, value: oppDmg));
+         _handleHpChange(_myId!, -oppDmg);
+         _addLog("Took $oppDmg damage!");
+      }
+
+      // 3. End Turn
+      if (_state.myHp <= 0) {
+          _handleGameOver({'result': 'LOSE'});
+      } else if (_state.oppHp <= 0) {
+          _handleGameOver({'result': 'WIN', 'reward': {'exp_gained': 100, 'level_up': false, 'new_skills': []}});
+      } else {
+          _state = _state.copyWith(isMyTurn: true);
+          notifyListeners();
+      }
   }
 
   // [New] For Matchmaking
@@ -213,6 +294,19 @@ class BattleProvider extends ChangeNotifier {
          );
        } else {
          final skills = (value['skills'] ?? []).map<Map<String,dynamic>>((e) => e as Map<String,dynamic>).toList();
+
+           // [Temp] Inject new skills for testing (Force Add)
+           final newSkillIds = ["301", "302", "303"];
+           for (var id in newSkillIds) {
+               if (_skillData.containsKey(id)) {
+                   var s = Map<String, dynamic>.from(_skillData[id]);
+                   s['id'] = int.parse(id); 
+                   s['pp'] = 20; 
+                   s['max_pp'] = 20;
+                   skills.add(s);
+               }
+           }
+
          _state = _state.copyWith(
             myHp: value['hp'],
             myMaxHp: value['max_hp'],
