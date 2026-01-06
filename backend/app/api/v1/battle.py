@@ -20,15 +20,11 @@ async def invite_friend(
     2. 배틀 Room ID 생성
     3. 채팅 시스템 메시지로 초대장 전송
     """
-    # 1. 친구 관계 확인 (필수는 아니지만 권장)
+    # 1. 친구 관계 확인
     friends = await friend_service.get_friends(db, current_user_id)
     is_friend = False
     friend_nickname = "Unknown"
     
-    # 내 닉네임 찾기 (채팅 메시지용)
-    # 효율성을 위해 user_service/friend_service에서 가져오는게 좋지만,
-    # 여기서는 친구 목록 결과에서 내 정보를 찾거나(보통 친구목록엔 내정보없음),
-    # 별도 쿼리 없이 간단히 진행.
     
     # 친구 확인
     for f in friends:
@@ -38,15 +34,10 @@ async def invite_friend(
             break
             
     if not is_friend:
-        # 강제 차단 보다는 경고, 혹은 진행 가능 (게임 정책에 따름)
-        # 일단 진행
         pass
 
-    # 2. Room ID 생성
     room_id = str(uuid.uuid4())
     
-    # 3. 초대장 전송 (System Message via Chat)
-    # 채팅 포맷: type="BATTLE_INVITE"
     invite_payload = {
         "type": "BATTLE_INVITE",
         "room_id": room_id,
@@ -54,7 +45,6 @@ async def invite_friend(
         "message": "한판 붙자! (Battle Invitation)"
     }
     
-    # 상대방에게 전송
     await chat_manager.send_personal_message(invite_payload, friend_id)
     
     return {"message": "Invite sent", "room_id": room_id}

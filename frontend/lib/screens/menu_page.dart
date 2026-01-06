@@ -1,25 +1,25 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'dart:io'; // Required for File
-import 'package:flutter/foundation.dart' show kIsWeb; // Required for kIsWeb
-import 'package:image_picker/image_picker.dart';
-import 'my_room_page.dart';
-import 'mode_select_page.dart';
+import 'dart:io';
+import 'dart:async'; 
 import 'battle_page.dart';
-import 'battle_lobby_screen.dart'; // [New]
-import 'user_list_screen.dart'; // [New]
-import '../providers/char_provider.dart';
-import '../config/theme.dart';
-import '../providers/chat_provider.dart'; // [New]
-import '../services/auth_service.dart'; // [New]
-import '../providers/battle_provider.dart'; // [New]
-import 'dart:async'; // [New]
-import 'package:google_fonts/google_fonts.dart';
 import 'dart:math' as math;
+import 'login_screen.dart'; 
+import 'my_room_page.dart';
+import '../config/theme.dart';
+import 'user_list_screen.dart';
+import 'mode_select_page.dart';
+import 'pet_universe_screen.dart'; 
+import 'battle_lobby_screen.dart';
+import 'package:flutter/material.dart';
+import '../services/auth_service.dart'; 
+import 'package:provider/provider.dart';
+import '../providers/char_provider.dart';
+import '../providers/chat_provider.dart'; 
+import '../providers/battle_provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; 
+import 'package:pet_trainer_frontend/api_config.dart'; 
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:pet_trainer_frontend/api_config.dart'; // [Fix] Import AppConfig
-import 'login_screen.dart'; // [New] For Logout
-
 
 class MenuPage extends StatefulWidget {
   const MenuPage({super.key});
@@ -142,31 +142,32 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text("로그아웃"),
-              onTap: () async {
-                 await AuthService().logout();
-                 if (mounted) {
-                   Navigator.of(context).pushAndRemoveUntil(
-                     MaterialPageRoute(builder: (_) => const LoginScreen()),
-                     (route) => false
-                   );
-                 }
-              },
+              onTap: () => _handleLogout(context),
             ),
-             // 추후 사운드 설정 등 추가 가능
+            // [추가 가능] 알림 설정, 다크모드 등 ListTile을 여기에 추가
+            const SizedBox(height: 20),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("닫기"))
-        ],
-      )
+      ),
     );
   }
 
-  @override
-  void dispose() {
-    _chatSubscription?.cancel(); // [New]
-    _breathingController.dispose();
-    super.dispose();
+  void _handleLogout(BuildContext context) async {
+    Provider.of<ChatProvider>(context, listen: false).disconnect();
+    Provider.of<CharProvider>(context, listen: false).clearData();
+
+    final auth = AuthService();
+    await auth.logout();
+
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("안전하게 로그아웃 되었습니다."),
+          backgroundColor: AppColors.softCharcoal,
+        )
+      );
+    }
   }
 
   @override
@@ -312,10 +313,12 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
             imageWidget = Image.file(File(image.path), fit: BoxFit.cover,);
         }
     } else if (image is String && image.isNotEmpty) {
-        // [Fix] 상대 경로(/uploads/...)인 경우 서버 도메인 붙이기
+        // [Fix] 상대 경로(/uploads/...) 및 로컬호스트 레거시 데이터 처리
         String imageUrl = image;
-        if (image.startsWith('/')) {
-            imageUrl = "${AppConfig.serverBaseUrl}$image";
+        if (imageUrl.startsWith('/')) {
+            imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
+        } else if (imageUrl.contains('localhost')) {
+            imageUrl = imageUrl.replaceFirst('localhost', AppConfig.serverIp);
         }
         imageWidget = Image.network(imageUrl, fit: BoxFit.cover,);
     } else {
@@ -395,8 +398,17 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
   }
 
   Widget _buildBottomBar(BuildContext context) {
+    final charProvider = Provider.of<CharProvider>(context, listen: false);
+
+    final myData = {
+      "id": charProvider.character?.id ?? 0,
+      "nickname": charProvider.character?.name ?? "나의 펫",
+      "pet_type": charProvider.character?.petType ?? "dog",
+      "level": charProvider.character?.stat?.level ?? 1,
+    };
+
     return Container(
-      height: 120,
+      height: 125,
       decoration: BoxDecoration(
         color: const Color(0xFF6D4C41), // Wood color
         boxShadow: [
@@ -422,6 +434,15 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
           ),
           _buildBottomNavButton(
             context: context,
+            icon: FontAwesomeIcons.earthAmericas, // 우주/지구 아이콘
+            label: "UNIVERSE",
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => PetUniverseScreen(user: myData)),
+            ),
+          ),
+          _buildBottomNavButton(
+            context: context,
             icon: FontAwesomeIcons.userGroup,
             label: "FRIENDS",
             onPressed: () => Navigator.push(context,
@@ -432,7 +453,7 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
             icon: FontAwesomeIcons.khanda,
             label: "BATTLE",
             onPressed: () => Navigator.push(
-                context, MaterialPageRoute(builder: (context) => BattleLobbyScreen())),
+                context, MaterialPageRoute(builder: (context) => const BattleLobbyScreen())),
           ),
         ],
       ),

@@ -84,34 +84,62 @@ class _MainTitleScreenState extends State<MainTitleScreen>
     
     setState(() => _isLoading = true); // 로딩 시작
     
-    final authService = AuthService();
-    
-    // [보안] 토큰 유효성 및 캐릭터 존재 여부 확인 (네트워크 요청 등 시간 소요 가능)
-    final bool isValid = await authService.validateToken();
-    final String? charId = await authService.getCharacterId();
+    try {
+      final authService = AuthService();
+      
+      // [Optimized] 서버 엄격 검사(validateToken) 대신 로컬 토큰 존재 여부만 확인
+      // 이유: 서버가 끊겨 있어도, 이미 로그인된 유저는 앱을 쓸 수 있어야 합니다.
+      // 서버 연결이 필요한 시점에 에러가 나더라도 입장부터 막으면 안 됩니다.
+      final String? token = await authService.getToken();
+      final String? charId = await authService.getCharacterId();
 
-    if (!mounted) return;
+      print("[MainTitle] Token: $token, CharId: $charId"); // [Debug]
 
-    if (isValid) {
-      if (charId != null) {
-        // 1. 캐릭터 보유 -> 메인 로비
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MenuPage()),
-        );
+      if (!mounted) return;
+
+      if (token != null) {
+        if (charId != null) {
+          // 1. 캐릭터 보유 -> 메인 로비
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const MenuPage()),
+          );
+        } else {
+          // 2. 캐릭터 미보유 -> 캐릭터 생성 (1단계)
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const CreationNameScreen()),
+          );
+        }
       } else {
-        // 2. 캐릭터 미보유 -> 캐릭터 생성 (1단계)
+        // 3. 토큰 없음 -> 로그인 화면
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const CreationNameScreen()),
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       }
-    } else {
-      // 3. 비로그인/토큰 만료 -> 로그인 화면
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-      );
+    } catch (e) {
+      // [Safety] 치명적 에러 발생 시 사용자에게 알림 후 로그인 화면으로 이동
+      print("[MainTitle] Critical Error: $e");
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("시스템 오류: $e"),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+        
+        // 에러를 읽을 시간을 주고 이동
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+          );
+        }
+      }
     }
   }
 

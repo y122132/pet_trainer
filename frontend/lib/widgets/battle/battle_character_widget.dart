@@ -101,10 +101,12 @@ class BattleAvatarWidget extends StatelessWidget {
           ? Image.network(tempImage.path, height: size, fit: BoxFit.contain)
           : Image.file(File(tempImage.path), height: size, fit: BoxFit.contain);
     } else if (remoteUrl != null && remoteUrl.isNotEmpty) {
-      // [Fix] 상대 경로 처리
+      // [Fix] 상대 경로 및 localhost 레거시 처리
       String finalUrl = remoteUrl;
       if (finalUrl.startsWith('/')) {
         finalUrl = "${AppConfig.serverBaseUrl}$finalUrl";
+      } else if (finalUrl.contains('localhost')) {
+        finalUrl = finalUrl.replaceFirst('localhost', AppConfig.serverIp);
       }
       imageWidget = Image.network(finalUrl, height: size, fit: BoxFit.contain);
     } else {

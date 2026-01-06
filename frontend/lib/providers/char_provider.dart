@@ -388,4 +388,8 @@ class CharProvider with ChangeNotifier {
       return false;
     }
   }
+  void clearData() {
+    // 필요한 다른 변수들이 있다면 여기서 모두 null이나 기본값으로 초기화하세요.
+    notifyListeners();
+  }
 }
