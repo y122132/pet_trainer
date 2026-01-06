@@ -4,10 +4,8 @@ class AppConfig {
 
   // [중요] AWS 탄력적 IP(Elastic IP) 또는 도메인을 여기에 입력하세요.
   // Web(Chrome)일 경우 localhost, 안드로이드 에뮬레이터일 경우 10.0.2.2 사용
-  // [Fix] kIsWeb 인식이 안될 경우를 대비해 우선 localhost로 고전합니다.
-  static String get serverIp => 'localhost'; 
-  // static String get serverIp => kIsWeb ? 'localhost' : '10.0.2.2';
-  
+  static String get serverIp => 'localhost';  // web 테스트용
+  // static const String serverIp = '10.0.2.2'; // Android 에뮬레이터용
   // static const String serverIp = '54.116.28.3'; // AWS 배포용 
   static const int serverPort = 8000;
 
@@ -19,6 +17,7 @@ class AppConfig {
   // 2. HTTP 엔드포인트 (Auth & Characters)
   static String get loginUrl => '$baseUrl/auth/login';
   static String get registerUrl => '$baseUrl/auth/register';
+  static String get authMeUrl => '$baseUrl/auth/me'; // [New]
   static String get charactersUrl => '$baseUrl/characters';
 
   // 3. WebSocket URL (분석, 배틀, 채팅)

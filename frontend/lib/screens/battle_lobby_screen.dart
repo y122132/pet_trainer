@@ -70,6 +70,8 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
     debugPrint("Connecting to Matchmaker: $socketUrl");
 
     try {
+      // [Fix] Close existing socket before new connection
+      _matchSocket?.sink.close();
       _matchSocket = WebSocketChannel.connect(Uri.parse(socketUrl));
 
       _matchSocket!.stream.listen((data) {
@@ -104,6 +106,10 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
   void _onMatchFound(String roomId) {
     if (!mounted) return;
     setState(() => _isSearching = false);
+    
+    // [Fix] Close lobby socket before entering battle to prevent leak
+    _matchSocket?.sink.close();
+    _matchSocket = null;
 
     Navigator.push(
       context,
@@ -128,7 +134,9 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
     }
 
     final socketUrl = AppConfig.matchMakingSocketUrl(userId);
-    try {
+    try { 
+      // [Fix] Close existing socket before new connection
+      _matchSocket?.sink.close();
       _matchSocket = WebSocketChannel.connect(Uri.parse(socketUrl));
       
       _matchSocket!.stream.listen((data) {

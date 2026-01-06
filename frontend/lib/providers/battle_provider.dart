@@ -20,6 +20,9 @@ class BattleProvider extends ChangeNotifier {
 
   // Event Stream (Forward from AnimationManager)
   Stream<BattleEvent> get eventStream => _animationManager.eventStream;
+  
+  // [Fix] Socket Subscription
+  StreamSubscription? _socketSubscription;
 
   // Queue
   bool _isProcessingTurn = false;
@@ -47,6 +50,7 @@ class BattleProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _socketSubscription?.cancel(); // [Fix] Cancel
     _socketService.dispose();
     _animationManager.dispose();
     super.dispose();
@@ -70,7 +74,11 @@ class BattleProvider extends ChangeNotifier {
        notifyListeners();
     });
 
-    _socketService.messageStream.listen(_handleMessage);
+
+
+    // [Fix] Cancel existing subscription before ensuring new one
+    _socketSubscription?.cancel();
+    _socketSubscription = _socketService.messageStream.listen(_handleMessage);
 
     final String roomId = _presetRoomId ?? "arena_1"; 
     // AppConfig.battleSocketUrl 뒤에 실제 유저 ID가 붙어 경로가 구성됨

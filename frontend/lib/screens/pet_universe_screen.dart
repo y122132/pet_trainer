@@ -56,6 +56,7 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
       );
 
       if (response.statusCode == 200) {
+        if (!mounted) return; // [Fix] Check mounted before setState
         setState(() {
           _diaries = jsonDecode(utf8.decode(response.bodyBytes));
         });

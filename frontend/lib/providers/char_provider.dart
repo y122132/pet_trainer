@@ -358,30 +358,34 @@ class CharProvider with ChangeNotifier {
 
   // 서버로 현재 스탯 상태 동기화 (저장)
   Future<void> syncStatToBackend() async {
+    if (_character == null || _character!.stat == null) return;
 
-    if (_character == null) return;
+    // [Fix] Capture state locally to preserve data across async gap (prevention of null pointers)
+    final int charId = _character!.id;
+    final stat = _character!.stat!;
+    final bodyData = {
+      "strength": stat.strength,
+      "intelligence": stat.intelligence,
+      "agility": stat.agility,
+      "defense": stat.defense,
+      "luck": stat.luck,
+      "happiness": stat.happiness,
+      "health": stat.health,
+      "exp": stat.exp,
+      "level": stat.level,
+      "unused_points": _unusedStatPoints
+    };
+
     try {
-      // [추가] 기기에 저장된 JWT 토큰 가져오기
       final token = await AuthService().getToken();
       // API 호출: PUT /v1/characters/{id}/stats
       await http.put(
-        Uri.parse('${AppConfig.charactersUrl}/${_character!.id}/stats'),
+        Uri.parse('${AppConfig.charactersUrl}/$charId/stats'),
         headers: {
-          "Authorization": "Bearer $token", // [추가] 인증 헤더
+          "Authorization": "Bearer $token",
           "Content-Type": "application/json",
         },
-        body: jsonEncode({
-          "strength": _character!.stat!.strength,
-          "intelligence": _character!.stat!.intelligence,
-          "agility": _character!.stat!.agility,
-          "defense": _character!.stat!.defense,
-          "luck": _character!.stat!.luck,
-          "happiness": _character!.stat!.happiness,
-          "health": _character!.stat!.health,
-          "exp": _character!.stat!.exp,
-          "level": _character!.stat!.level,
-          "unused_points": _unusedStatPoints
-        })
+        body: jsonEncode(bodyData)
       );
     } catch (e) {
       print("sync error: $e");

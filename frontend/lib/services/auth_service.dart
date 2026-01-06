@@ -127,7 +127,7 @@ class AuthService {
       final response = await http.get(
         // auth.py가 /api/v1/auth에 마운트되어 있다고 가정 (main.py 확인 필요하지만 관례상 맞음)
         // 실제로는 api_config.dart에 endpoint를 추가하는게 좋지만, 여기서는 하드코딩된 baseUrl + path로 구성
-        Uri.parse("${AppConfig.baseUrl}/auth/me"),
+        Uri.parse(AppConfig.authMeUrl),
         headers: {
           "Content-Type": "application/json",
           "Authorization": "Bearer $token"
