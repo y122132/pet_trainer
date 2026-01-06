@@ -147,6 +147,9 @@ def process_frame(
                 max_conf_any = conf
                 max_conf_cls = cls_id
             
+            # [Debug Info] - 실시간 감지 로그
+            print(f"[YOLO_DEBUG] ID={cls_id}, Conf={conf:.2f}", flush=True)
+            
             x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
             nx1 = max(0.0, min(1.0, float(x1)))
             ny1 = max(0.0, min(1.0, float(y1)))

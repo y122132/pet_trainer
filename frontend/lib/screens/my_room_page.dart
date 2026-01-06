@@ -214,6 +214,50 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                       elevation: 2
                   ),
                 ),
+                
+              // [New] Manual Level Up Button (Test)
+              IconButton(
+                icon: const Icon(Icons.upgrade, color: AppColors.secondaryPink),
+                tooltip: "레벨업 (테스트)",
+                onPressed: () async {
+                   await provider.manualLevelUp();
+                   ScaffoldMessenger.of(context).showSnackBar(
+                     const SnackBar(content: Text("레벨업되었습니다!"))
+                   );
+                },
+              ),
+                
+              // [New] Stat Reset Button
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.grey),
+                tooltip: "스탯 초기화",
+                onPressed: () {
+
+                   showDialog(
+                     context: context,
+                     builder: (context) => AlertDialog(
+                       title: const Text("스탯 초기화"),
+                       content: const Text("모든 스탯을 초기화하고 포인트를 되돌려받으시겠습니까?\n(기본 스탯 제외)"),
+                       actions: [
+                         TextButton(
+                           onPressed: () => Navigator.pop(context),
+                           child: const Text("취소"),
+                         ),
+                         TextButton(
+                           onPressed: () {
+                             provider.resetStats();
+                             Navigator.pop(context);
+                             ScaffoldMessenger.of(context).showSnackBar(
+                               const SnackBar(content: Text("스탯이 초기화되었습니다."))
+                             );
+                           },
+                           child: const Text("초기화", style: TextStyle(color: Colors.red)),
+                         ),
+                       ],
+                     )
+                   );
+                },
+              ),
             ],
           ),
           const SizedBox(height: 12),

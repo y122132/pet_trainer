@@ -22,7 +22,7 @@ class RedisManager:
         """
         공용 커넥션 풀에서 비동기 Redis 클라이언트를 반환합니다.
         """
-        return redis.Redis(connection_pool=pool)
+        return redis.Redis(connection_pool=pool, decode_responses=True)
 
     @staticmethod
     async def close():

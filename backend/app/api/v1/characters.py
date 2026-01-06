@@ -72,3 +72,15 @@ async def update_stats(char_id: int, stat_data: StatUpdateSchema, db: AsyncSessi
     if not updated_stat:
         raise HTTPException(status_code=404, detail="Character stats not found")
     return {"message": "Stats updated", "stats": updated_stat}
+
+@router.post("/{char_id}/level-up")
+async def manual_level_up(char_id: int, db: AsyncSession = Depends(get_db)):
+    """테스트용: 강제로 1레벨을 올립니다."""
+    char = await char_service.get_character_with_stats(db, char_id)
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+    
+    # 레벨업에 필요한 경험치 지급 (stat.level * 100)
+    exp_needed = char.stat.level * 100
+    result = await char_service._give_exp_and_levelup(db, char, exp_needed)
+    return {"message": "Level up success", "result": result}
