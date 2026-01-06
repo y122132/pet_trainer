@@ -186,6 +186,10 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                      imageUrl,
                      fit: BoxFit.contain,
                      width: MediaQuery.of(context).size.width * 0.8,
+                     filterQuality: FilterQuality.high,
+                     errorBuilder: (context, error, stackTrace) {
+                       return const Icon(Icons.pets, color: Colors.grey, size: 80);
+                     },
                    );
                  } else {
                    // Fallback to the default asset

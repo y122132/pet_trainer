@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../api_config.dart';
 import '../widgets/cute_avatar.dart';
@@ -268,9 +269,11 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
             if (diaryImage != null)
               AspectRatio(
                 aspectRatio: 16 / 10,
-                child: (diaryImage is File
-                    ? Image.file(diaryImage, fit: BoxFit.cover, filterQuality: FilterQuality.high)
-                    : Image.network(diaryImage, fit: BoxFit.cover, filterQuality: FilterQuality.high)),
+                child: (diaryImage is XFile)
+                  ? (kIsWeb ? Image.network(diaryImage.path, fit: BoxFit.cover, filterQuality: FilterQuality.high) : Image.file(File(diaryImage.path), fit: BoxFit.cover, filterQuality: FilterQuality.high))
+                  : (diaryImage is File
+                      ? Image.file(diaryImage, fit: BoxFit.cover, filterQuality: FilterQuality.high)
+                      : Image.network(diaryImage, fit: BoxFit.cover, filterQuality: FilterQuality.high)),
               ),
             // 3. 텍스트 및 인터랙션
             Padding(
@@ -358,7 +361,7 @@ class _AddDiarySheet extends StatefulWidget {
 }
 
 class _AddDiarySheetState extends State<_AddDiarySheet> {
-  File? _image;
+  XFile? _image;
   final TextEditingController _contentController = TextEditingController();
   bool _isUploading = false;
 
@@ -370,7 +373,7 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
 
   Future<void> _pickImage() async {
     final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) setState(() => _image = File(pickedFile.path));
+    if (pickedFile != null) setState(() => _image = pickedFile);
   }
 
   Future<void> _submit() async {
@@ -423,7 +426,9 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
                             Text("사진 추가하기", style: TextStyle(color: Color(0xFF8D6E63)))
                           ],
                         )
-                      : Image.file(_image!, fit: BoxFit.cover),
+                      : (kIsWeb
+                          ? Image.network(_image!.path, fit: BoxFit.cover)
+                          : Image.file(File(_image!.path), fit: BoxFit.cover)),
                 ),
               ),
             ),
