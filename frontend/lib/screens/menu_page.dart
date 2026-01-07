@@ -311,7 +311,7 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
     final charProvider = Provider.of<CharProvider>(context, listen: false);
 
     final myData = {
-      "id": charProvider.character?.id ?? 0,
+      "id": charProvider.character?.userId ?? 0,
       "nickname": charProvider.character?.name ?? "나의 펫",
       "pet_type": charProvider.character?.petType ?? "dog",
       "level": charProvider.character?.stat?.level ?? 1,

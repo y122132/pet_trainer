@@ -18,6 +18,7 @@ class User(Base):
     nickname: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True) # network에서 추가된 필드
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False) # 관리자 권한
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow) # develop의 생성일자 유지
     
     # 1:1 Relationship with Character
