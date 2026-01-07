@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'dart:async'; // [Fix] Import
 import 'dart:ui'; // For ImageFilter
 import 'package:provider/provider.dart';
 import 'package:pet_trainer_frontend/api_config.dart';
@@ -51,6 +52,9 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   int _floatingTextIdCounter = 0;
   int? _attackerId; 
 
+  // [Fix] Stream Subscription for cleanup
+  StreamSubscription? _eventSubscription; 
+
   @override
   void initState() {
     super.initState();
@@ -88,7 +92,8 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   }
 
   void _listenToEvents() {
-    _controller.eventStream.listen((event) {
+    _eventSubscription?.cancel(); // Cancel existing if any
+    _eventSubscription = _controller.eventStream.listen((event) {
        if (!mounted) return;
        
        switch (event.type) {
@@ -167,6 +172,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _eventSubscription?.cancel(); // [Fix] Cancel stream
     _shakeController.dispose();
     _idleController.dispose();
     _dashController.dispose();

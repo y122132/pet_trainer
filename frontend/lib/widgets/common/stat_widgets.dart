@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../../config/design_system.dart'; // Import design system for colors
 
 // --- 스탯 색상 매퍼 ---
 class StatColorMapper {
@@ -8,29 +9,29 @@ class StatColorMapper {
       case 'STR':
       case 'STRENGTH':
       case '근력':
-        return Colors.redAccent;
+        return AppColors.statStr;
       case 'INT':
       case 'INTELLIGENCE':
       case '지능':
-        return Colors.blueAccent;
+        return AppColors.statInt;
       case 'DEX':
       case 'AGILITY':
       case '민첩':
-        return Colors.greenAccent;
+        return AppColors.statDex;
       case 'DEF':
       case 'DEFENSE':
       case '방어':
-        return Colors.grey;
+        return AppColors.statDef;
       case 'LUK':
       case 'LUCK':
       case '운':
-        return Colors.amber;
+        return const Color(0xFFD7CCC8); // Use DEF color for LUK as per design
       case 'HAP':
       case 'HAPPINESS':
       case '행복':
-        return Colors.pinkAccent;
+        return AppColors.statDef;
       default:
-        return Colors.indigoAccent;
+        return AppColors.secondaryBrown;
     }
   }
 }
@@ -40,12 +41,16 @@ class StatRadarChart extends StatelessWidget {
   final Map<String, int> stats;
   final double maxValue;
   final bool showLabels;
+  final TextStyle? labelStyle;
+  final List<Color>? graphColors;
 
   const StatRadarChart({
     super.key,
     required this.stats,
     this.maxValue = 100.0,
     this.showLabels = true,
+    this.labelStyle,
+    this.graphColors,
   });
 
   @override
@@ -64,23 +69,31 @@ class StatRadarChart extends StatelessWidget {
       return RadarEntry(value: val.toDouble());
     }).toList();
 
+    // Determine colors based on input or default
+    final fillColor = (graphColors != null && graphColors!.isNotEmpty)
+        ? graphColors![0]
+        : AppColors.statInt.withOpacity(0.2);
+    final borderColor = (graphColors != null && graphColors!.length > 1)
+        ? graphColors![1]
+        : AppColors.secondaryBrown;
+
     return RadarChart(
       RadarChartData(
         radarTouchData: RadarTouchData(enabled: false),
         dataSets: [
           RadarDataSet(
-            fillColor: Colors.indigo.withOpacity(0.2),
-            borderColor: Colors.indigo,
+            fillColor: fillColor,
+            borderColor: borderColor,
             entryRadius: 2,
             dataEntries: entries,
-            borderWidth: 2,
+            borderWidth: 1.5, // Thinner line
           ),
         ],
         radarBackgroundColor: Colors.transparent,
         borderData: FlBorderData(show: false),
         radarBorderData: const BorderSide(color: Colors.transparent),
-        titlePositionPercentageOffset: 0.1,
-        titleTextStyle: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold),
+        titlePositionPercentageOffset: 0.2, // Adjust label position
+        titleTextStyle: labelStyle ?? AppTextStyles.body.copyWith(fontSize: 14),
         getTitle: (index, angle) {
             if (!showLabels) return const RadarChartTitle(text: "");
             if (index < labels.length) {
@@ -108,7 +121,7 @@ class StatProgressBar extends StatelessWidget {
     required this.label,
     required this.value,
     this.maxValue = 100,
-    this.height = 8,
+    this.height = 10, // Slightly thicker
   });
 
   @override
@@ -116,26 +129,33 @@ class StatProgressBar extends StatelessWidget {
     Color color = StatColorMapper.getColor(label);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
         children: [
           SizedBox(
-            width: 40,
-            child: Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: color)),
+            width: 45,
+            child: Text(label, style: AppTextStyles.base.copyWith(color: color, fontSize: 14)),
           ),
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: (value / maxValue).clamp(0.0, 1.0),
-                backgroundColor: Colors.grey.shade100,
-                color: color,
-                minHeight: height,
+            child: Container(
+              height: height,
+              decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(height),
+                  color: Colors.black.withOpacity(0.05),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(height),
+                child: LinearProgressIndicator(
+                  value: (value / maxValue).clamp(0.0, 1.0),
+                  backgroundColor: Colors.transparent,
+                  color: color,
+                  minHeight: height,
+                ),
               ),
             ),
           ),
-          const SizedBox(width: 10),
-          Text("$value", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
+          const SizedBox(width: 16),
+          Text("$value", style: AppTextStyles.base.copyWith(fontSize: 14, color: AppColors.secondaryBrown)),
         ],
       ),
     );

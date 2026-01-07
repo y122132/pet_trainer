@@ -28,7 +28,11 @@ async def get_chat_status():
 class ChatManager:
     def __init__(self):
         self.active_connections: Dict[int, dict] = {}
-        self.notification_tasks: Dict[int, asyncio.Task] = {} # [Fix] 중복 리스너 방지용 태스크 추적
+        self.notification_tasks: Dict[int, asyncio.Task] = {}
+
+    async def send_personal_message(self, payload: dict, user_id: int):
+        await RedisManager.publish_chat_notification(user_id, payload)
+        print(f"[SIGNAL] 유저 {user_id}에게 {payload['type']} 전송됨.")
 
     async def connect(self, user_id: int, nickname: str, websocket: WebSocket):
         await websocket.accept()

@@ -35,134 +35,173 @@
 
 # 1. Skill_Database: 각 스킬의 상세 데이터
 MOVE_DATA = {
-    0: {
-        "name": "발버둥", 
-        "power": 35, 
-        "accuracy": 100, 
-        "type": "normal", 
-        "category": "physical",
-        "description": "PP가 없어 필사적으로 몸부림친다. (자신도 반동 피해)",
-        "max_pp": 999, # Infinite
-        "effect": {"type": "recoil", "value": 25, "target": "self"}, # 25% Recoil
-        "effect_chance": 100
-    },
-    1: {
-        "name": "짖기", 
-        "power": 20, 
-        "accuracy": 100, 
-        "type": "normal", 
-        "category": "special", # [New] Sound based = Special
-        "description": "큰 소리로 짖어 상대를 놀라게 한다.",
-        "effect": {"type": "stat_change", "stat": "defense", "value": -1, "target": "enemy"},
-        "effect_chance": 30
-    },
-    2: {
-        "name": "버티기", 
-        "power": 0, 
-        "accuracy": 100, 
-        "type": "normal", 
-        "category": "status",
-        "description": "공격을 버텨내며 방어력을 높인다.",
-        "effect": {"type": "stat_change", "stat": "defense", "value": 1, "target": "self"},
-        "effect_chance": 100
-    },
-    3: {
-        "name": "회복 본능", 
-        "power": 0, 
-        "accuracy": 100, 
-        "type": "heal", 
-        "category": "status",
-        "description": "체력을 약간 회복한다.",
-        "effect": {"type": "heal", "value": 20, "target": "self"}, 
-        "effect_chance": 100
-    },
-    4: {
-        "name": "꼬리 살랑", 
-        "power": 0, 
-        "accuracy": 100, 
-        "type": "normal", 
-        "category": "status",
-        "description": "방심하게 만들어 상대의 방어력을 낮춘다.",
-        "effect": {"type": "stat_change", "stat": "defense", "value": -1, "target": "enemy"},
-        "effect_chance": 100
-    },
+    # Lv5 경계 태세: 일반 / 회피율 증가 (2턴) -> Stat Change Agility? or Evasion? 
+    # Use Evasion for "Dodge". 
     5: {
-        "name": "간식 발견", 
-        "power": 40, 
-        "accuracy": 90, 
+        "name": "경계 태세", 
+        "power": 0, 
+        "accuracy": 100, 
         "type": "normal", 
-        "category": "physical",
-        "description": "간식을 발견한 기쁨으로 돌진한다.",
-        "effect": {"type": "stat_change", "stat": "strength", "value": 1, "target": "self"},
-        "effect_chance": 50
+        "category": "status",
+        "description": "자세를 낮추고 경계하여 회피율을 높인다.",
+        "effect": {"type": "stat_change", "stat": "evasion", "value": 2, "target": "self"},
+        "effect_chance": 100,
+        "max_pp": 20
     },
-    6: {
-        "name": "전광석화",
-        "power": 40,
-        "accuracy": 100,
+
+    # Lv10 위협의 포효: 일반 / 상대 공격력 감소 (2턴)
+    10: {
+        "name": "위협의 포효", 
+        "power": 0, 
+        "accuracy": 100, 
+        "type": "normal", # Sound?
+        "category": "status",
+        "description": "거칠게 포효하여 상대의 기를 꺽어 공격력을 낮춘다.",
+        "effect": {"type": "stat_change", "stat": "strength", "value": -1, "target": "enemy"},
+        "effect_chance": 100,
+        "max_pp": 20
+    },
+
+    # Lv15 사냥 개시: 준궁 / 선공 확정 + 첫 공격 피해 증가
+    # Priority move with high power. "First attack damage boost" logic is hard to inject perfectly without "turn count" state.
+    # Instead, we make it a High Priority + Decent Power move, conceptualizing "Initiative".
+    15: {
+        "name": "사냥 개시", 
+        "power": 60, 
+        "accuracy": 100, 
         "type": "normal", 
         "category": "physical",
-        "priority": 1, 
-        "description": "눈에 보이지 않는 속도로 먼저 공격한다.",
+        "priority": 2, # High Priority
+        "description": "누구보다 빠르게 먼저 공격한다. 사냥의 시작을 알린다.",
         "effect": None,
-        "effect_chance": 0
+        "effect_chance": 0,
+        "max_pp": 15
     },
-    
-    101: {
-        "name": "할퀴기", 
-        "power": 35, 
+
+    # Lv25 출혈 이빨: 일반 / 공격 + 출혈 (2턴)
+    25: {
+        "name": "출혈 이빨", 
+        "power": 50, 
         "accuracy": 95, 
         "type": "normal", 
         "category": "physical",
-        "description": "날카로운 발톱으로 상대를 할퀸다. (확률적 출혈/독)",
-        "effect": {"type": "status", "status": "poison", "target": "enemy"},
-        "effect_chance": 30
+        "description": "상대를 물어뜯어 출혈을 일으킨다.",
+        "effect": {"type": "status", "status": "bleed", "target": "enemy"},
+        "effect_chance": 100, # Guaranteed bleed? or chance? User said "+ Bleed", implying guarantee.
+        "max_pp": 15
     },
-    102: {
-        "name": "냥점프", 
+
+    # Lv30 야성 폭주: 궁극 / 공격력 대폭 증가 / 방어 감소
+    30: {
+        "name": "야성 폭주", 
         "power": 0, 
         "accuracy": 100, 
-        "type": "evade", 
+        "type": "normal", 
         "category": "status",
-        "description": "높이 점프하여 회피율(민첩성)을 높인다.",
-        "effect": {"type": "stat_change", "stat": "agility", "value": 1, "target": "self"},
-        "effect_chance": 100
+        "description": "야성을 폭발시켜 방어를 포기하고 공격력을 대폭 올린다.",
+        "effect": [
+            {"type": "stat_change", "stat": "strength", "value": 3, "target": "self"},
+            {"type": "stat_change", "stat": "defense", "value": -2, "target": "self"}
+        ],
+        "effect_chance": 100,
+        "max_pp": 5
     },
-    103: {
-        "name": "신경 긁기", 
-        "power": 15, 
+
+    # Lv45 전투 감각: 일반 / 상태이상 성공률 증가 (Implemented as Crit Rate increase as "Sense" is vague for status chance mod in current architecture)
+    # User said "Status Success Rate Increase". We don't have "Status Accumulation" or "Accuracy for Status" separate stat easily.
+    # Alternative: Increase Accuracy & Crit (Vital spots).
+    45: {
+        "name": "전투 감각", 
+        "power": 0, 
         "accuracy": 100, 
         "type": "psychic", 
-        "category": "special",
-        "description": "상대의 신경을 긁어 공격력을 낮춘다.",
-        "effect": {"type": "stat_change", "stat": "strength", "value": -1, "target": "enemy"},
-        "effect_chance": 100
+        "category": "status",
+        "description": "전투 흐름을 읽어 명중률과 치명타율을 높인다.",
+        "effect": [
+            {"type": "stat_change", "stat": "accuracy", "value": 1, "target": "self"},
+            {"type": "stat_change", "stat": "crit_rate", "value": 1, "target": "self"}
+        ],
+        "effect_chance": 100,
+        "max_pp": 10
     },
-    104: {
-        "name": "급습", 
-        "power": 40, 
+
+    # Lv50 본능 각성: 궁극 / HP 낮을수록 능력(Damage) 급상승
+    # Requires Special Logic in Calculator
+    50: {
+        "name": "본능 각성", 
+        "power": 70, # Base power
         "accuracy": 100, 
-        "type": "dark", 
-        "category": "physical",
-        "description": "보이지 않는 곳에서 기습한다. (높은 크리티컬/마비)",
-        "effect": {"type": "status", "status": "paralysis", "target": "enemy"},
-        "effect_chance": 10
-    },
-    105: {
-        "name": "냥냥펀치", 
-        "power": 15, 
-        "accuracy": 90, 
         "type": "fighting", 
         "category": "physical",
-        "description": "연속 펀치. 상대를 혼란에 빠뜨릴 수 있다.",
-        "effect": {"type": "status", "status": "confusion", "target": "enemy"},
-        "effect_chance": 20
+        "scaling": "hp_loss", # Custom Flag handled in calculator
+        "description": "위기에 몰릴수록 더 강력한 힘을 발휘한다.",
+        "effect": None,
+        "effect_chance": 0,
+        "max_pp": 5
+    },
+
+    # Lv65 집중: 일반 / 치명타 확률 증가
+    65: {
+        "name": "집중", 
+        "power": 0, 
+        "accuracy": 100, 
+        "type": "normal", 
+        "category": "status",
+        "description": "정신을 집중하여 급소를 노릴 확률을 높인다.",
+        "effect": {"type": "stat_change", "stat": "crit_rate", "value": 2, "target": "self"},
+        "effect_chance": 100,
+        "max_pp": 15
+    },
+
+    # Lv75 지배의 포효: 궁극 / 공포 -> 행동 실패 확률 증가
+    75: {
+        "name": "지배의 포효", 
+        "power": 0, 
+        "accuracy": 90, 
+        "type": "dark", 
+        "category": "status",
+        "description": "압도적인 존재감으로 상대를 공포에 질리게 한다.",
+        "effect": {"type": "status", "status": "fear", "target": "enemy"},
+        "effect_chance": 100,
+        "max_pp": 5
+    },
+
+    # Lv90 전투의 정점: 일반 / 모든 능력 소폭 증가
+    90: {
+        "name": "전투의 정점", 
+        "power": 0, 
+        "accuracy": 100, 
+        "type": "normal", 
+        "category": "status",
+        "description": "수많은 전투 경험으로 모든 능력을 끌어올린다.",
+        "effect": [
+            {"type": "stat_change", "stat": "strength", "value": 1, "target": "self"},
+            {"type": "stat_change", "stat": "defense", "value": 1, "target": "self"},
+            {"type": "stat_change", "stat": "agility", "value": 1, "target": "self"},
+            {"type": "stat_change", "stat": "intelligence", "value": 1, "target": "self"}
+        ],
+        "effect_chance": 100,
+        "max_pp": 5
+    },
+
+    # Lv100 야수의 왕: 최종 궁극 / 자신 강화 + 상대 약화
+    100: {
+        "name": "야수의 왕", 
+        "power": 150, 
+        "accuracy": 100, 
+        "type": "dragon", # Majestic type
+        "category": "physical",
+        "description": "짐승의 왕으로서 모든 것을 짓밟는다.",
+        "effect": [
+            {"type": "stat_change", "stat": "strength", "value": 2, "target": "self"},
+            {"type": "stat_change", "stat": "defense", "value": -2, "target": "enemy"}
+        ],
+        "effect_chance": 100,
+        "max_pp": 1
     }
 }
 
 # 2. Type_Chart: 속성 상성 (공격 타입 기준)
-# weak: 2배 데미지를 입히는 방어 타입
-# resist: 0.5배 데미지를 입히는 방어 타입 (반감)
 TYPE_CHART = {
     "normal": {"weak": [], "resist": ["rock", "steel"]},
     "fighting": {"weak": ["normal", "rock", "steel", "ice", "dark"], "resist": ["flying", "poison", "bug", "psychic", "fairy"]},
@@ -184,35 +223,44 @@ TYPE_CHART = {
     "fairy": {"weak": ["fighting", "dragon", "dark"], "resist": ["poison", "steel", "fire"]}
 }
 
-# [New] 펫 종류별 속성 매핑 (임시)
-PET_TYPE_MAP = {
-    "dog": "normal",
-    "cat": "normal", # 테스트를 위해 fighting으로 변경 가능
-    "bird": "flying"
+# 3. PET_LEARNSET: 펫 종류에 따른 기술 습득 테이블
+# All pets learn the same new set for now as requested "Replace Everything"
+# Mapping Level -> List of Move IDs
+COMMON_LEARNSET = {
+    5: [5],
+    10: [10],
+    15: [15],
+    25: [25],
+    30: [30],
+    45: [45],
+    50: [50],
+    65: [65],
+    75: [75],
+    90: [90],
+    100: [100]
 }
 
-# 3. PET_LEARNSET: 펫 종류에 따른 기술 습득 테이블 (No Change needed here, logical mapping)
 PET_LEARNSET = {
-    "dog": {
-        1: [1, 2],       
-        5: [3, 4],       
-        10: [5]          
-    },
-    "cat": {
-        1: [101, 102],   
-        5: [103, 104],   
-        10: [105]        
-    }
+    "dog": COMMON_LEARNSET,
+    "cat": COMMON_LEARNSET,
+    "bird": COMMON_LEARNSET,
+    "bear": COMMON_LEARNSET,
+    "robot": COMMON_LEARNSET
 }
 
-# 4. Status Effects Info (Re-organized)
+
+# 4. Status Effects Info (Updated)
 STATUS_DATA = {
     # Persistent (Ailment)
     "poison": {"name": "독", "desc": "매 턴 체력의 1/8 피해", "min_turn": 3, "max_turn": 6},
     "paralysis": {"name": "마비", "desc": "스피드 저하 및 25% 확률로 행동 불가", "min_turn": 2, "max_turn": 5},
     "burn": {"name": "화상", "desc": "매 턴 체력 피해 및 공격력 반감", "min_turn": 3, "max_turn": 6},
     
-    # Volatile (New) - Logic handled in Manager, Descriptions here for UI if needed
+    # New
+    "bleed": {"name": "출혈", "desc": "지속적으로 체력이 빠져나간다 (1/8)", "min_turn": 2, "max_turn": 4},
+    "fear": {"name": "공포", "desc": "50% 확률로 아무것도 하지 못한다", "min_turn": 2, "max_turn": 4},
+
+    # Volatile
     "confusion": {"name": "혼란", "desc": "33% 확률로 자해 데미지", "min_turn": 2, "max_turn": 5},
     "flinch": {"name": "풀죽음", "desc": "놀라서 움직일 수 없다", "min_turn": 1, "max_turn": 1},
     "protect": {"name": "방어", "desc": "이번 턴의 공격을 막는다", "min_turn": 1, "max_turn": 1}
@@ -225,21 +273,16 @@ STAT_STAGES = {
     1: 3/2, 2: 4/2, 3: 5/2, 4: 6/2, 5: 7/2, 6: 8/2
 }
 
-# 6. [New] Type Immunity Update (Fixed Direction)
-# Key = Attacking Type, Value = List of Immune Defender Types
+# 6. Type Immunity Update
 TYPE_CHART["ground"]["immune"] = ["flying"]
-TYPE_CHART["ghost"]["immune"] = ["normal"] # Normal is Immune to Ghost? No, usually Normal is imm to Ghost AND Ghost imm to Normal.
-# Ghost moves -> Normal (0x)
-# Normal moves -> Ghost (0x)
 TYPE_CHART["normal"]["immune"] = ["ghost"]
 TYPE_CHART["electric"]["immune"] = ["ground"]
 TYPE_CHART["psychic"]["immune"] = ["dark"]
 TYPE_CHART["poison"]["immune"] = ["steel"]
 TYPE_CHART["dragon"]["immune"] = ["fairy"]
-# Fighting moves -> Ghost (0x)
 TYPE_CHART["fighting"]["immune"] = ["ghost"]
 
-# 7. [New] Field & Weather Modifiers
+# 7. Field & Weather Modifiers
 FIELD_EFECTS = {
     "weather": {
         "sun": {"fire": 1.5, "water": 0.5, "name": "쾌청"},
@@ -247,71 +290,18 @@ FIELD_EFECTS = {
         "clear": {"name": "맑음"}
     },
     "location": {
-        "stadium": {"name": "경기장"}, # No bonus
+        "stadium": {"name": "경기장"}, 
         "cave": {"rock": 1.2, "ground": 1.2, "name": "동굴"},
         "forest": {"grass": 1.2, "bug": 1.2, "name": "숲"},
         "water": {"water": 1.2, "name": "물가"}
     }
 }
 
-# 8. [New] Species Base Stats (종족값)
+# 8. Species Base Stats (종족값)
 PET_BASE_STATS = {
-    "dog": {"strength": 10, "intelligence": 10, "defense": 10, "agility": 10, "luck": 10}, # Balanced
-    "cat": {"strength": 9, "intelligence": 12, "defense": 8, "agility": 14, "luck": 12},  # Fast Special Attacker
-    "bird": {"strength": 9, "intelligence": 9, "defense": 8, "agility": 15, "luck": 10},  # Fast Mixed
-    "bear": {"strength": 15, "intelligence": 5, "defense": 14, "agility": 6, "luck": 10}, # Physical Tank
-    "robot": {"strength": 12, "intelligence": 12, "defense": 12, "agility": 8, "luck": 10} # Durable Mixed
+    "dog": {"strength": 10, "intelligence": 10, "defense": 10, "agility": 10, "luck": 10}, 
+    "cat": {"strength": 9, "intelligence": 12, "defense": 8, "agility": 14, "luck": 12},  
+    "bird": {"strength": 9, "intelligence": 9, "defense": 8, "agility": 15, "luck": 10},  
+    "bear": {"strength": 15, "intelligence": 5, "defense": 14, "agility": 6, "luck": 10}, 
+    "robot": {"strength": 12, "intelligence": 12, "defense": 12, "agility": 8, "luck": 10} 
 }
-
-# 9. Additional Moves Injection (Elemental & Strategic)
-# Fire
-MOVE_DATA[201] = {"name": "불꽃세례", "type": "fire", "category": "special", "power": 40, "accuracy": 100, "description": "작은 불꽃을 발사한다.", "effect": {"type": "status", "status": "burn", "target": "enemy"}, "effect_chance": 10}
-MOVE_DATA[202] = {"name": "화염방사", "type": "fire", "category": "special", "power": 90, "accuracy": 100, "description": "강렬한 불꽃을 내뿜는다.", "effect": {"type": "status", "status": "burn", "target": "enemy"}, "effect_chance": 10}
-MOVE_DATA[203] = {"name": "불꽃엄니", "type": "fire", "category": "physical", "power": 65, "accuracy": 95, "description": "불꽃을 머금은 이빨로 문다.", "effect": {"type": "status", "status": "burn", "target": "enemy"}, "effect_chance": 10}
-MOVE_DATA[204] = {"name": "도깨비불", "type": "fire", "category": "status", "power": 0, "accuracy": 85, "description": "도깨비불로 상대를 화상 입힌다.", "effect": {"type": "status", "status": "burn", "target": "enemy"}, "effect_chance": 100}
-
-# Water
-MOVE_DATA[211] = {"name": "물대포", "type": "water", "category": "special", "power": 40, "accuracy": 100, "description": "물을 발사한다.", "effect": None, "effect_chance": 0}
-MOVE_DATA[212] = {"name": "하이드로펌프", "type": "water", "category": "special", "power": 110, "accuracy": 80, "description": "고압의 물을 발사한다.", "effect": None, "effect_chance": 0}
-MOVE_DATA[213] = {"name": "폭포오르기", "type": "water", "category": "physical", "power": 80, "accuracy": 100, "description": "기세 좋게 돌진한다. (풀죽음)", "effect": {"type": "status", "status": "flinch", "target": "enemy"}, "effect_chance": 20}
-
-# Electric
-MOVE_DATA[221] = {"name": "전기쇼크", "type": "electric", "category": "special", "power": 40, "accuracy": 100, "description": "전기를 흘려보낸다.", "effect": {"type": "status", "status": "paralysis", "target": "enemy"}, "effect_chance": 10}
-MOVE_DATA[222] = {"name": "10만볼트", "type": "electric", "category": "special", "power": 90, "accuracy": 100, "description": "강력한 전류를 발사한다.", "effect": {"type": "status", "status": "paralysis", "target": "enemy"}, "effect_chance": 10}
-MOVE_DATA[223] = {"name": "번개엄니", "type": "electric", "category": "physical", "power": 65, "accuracy": 95, "description": "전류가 흐르는 이빨로 문다.", "effect": {"type": "status", "status": "paralysis", "target": "enemy"}, "effect_chance": 10}
-MOVE_DATA[224] = {"name": "전기자석파", "type": "electric", "category": "status", "power": 0, "accuracy": 90, "description": "약학 전기로 마비시킨다.", "effect": {"type": "status", "status": "paralysis", "target": "enemy"}, "effect_chance": 100}
-
-# Grass
-MOVE_DATA[231] = {"name": "덩굴채찍", "type": "grass", "category": "physical", "power": 45, "accuracy": 100, "description": "덩굴로 후려친다.", "effect": None, "effect_chance": 0}
-MOVE_DATA[232] = {"name": "에너지볼", "type": "grass", "category": "special", "power": 90, "accuracy": 100, "description": "자연의 힘을 모아 발사한다.", "effect": {"type": "stat_change", "stat": "defense", "value": -1, "target": "enemy"}, "effect_chance": 10}
-
-# Fighting/Ground/Rock
-MOVE_DATA[241] = {"name": "인파이트", "type": "fighting", "category": "physical", "power": 120, "accuracy": 100, "description": "방어를 포기하고 맹공격한다.", "effect": {"type": "stat_change", "stat": "defense", "value": -1, "target": "self"}, "effect_chance": 100}
-MOVE_DATA[242] = {"name": "지진", "type": "ground", "category": "physical", "power": 100, "accuracy": 100, "description": "땅을 흔들어 공격한다.", "effect": None, "effect_chance": 0}
-MOVE_DATA[243] = {"name": "스톤샤워", "type": "rock", "category": "physical", "power": 75, "accuracy": 90, "description": "바위를 떨어뜨린다. (풀죽음)", "effect": {"type": "status", "status": "flinch", "target": "enemy"}, "effect_chance": 30}
-
-# Strategic Status Matches
-MOVE_DATA[251] = {"name": "칼춤", "type": "normal", "category": "status", "power": 0, "accuracy": 100, "description": "전투 춤을 추어 공격력을 크게 올린다.", "effect": {"type": "stat_change", "stat": "strength", "value": 2, "target": "self"}, "effect_chance": 100}
-MOVE_DATA[252] = {"name": "명상", "type": "psychic", "category": "status", "power": 0, "accuracy": 100, "description": "정신을 통일하여 특수공격(지능)을 올린다.", "effect": {"type": "stat_change", "stat": "intelligence", "value": 1, "target": "self"}, "effect_chance": 100}
-MOVE_DATA[253] = {"name": "방어", "type": "normal", "category": "status", "power": 0, "accuracy": 100, "description": "이번 턴 공격을 막는다. (우선도 높음)", "priority": 4, "effect": {"type": "status", "status": "protect", "target": "self"}, "effect_chance": 100}
-
-# Field Control
-MOVE_DATA[261] = {"name": "쾌청", "type": "fire", "category": "status", "power": 0, "accuracy": 100, "description": "햇살을 강하게 만들어 불꽃 위력을 올린다.", "effect": {"type": "field_change", "field": "weather", "value": "sun", "target": "room"}, "effect_chance": 100}
-MOVE_DATA[262] = {"name": "비바라기", "type": "water", "category": "status", "power": 0, "accuracy": 100, "description": "비를 내리게 하여 물 위력을 올린다.", "effect": {"type": "field_change", "field": "weather", "value": "rain", "target": "room"}, "effect_chance": 100}
-
-# Update Learnsets
-# Spread new moves somewhat randomly/thematically for testing
-PET_LEARNSET["dog"].update({1: [1, 2, 6], 3: [203, 223], 5: [3, 4, 104], 10: [5, 241, 242]})
-PET_LEARNSET["cat"].update({1: [101, 102], 3: [103, 204], 5: [104, 252], 10: [105, 202, 222]})
-
-# 10. [New] PP Default Injection (Monkey Patching for Safety/Convenience)
-for mid, mdata in MOVE_DATA.items():
-    if "max_pp" not in mdata:
-        # Default PP based on Power
-        p = mdata.get("power", 0)
-        if p >= 120: mdata["max_pp"] = 5
-        elif p >= 90: mdata["max_pp"] = 10
-        elif p >= 60: mdata["max_pp"] = 15
-        else: mdata["max_pp"] = 20 # Low power or status moves
-        
-    # Ensure immune key exists in ALL generic dictionary entries if referenced blindly (Optional, mostly handled in code .get)

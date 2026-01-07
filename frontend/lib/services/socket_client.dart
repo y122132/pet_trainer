@@ -57,24 +57,9 @@ class SocketClient {
             final data = jsonDecode(decodedMessage);
             print("🔍 [파싱결과] type: ${data['type']}");
 
-            if (data['type'] == 'CHAT_NOTIFICATION') {
-              print("🔔 [알림 작동] 메시지: ${data['message']}");
+            print("🔍 [파싱결과] type: ${data['type']}");
 
-              showSimpleNotification(
-                Text(
-                  "${data['sender_nickname'] ?? '알 수 없는 사용자'}님의 메시지", 
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)
-                ),
-                subtitle: Text(
-                  data['message'] ?? "", 
-                  style: const TextStyle(color: Colors.white70)
-                ),
-                background: Colors.indigoAccent,
-                duration: const Duration(seconds: 3),
-                elevation: 4,
-                position: NotificationPosition.top, 
-              );
-            }
+            // [Fix] Removed redundant CHAT_NOTIFICATION logic (handled by ChatProvider)
           } catch (e) {}
           _streamController.add(message);
         },

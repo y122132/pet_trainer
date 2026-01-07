@@ -193,9 +193,11 @@ class SkillPanelWidget extends StatelessWidget {
                 children: [
                   _buildInfoRow("Type", type),
                   _buildInfoRow("Power", "${skill?['power'] ?? 0}"),
+                  if (skill?['scaling_stat'] != null) 
+                    _buildInfoRow("Scaling", "${skill?['scaling_stat']} x${skill?['scaling_factor'] ?? 1.0}"),
                   if (skill?['accuracy'] != null) _buildInfoRow("Acc", "${skill?['accuracy']}%"),
                   const SizedBox(height: 12),
-                  Text(skill?['desc'] ?? "No description available.", style: const TextStyle(color: Colors.black54, fontSize: 14)),
+                  Text(skill?['desc'] ?? skill?['description'] ?? "No description available.", style: const TextStyle(color: Colors.black54, fontSize: 14)),
                 ],
               ),
               actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("CLOSE"))],
