@@ -6,6 +6,8 @@ from app.services import char_service
 from pydantic import BaseModel
 import os
 import shutil
+import time
+from pathlib import Path
 
 from app.core.security import get_current_user_id
 
@@ -132,12 +134,11 @@ async def create_character_with_images(
     # 1. 파일 확장자 선검사 (빠른 실패)
     image_files = [front_image, back_image, side_image, face_image]
     for file in image_files:
-        filename = file.filename
-        if '.' not in filename:
-             raise HTTPException(status_code=400, detail=f"Invalid filename: {filename}")
+        if not file.filename:
+             raise HTTPException(status_code=400, detail="Filename cannot be empty")
         
-        ext = filename.rsplit('.', 1)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
+        ext = Path(file.filename).suffix.lower()
+        if not ext or ext.replace('.', '') not in ALLOWED_EXTENSIONS:
             raise HTTPException(status_code=400, detail=f"File type not allowed: {ext}")
 
     # 2. 캐릭터 생성 (DB)
@@ -160,18 +161,20 @@ async def create_character_with_images(
     
     try:
         for key, file in image_file_map.items():
-            file_location = os.path.join(UPLOAD_DIR, f"{char.id}_{key}_{file.filename}")
+            timestamp = int(time.time())
+            ext = Path(file.filename).suffix
+            new_filename = f"user{current_user_id}_{key}_{timestamp}{ext}"
+            
+            file_location = os.path.join(UPLOAD_DIR, new_filename)
             
             with open(file_location, "wb+") as file_object:
                 shutil.copyfileobj(file.file, file_object)
                 
-            image_urls[key] = f"/{UPLOAD_DIR}/{char.id}_{key}_{file.filename}"
+            image_urls[key] = f"/{UPLOAD_DIR}/{new_filename}"
             
         # 4. URL 업데이트
         updated_char = await char_service.update_character_image_urls(db, char.id, image_urls)
         
-        # 반환 포맷은 프론트엔드 CharProvider가 기대하는 형태에 맞추거나, 
-        # 혹은 더 명확하게 주고 프론트엔드를 수정함.
         return {"success": True, "message": "Character created successfully", "id": char.id, "character": updated_char}
 
     except Exception as e:
@@ -212,19 +215,16 @@ async def update_character_images(
 
     for key, file in image_files.items():
         # 2. 파일 확장자 검사
-        filename = file.filename
-        if '.' not in filename:
-             raise HTTPException(status_code=400, detail=f"Invalid filename: {filename}")
+        if not file.filename:
+             raise HTTPException(status_code=400, detail="Filename cannot be empty")
         
-        ext = filename.rsplit('.', 1)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
+        ext = Path(file.filename).suffix.lower()
+        if not ext or ext.replace('.', '') not in ALLOWED_EXTENSIONS:
             raise HTTPException(status_code=400, detail=f"File type not allowed: {ext}. Allowed: {ALLOWED_EXTENSIONS}")
 
         # [Bonus] 기존 파일 삭제 (청소)
-        old_url = getattr(char, key) # e.g. /uploads/1_front_url_old.png
+        old_url = getattr(char, key)
         if old_url:
-            # URL에서 실제 파일 경로 변환: /uploads/... -> uploads/...
-            # 단순하게 앞의 '/'만 제거한다고 가정 (상대 경로로 만들기 위해)
             old_path = old_url.lstrip('/')
             if os.path.exists(old_path):
                 try:
@@ -233,15 +233,15 @@ async def update_character_images(
                 except Exception as e:
                     print(f"Failed to delete old file {old_path}: {e}")
 
-        # 파일 저장 경로 설정
-        file_location = os.path.join(UPLOAD_DIR, f"{char_id}_{key}_{file.filename}")
+        # 파일 저장 경로 및 URL 생성
+        timestamp = int(time.time())
+        new_filename = f"user{current_user_id}_{key}_{timestamp}{ext}"
+        file_location = os.path.join(UPLOAD_DIR, new_filename)
         
-        # 파일 저장
         with open(file_location, "wb+") as file_object:
             shutil.copyfileobj(file.file, file_object)
             
-        # 데이터베이스에 저장할 URL 생성 (예: /uploads/1_front_url_image.png)
-        image_urls[key] = f"/{UPLOAD_DIR}/{char_id}_{key}_{file.filename}"
+        image_urls[key] = f"/{UPLOAD_DIR}/{new_filename}"
 
     # 서비스 계층을 호출하여 데이터베이스의 URL 업데이트
     updated_character = await char_service.update_character_image_urls(db, char_id, image_urls)
@@ -250,3 +250,61 @@ async def update_character_images(
         raise HTTPException(status_code=404, detail="Character not found")
         
     return {"message": "Image files uploaded and URLs updated successfully", "image_urls": image_urls}
+
+@router.put("/{char_id}/image/{image_key}")
+async def update_single_character_image(
+    char_id: int,
+    image_key: str,
+    image_file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    """단일 캐릭터 이미지를 업데이트합니다."""
+    # 1. 캐릭터 소유권 확인
+    char = await char_service.get_character_with_stats(db, char_id)
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+    
+    if char.user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this character")
+
+    # 2. 유효한 image_key 인지 확인
+    if image_key not in ["front_url", "back_url", "side_url", "face_url"]:
+        raise HTTPException(status_code=400, detail="Invalid image key provided.")
+
+    # 3. 파일 확장자 검사
+    if not image_file.filename:
+        raise HTTPException(status_code=400, detail="Filename cannot be empty")
+    
+    ext = Path(image_file.filename).suffix.lower()
+    if not ext or ext.replace('.', '') not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type not allowed: {ext}")
+
+    # 4. 기존 파일 삭제
+    old_url = getattr(char, image_key, None)
+    if old_url:
+        old_path = old_url.lstrip('/')
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+                print(f"Deleted old file: {old_path}")
+            except Exception as e:
+                print(f"Failed to delete old file {old_path}: {e}")
+
+    # 5. 새 파일 저장 및 URL 생성
+    timestamp = int(time.time())
+    new_filename = f"user{current_user_id}_{image_key}_{timestamp}{ext}"
+    file_location = os.path.join(UPLOAD_DIR, new_filename)
+    
+    with open(file_location, "wb+") as file_object:
+        shutil.copyfileobj(image_file.file, file_object)
+        
+    new_image_url = f"/{UPLOAD_DIR}/{new_filename}"
+
+    # 6. DB 업데이트
+    updated_character = await char_service.update_character_image_urls(db, char_id, {image_key: new_image_url})
+    
+    if not updated_character:
+        raise HTTPException(status_code=404, detail="Character not found after update attempt")
+        
+    return {"message": f"{image_key} updated successfully", "image_url": new_image_url}
