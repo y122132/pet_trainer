@@ -56,7 +56,8 @@ def process_frame(
     target_class_id: int = 16, 
     difficulty: str = "easy",
     frame_index: int = 0,
-    process_interval: int = 1
+    process_interval: int = 1,
+    frame_id: int = -1  # [NEW] Frame ID for sync
 ) -> dict:
     """
     프레임을 분석하여 반려동물과 타겟 물체의 상호작용을 판단합니다.
@@ -67,7 +68,8 @@ def process_frame(
         return {
             "success": False, 
             "skipped": True, 
-            "message": f"Frame {frame_index} skipped"
+            "message": f"Frame {frame_index} skipped",
+            "frame_id": frame_id
         }
 
     # 3. 이미지 디코딩 및 모델 로드
@@ -78,9 +80,9 @@ def process_frame(
         np_data = np.frombuffer(image_bytes, np.uint8)
         frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
         if frame is None:
-            return {"success": False, "message": "이미지 디코딩 실패"}
+            return {"success": False, "message": "이미지 디코딩 실패", "frame_id": frame_id}
     except Exception as e:
-        return {"success": False, "message": f"처리 에러 (Decoding/Loading): {e}"}
+        return {"success": False, "message": f"처리 에러 (Decoding/Loading): {e}", "frame_id": frame_id}
 
     height, width, _ = frame.shape
     aspect_ratio = width / height if height > 0 else 1.0
@@ -98,7 +100,8 @@ def process_frame(
         "orientation": orientation,
         "bbox": [], "pet_keypoints": [], "human_keypoints": [],
         "message": "", "feedback_message": "", "is_specific_feedback": False,
-        "base_reward": {}, "bonus_points": 0
+        "base_reward": {}, "bonus_points": 0,
+        "frame_id": frame_id # [NEW] Return the same ID
     }
 
     results_detect = None

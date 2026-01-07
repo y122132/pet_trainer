@@ -174,6 +174,14 @@ async def analysis_endpoint(
             
             current_time = time.time()
             
+            # [NEW] Frame ID Extraction (Last 4 bytes)
+            frame_id = -1
+            if len(image_bytes) > 4:
+                # Big Endian Integer parsing
+                frame_id = int.from_bytes(image_bytes[-4:], byteorder='big')
+                # Remove ID from image data
+                image_bytes = image_bytes[:-4]
+
             # 비전 처리 (CPU/GPU)
             result = await run_in_threadpool(
                 detector.process_frame, 
@@ -182,7 +190,8 @@ async def analysis_endpoint(
                 target_class_id, 
                 difficulty,
                 frame_index=frame_count,
-                process_interval=PROCESS_INTERVAL
+                process_interval=PROCESS_INTERVAL,
+                frame_id=frame_id  # [NEW] Pass ID
             )
 
             if result.get("skipped", False):
