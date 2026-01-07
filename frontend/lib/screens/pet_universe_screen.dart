@@ -21,7 +21,7 @@ class PetUniverseScreen extends StatefulWidget {
 
 class _PetUniverseScreenState extends State<PetUniverseScreen> {
   late String petType;
-  List<dynamic> _diaries = []; // 실제 일기 데이터 리스트
+  List<dynamic> _diaries = [];
   bool _isLoading = false;
 
   @override
@@ -30,45 +30,89 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
     petType = widget.user['pet_type'] ?? 'dog';
     _fetchDiaries();
   }
-  void _toggleLike(int index) {
-    setState(() {
-      final diary = _diaries[index];
-      // 서버 연동 전 로컬 상태 변경
-      if (diary['isLiked'] == true) {
-        diary['isLiked'] = false;
-        diary['likes'] = (diary['likes'] ?? 1) - 1;
-      } else {
-        diary['isLiked'] = true;
-        diary['likes'] = (diary['likes'] ?? 0) + 1;
-      }
-    });
-    // TODO: 서버에 좋아요 API 호출 (POST /diaries/{id}/like)
-  }
 
   // 1. 서버에서 일기 목록 가져오기
   Future<void> _fetchDiaries() async {
-    setState(() => _isLoading = true);
+    // If loading for first time, show indicator. If refreshing, don't necessarily wipe screen.
+    if (_diaries.isEmpty) setState(() => _isLoading = true);
+    
     try {
       final token = await AuthService().getToken();
       final response = await http.get(
-        Uri.parse('${AppConfig.baseUrl}/diaries/${widget.user['id']}'),
+        // TODO: 현재는 내 일기만 보거나(프로필용), 추후 /diaries/ (전체)로 확장 가능
+        // 계획에 따라: GET /v1/diaries/user/{id}
+        Uri.parse('${AppConfig.baseUrl}/diaries/user/${widget.user['id']}'),
         headers: {"Authorization": "Bearer $token"},
       );
 
       if (response.statusCode == 200) {
-        if (!mounted) return; // [Fix] Check mounted before setState
+        if (!mounted) return;
         setState(() {
           _diaries = jsonDecode(utf8.decode(response.bodyBytes));
         });
+      } else {
+        print("일기 로드 실패: ${response.statusCode}");
       }
     } catch (e) {
-      print("일기 로드 실패: $e");
+      print("일기 로드 에러: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // 2. 일기 작성용 BottomSheet 호출
+  // 2. 좋아요 토글
+  Future<void> _toggleLike(int index) async {
+    final diary = _diaries[index];
+    final int diaryId = diary['id'];
+    
+    // Optimistic UI Update (먼저 반영)
+    final bool wasLiked = diary['isLiked'] ?? false;
+    final int oldLikes = diary['likes'] ?? 0;
+    
+    setState(() {
+      diary['isLiked'] = !wasLiked;
+      diary['likes'] = wasLiked ? oldLikes - 1 : oldLikes + 1;
+    });
+
+    try {
+      final token = await AuthService().getToken();
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/diaries/$diaryId/like'),
+        headers: {"Authorization": "Bearer $token"},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        // 서버의 최신 카운트로 동기화
+        if (mounted) {
+          setState(() {
+            diary['likes'] = data['likes'];
+            diary['isLiked'] = data['isLiked'];
+          });
+        }
+      } else {
+        // 실패 시 롤백
+        if (mounted) {
+           setState(() {
+            diary['isLiked'] = wasLiked;
+            diary['likes'] = oldLikes;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("좋아요 실패")));
+        }
+      }
+    } catch (e) {
+      print("Like Error: $e");
+      // 실패 시 롤백
+      if (mounted) {
+          setState(() {
+          diary['isLiked'] = wasLiked;
+          diary['likes'] = oldLikes;
+        });
+      }
+    }
+  }
+
+  // 3. 일기 작성 모달
   void _showAddDiarySheet() {
     showModalBottomSheet(
       context: context,
@@ -76,13 +120,50 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => _AddDiarySheet(
         petType: petType,
-        onSave: (newDiary) {
-          setState(() => _diaries.insert(0, newDiary)); // 목록 최상단에 추가
+        onSave: (File? image, String content, String tag) async {
+           await _submitDiary(image, content, tag);
         },
       ),
     );
   }
 
+  // 4. 일기 업로드 (API)
+  Future<void> _submitDiary(File? image, String content, String tag) async {
+    setState(() => _isLoading = true);
+    try {
+      final token = await AuthService().getToken();
+      var uri = Uri.parse("${AppConfig.baseUrl}/diaries/");
+      var request = http.MultipartRequest("POST", uri);
+      
+      request.headers.addAll({"Authorization": "Bearer $token"});
+      request.fields['content'] = content;
+      request.fields['tag'] = tag;
+      
+      if (image != null) {
+        var stream = http.ByteStream(image.openRead());
+        var length = await image.length();
+        var multipartFile = http.MultipartFile('image', stream, length, filename: image.path.split("/").last);
+        request.files.add(multipartFile);
+      }
+
+      var response = await request.send();
+
+      if (response.statusCode == 200) {
+        // 성공 시 목록 새로고침
+        await _fetchDiaries();
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일기가 저장되었습니다!")));
+      } else {
+        final respStr = await response.stream.bytesToString();
+        print("Upload Failed: $respStr");
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("업로드 실패: $respStr")));
+      }
+    } catch (e) {
+      print("Upload Error: $e");
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("에러 발생: $e")));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,21 +175,27 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _showAddDiarySheet, // 버튼 기능 구현
-          backgroundColor: _getThemeColor(),
-          icon: const Icon(Icons.edit, color: Colors.white),
-          label: const Text("오늘의 일기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        ),
-        body: _isLoading 
+        iconTheme: const IconThemeData(color: Color(0xFF4E342E)), // Back button color
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showAddDiarySheet,
+        backgroundColor: _getThemeColor(),
+        icon: const Icon(Icons.edit, color: Colors.white),
+        label: const Text("오늘의 일기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      ),
+      body: RefreshIndicator(
+        onRefresh: _fetchDiaries, // Pull-to-Refresh 연결
+        color: _getThemeColor(),
+        child: _isLoading && _diaries.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(), // 내용이 적어도 스크롤/리프레시 가능하게
               slivers: [
                 SliverToBoxAdapter(child: _buildScrapbookHeader()),
                 
                 _diaries.isEmpty 
                 ? const SliverFillRemaining(
+                    hasScrollBody: false,
                     child: Center(child: Text("아직 기록된 추억이 없어요.\n첫 일기를 작성해보세요!", textAlign: TextAlign.center))
                   )
                 : SliverList(
@@ -120,14 +207,16 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
                 const SliverToBoxAdapter(child: SizedBox(height: 100)),
               ],
             ),
-      );
-    }
+      ),
+    );
+  }
 
   // --- UI 컴포넌트들 ---
   Widget _buildDiaryCard(int index) {
     final diary = _diaries[index];
-    final dynamic diaryImage = diary['image']; 
+    final String? imageUrl = diary['image_url']; 
     final bool isLiked = diary['isLiked'] ?? false;
+    final int likeCount = diary['likes'] ?? 0;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -141,14 +230,16 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
         children: [
           _buildCardHeader(diary),
           
-          AspectRatio(
-            aspectRatio: 1.5,
-            child: diaryImage != null 
-              ? (diaryImage is File 
-                  ? Image.file(diaryImage, fit: BoxFit.cover) 
-                  : Image.network(diaryImage, fit: BoxFit.cover))
-              : _buildDefaultImage(),
-          ),
+          if (imageUrl != null && imageUrl.isNotEmpty)
+            AspectRatio(
+              aspectRatio: 1.5,
+              child: Image.network(
+                "${AppConfig.baseUrl}$imageUrl", 
+                fit: BoxFit.cover,
+                errorBuilder: (ctx, err, stack) => _buildDefaultImage(),
+              )
+            ),
+          
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
@@ -158,14 +249,15 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
                 const SizedBox(height: 12),
                 const Divider(),
                 Row(
-                  children: [IconButton(
+                  children: [
+                    IconButton(
                       onPressed: () => _toggleLike(index),
                       icon: Icon(
                         isLiked ? Icons.favorite : Icons.favorite_border,
                         color: isLiked ? Colors.redAccent : Colors.grey,
                       ),
                     ),
-                    Text("${diary['likes'] ?? 0}명이 응원해요", 
+                    Text("$likeCount명이 응원해요", 
                       style: TextStyle(
                         fontWeight: isLiked ? FontWeight.bold : FontWeight.normal,
                         color: isLiked ? Colors.redAccent : Colors.black54
@@ -180,14 +272,22 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
       ),
     );
   }
+  
+  // 나머지 UI (Header, DefaultImage, Theme)는 기존 유지
   Widget _buildCardHeader(dynamic diary) {
+    // 날짜 포맷팅 안전하게
+    String dateStr = "";
+    if (diary['created_at'] != null) {
+        dateStr = diary['created_at'].toString().substring(0, 10);
+    }
+    
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Row(
         children: [
           _getPetIcon(),
           const SizedBox(width: 10),
-          Text(diary['created_at'].toString().substring(0, 10), 
+          Text(dateStr, 
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF4E342E))),
           const Spacer(),
           _tagCard(diary['tag'] ?? "일상", _getThemeColor().withOpacity(0.1), _getThemeColor()),
@@ -196,9 +296,10 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
     );
   }
 
-  // 사진 없을 때 기본 캐릭터 배경
   Widget _buildDefaultImage() {
     return Container(
+      height: 200,
+      width: double.infinity,
       color: _getThemeColor().withOpacity(0.05),
       child: Center(
         child: Column(
@@ -212,8 +313,6 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
       ),
     );
   }
-
-  // --- 종별 테마 및 데이터 분기 처리 ---
 
   Color _getThemeColor() {
     if (petType == 'dog') return Colors.orange[400]!;
@@ -246,9 +345,9 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.user['nickname'], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              Text(widget.user['nickname'] ?? "Unknown", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 5),
-              Text("Lv.${widget.user['level']} | 성장 중인 우리 아이", style: TextStyle(color: Colors.grey[600])),
+              Text("Lv.${widget.user['level'] ?? 1} | 성장 중인 우리 아이", style: TextStyle(color: Colors.grey[600])),
             ],
           )
         ],
@@ -256,9 +355,10 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> {
     );
   }
 }
+
 class _AddDiarySheet extends StatefulWidget {
   final String petType;
-  final Function(dynamic) onSave;
+  final Function(File?, String, String) onSave; // Signature Changed
   const _AddDiarySheet({required this.petType, required this.onSave});
 
   @override
@@ -268,7 +368,7 @@ class _AddDiarySheet extends StatefulWidget {
 class _AddDiarySheetState extends State<_AddDiarySheet> {
   File? _image;
   final TextEditingController _contentController = TextEditingController();
-  bool _isUploading = false;
+  bool _isUploading = false; // Parent handles loading actually, but can keep for UI lock
 
   String _getAutomaticTag() {
     if (widget.petType == 'dog') return "산책완료";
@@ -280,19 +380,16 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
     final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (pickedFile != null) setState(() => _image = File(pickedFile.path));
   }
-  Future<void> _submit() async {
+  
+  void _submit() {
     if (_contentController.text.isEmpty) return;
-    setState(() => _isUploading = true);
-
-    await Future.delayed(const Duration(milliseconds: 500));   
-    widget.onSave({
-      "image": _image,
-      "content": _contentController.text,
-      "tag": _getAutomaticTag(),
-      "created_at": DateTime.now().toString(),
-      "isLiked": false,
-      "likes": 0,
-    });
+    
+    // Pass data to parent logic
+    widget.onSave(
+        _image, 
+        _contentController.text, 
+        _getAutomaticTag() // Or add tag selector later
+    );
     Navigator.pop(context);
   }
 
@@ -314,18 +411,36 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
             GestureDetector(
               onTap: _pickImage,
               child: _image == null 
-                ? Container(height: 200, color: Colors.grey[200], child: const Icon(Icons.add_a_photo, size: 50))
-                : Image.file(_image!, height: 200, fit: BoxFit.cover),
+                // [Modified] 사진 필수 아님 -> 힌트 텍스트 변경
+                ? Container(
+                    height: 150, 
+                    width: double.infinity,
+                    decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.grey[300]!)),
+                    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: const [Icon(Icons.add_a_photo, size: 40, color: Colors.grey), SizedBox(height:5), Text("사진 추가 (선택)", style: TextStyle(color: Colors.grey))]))
+                : ClipRRect(borderRadius: BorderRadius.circular(15), child: Image.file(_image!, height: 200, width: double.infinity, fit: BoxFit.cover)),
             ),
+            const SizedBox(height: 15),
             TextField(
               controller: _contentController,
-              decoration: const InputDecoration(hintText: "우리 아이와 어떤 일이 있었나요?"),
+              decoration: const InputDecoration(
+                hintText: "우리 아이와 어떤 일이 있었나요?",
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.all(12)
+              ),
               maxLines: 3,
             ),
             const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _isUploading ? null : _submit,
-              child: _isUploading ? const CircularProgressIndicator() : const Text("기록하기"),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _submit,
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange[400], // Temp color, logic in parent
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                ),
+                child: const Text("기록하기", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
             )
           ],
         ),

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 if TYPE_CHECKING:
     from app.db.models.character import Character
     from app.db.models.friendship import Friendship
+    from app.db.models.diary import Diary, DiaryLike
 
 class User(Base):
     __tablename__ = "users"
@@ -41,3 +42,7 @@ class User(Base):
         back_populates="receiver",
         cascade="all, delete-orphan"
     )
+
+    # Diaries
+    diaries: Mapped[list["Diary"]] = relationship("Diary", back_populates="user", cascade="all, delete-orphan")
+    diary_likes: Mapped[list["DiaryLike"]] = relationship("DiaryLike", back_populates="user", cascade="all, delete-orphan")
