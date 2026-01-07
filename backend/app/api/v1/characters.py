@@ -48,7 +48,7 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
     
-    return {
+    response_data = {
         "id": char.id,
         "user_id": char.user_id,
         "name": char.name,
@@ -59,6 +59,7 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
         "back_url": char.back_url,
         "side_url": char.side_url,
         "face_url": char.face_url,
+        "recent_skills": char.recent_skills or [], # [New] 새로운 스킬 알림용
         "stats": {
             "level": char.stat.level,
             "exp": char.stat.exp,
@@ -72,6 +73,13 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
             "unused_points": char.stat.unused_points
         }
     }
+    
+    # 알림 확인 처리: recent_skills 필드 초기화
+    if char.recent_skills:
+        char.recent_skills = []
+        await db.commit()
+        
+    return response_data
 
 @router.post("/")
 async def create_character(char_data: CharacterCreate, db: AsyncSession = Depends(get_db)):

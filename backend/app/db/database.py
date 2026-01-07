@@ -42,6 +42,13 @@ async def init_db():
         # 테이블 생성
         await conn.run_sync(Base.metadata.create_all)
         
+        # [New] 캐릭터 테이블에 recent_skills 컬럼 자동 추가 (Alembic 미사용 시의 Migration 대용)
+        from sqlalchemy import text
+        try:
+            await conn.execute(text("ALTER TABLE characters ADD COLUMN IF NOT EXISTS recent_skills JSONB DEFAULT '[]'::jsonb"))
+        except Exception as e:
+            print(f"[Migration Warning] Failed to add recent_skills column: {e}")
+        
     from sqlalchemy import select
     from app.db.models.user import User
     from app.db.models.character import Character, Stat

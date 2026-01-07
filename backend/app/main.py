@@ -67,8 +67,12 @@ async def on_startup():
     await init_db()
     
     # YOLO 모델을 메모리에 미리 로드합니다.
-    # 이렇게 하면 첫 번째 사용자 요청 시 모델 로딩으로 인한 딜레이가 발생하지 않습니다.
     detector.load_models()
+
+    # [New] Matchmaker Pub/Sub listener start
+    from app.game.matchmaker import matchmaker
+    import asyncio
+    asyncio.create_task(matchmaker.start_listener())
 
 # 라우터 등록
 # REST API와 WebSocket 엔드포인트를 메인 앱에 연결합니다.

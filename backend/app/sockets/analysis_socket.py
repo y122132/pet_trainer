@@ -317,6 +317,7 @@ async def analysis_endpoint(
                                 "base_reward": result.get("base_reward", {}),
                                 "bonus_points": result.get("bonus_points", 0),
                                 "count": service_result.get("daily_count", 0),
+                                "levelup_info": service_result.get("levelup_result"), # [New] 레벨업 및 새 스킬 정보
                                 "bbox": []
                             }
                         else:

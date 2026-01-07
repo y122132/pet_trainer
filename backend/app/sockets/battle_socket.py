@@ -29,25 +29,31 @@ async def matchmaking_endpoint(websocket: WebSocket, user_id: int, token: str | 
 
     await websocket.accept()
     
-    # 2. 레벨 제한 체크 (Lv.10 이상)
+    # 2. 레벨 제한 체크 (Lv.1 이상으로 완화)
     try:
         async with AsyncSessionLocal() as db:
-            result = await db.execute(select(Character).where(Character.user_id == user_id))
+            # character.stat을 미리 로드하기 위해 조인 사용 권장되나, 여기서는 간단히 stat 조회 후 체크
+            stmt = select(Character).where(Character.user_id == user_id)
+            result = await db.execute(stmt)
             character = result.scalar_one_or_none()
             
             if not character:
                 await websocket.close(code=4004, reason="Character not found")
                 return
 
-            if character.level < 10:
-                print(f"[Battle-Socket] User {user_id} rejected: Level {character.level} < 10")
-                # [User Request] 10레벨 미만 안내 메시지 전송
+            # [Fix] level은 character.stat에 위치함
+            from app.db.models.character import Stat
+            stmt_stat = select(Stat).where(Stat.character_id == character.id)
+            res_stat = await db.execute(stmt_stat)
+            stat_obj = res_stat.scalar_one_or_none()
+
+            if not stat_obj or stat_obj.level < 1:
+                print(f"[Battle-Socket] User {user_id} rejected: Level {stat_obj.level if stat_obj else 'N/A'} < 1")
                 await websocket.send_json({
                     "type": "ERROR",
                     "code": "LEVEL_TOO_LOW",
-                    "message": "10레벨 미만은 배틀 시스템을 이용할 수 없습니다."
+                    "message": "인증된 캐릭터가 없거나 레벨이 부족합니다."
                 })
-                # 메시지 전송 후 잠시 대기하지 않으면 클라이언트가 받기 전에 끊길 수 있음 (Optional, but safe)
                 await asyncio.sleep(0.1) 
                 await websocket.close(code=4003, reason="Level too low")
                 return
@@ -66,10 +72,12 @@ async def matchmaking_endpoint(websocket: WebSocket, user_id: int, token: str | 
             # 클라이언트가 취소 요청("CANCEL")을 보낼 수도 있음
             data = await websocket.receive_text()
             if data == "CANCEL":
+                await matchmaker.remove_from_queue_async(user_id)
+                await websocket.send_json({"type": "CANCEL_CONFIRMED"})
                 break
             elif data == "AI_BATTLE":
                 # [New] AI 대전 요청 시 즉시 매칭 성사
-                matchmaker.remove_from_queue(user_id)
+                await matchmaker.remove_from_queue_async(user_id)
                 import uuid
                 room_id = str(uuid.uuid4())
                 # [Fix] Use helper to create FULL initial state
@@ -86,7 +94,7 @@ async def matchmaking_endpoint(websocket: WebSocket, user_id: int, token: str | 
     except WebSocketDisconnect:
         pass
     finally:
-        matchmaker.remove_from_queue(user_id)
+        await matchmaker.remove_from_queue_async(user_id)
 
 
 # --- Connection Management (Local) ---

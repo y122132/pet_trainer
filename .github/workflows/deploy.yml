@@ -2,7 +2,8 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "skill2" ] # skill2 브랜치 추가
+  workflow_dispatch:              # 수동 배포 버튼 추가
 
 jobs:
   deploy:
@@ -21,26 +22,24 @@ jobs:
           key: ${{ secrets.EC2_KEY }}
           port: 22
           script: |
-            # 1. 프로젝트 폴더로 이동 (경로는 사용자 환경에 맞게 수정 필요)
+            # 1. 프로젝트 폴더로 이동
             cd /home/ubuntu/pet_trainer
             
-            # 2. 최신 코드 가져오기
-            git pull origin main
+            # 2. 최신 코드 가져오기 (전체 브랜치 정보 업데이트)
+            git fetch origin
             
-            # 3. 백엔드/프론트엔드 환경 파일 확인 (없으면 복사)
-            # cp .env_example .env (필요 시)
+            # 3. 푸시된 브랜치(${{ github.ref_name }})로 전환 및 업데이트
+            echo "Deploying branch: ${{ github.ref_name }}"
+            git checkout ${{ github.ref_name }}
+            git pull origin ${{ github.ref_name }}
             
             # 4. Docker 서비스 재시작
-            # 기존 컨테이너 중지
             sudo docker compose down
-            
-            # 이미지 재빌드 및 실행
             sudo docker compose up -d --build --remove-orphans
             
-            # 5. 불필요한 이미지 정리 (선택 사항)
+            # 5. 불용 이미지 정리
             sudo docker image prune -f
 
-            # 6. 상태 확인 (Health Check)
-            # 서버가 뜨는 시간을 고려해 5초 대기 후 상태 출력
+            # 6. 상태 확인
             sleep 5
             sudo docker ps

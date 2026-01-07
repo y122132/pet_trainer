@@ -91,7 +91,8 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
     return {
         "stat": stat,
         "daily_count": daily_count,
-        "milestone_reached": milestone_reached
+        "milestone_reached": milestone_reached,
+        "levelup_result": await _give_exp_and_levelup(db, stat.character, exp_gain=30) # 트레이닝 성공 시 30 EXP 지급
     }
 
 async def get_character_with_stats(db: AsyncSession, char_id: int):
@@ -227,9 +228,25 @@ async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain
         for skill_id in skills_at_level:
             if skill_id not in current_skills:
                 current_skills.append(skill_id)
-                new_skills.append(skill_id)
+                # 스킬 데이터에서 이름 가져오기
+                from app.game.game_assets import MOVE_DATA
+                skill_name = MOVE_DATA.get(skill_id, {}).get("name", f"Unknown Skill {skill_id}")
+                new_skills.append({"id": skill_id, "name": skill_name})
         
         character.learned_skills = list(current_skills)
+        
+        # [New] 최근 습득 스킬 기록 (마이룸 알림용)
+        if new_skills:
+            recent = list(character.recent_skills or [])
+            for ns in new_skills:
+                # ns is now a dict {"id": ..., "name": ...}
+                ns_id = ns["id"]
+                # ID가 중복되지 않게 기록 (JSONB에는 딕셔너리로 저장)
+                if not any(r.get("id") == ns_id for r in recent if isinstance(r, dict)):
+                    recent.append(ns)
+                elif ns_id not in recent and not isinstance(ns, dict): # 하위 호환성
+                     recent.append(ns)
+            character.recent_skills = recent
 
     await db.commit()
     
