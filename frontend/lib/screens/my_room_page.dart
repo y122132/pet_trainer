@@ -248,7 +248,8 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
        return const Center(child: Text("Loading...", style: TextStyle(color: Colors.white)));
     }
 
-    final statsMap = {
+    final int maxExp = stat.level * 100;
+    final Map<String, int> statsMap = {
       "strength": stat.strength,
       "intelligence": stat.intelligence,
       "agility": stat.agility, 
@@ -261,7 +262,7 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
       margin: const EdgeInsets.only(top: 10, left: 10, right: 10, bottom: 0),
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.8), // Milk Glass
+        color: Colors.white.withOpacity(0.8), 
         borderRadius: const BorderRadius.only(topLeft: Radius.circular(30), topRight: Radius.circular(30)),
         boxShadow: [
           BoxShadow(color: AppColors.secondaryPink.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, -5))
@@ -287,7 +288,9 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                       Text(provider.character?.name ?? '', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.softCharcoal)),
                     ],
                   ),
-                  Text("EXP ${stat.exp}/100", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                  Text("EXP ${stat.exp} / $maxExp",
+                    style: const TextStyle(
+                      color: Colors.grey, fontWeight: FontWeight.bold)),
                 ],
               ),
               // Unused Points Button
@@ -352,7 +355,10 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
           const SizedBox(height: 12),
           ClipRRect(
              borderRadius: BorderRadius.circular(10),
-             child: LinearProgressIndicator(value: stat.exp / 100, backgroundColor: Colors.grey[200], color: AppColors.secondaryPink, minHeight: 10),
+             child: LinearProgressIndicator(
+              value: (stat.exp / maxExp).clamp(0.0, 1.0),
+              backgroundColor: Colors.grey[200], 
+              color: AppColors.secondaryPink, minHeight: 10),
           ),
           const SizedBox(height: 24),
 

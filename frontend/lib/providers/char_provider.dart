@@ -1,13 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:image_picker/image_picker.dart'; // Import XFile
-import 'package:pet_trainer_frontend/models/character_model.dart';
+import 'package:image_picker/image_picker.dart'; 
 import 'package:pet_trainer_frontend/models/pet_config.dart';
+import 'package:pet_trainer_frontend/models/character_model.dart';
 
 import 'package:pet_trainer_frontend/api_config.dart';
 
-import 'package:pet_trainer_frontend/services/auth_service.dart'; // [추가] AuthService 임포트
+import 'package:pet_trainer_frontend/services/auth_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class CharProvider with ChangeNotifier {
@@ -35,7 +35,6 @@ class CharProvider with ChangeNotifier {
   int get level => _character?.stat?.level ?? 1;
   double get expPercentage => (currentExp / maxExp).clamp(0.0, 1.0); // 경험치 바(Bar)용 퍼센트
 
-  // 스탯 맵 반환 (UI 차트용)
   Map<String, int> get statsMap => {
     "STR": strength,
     "INT": intelligence,
@@ -44,25 +43,20 @@ class CharProvider with ChangeNotifier {
     "LUK": luck
   };
   
-  // 현재 진행 중인 미션/메시지
   String _statusMessage = "시작하려면 버튼을 누르세요!";
   String get statusMessage => _statusMessage;
 
-  // 로딩 상태
   bool _isLoading = false;
   bool get isLoading => _isLoading;
   
-  // 백엔드 주소 (Config 파일에서 로드)
   final String _baseUrl = AppConfig.baseUrl; // 예: http://192.168.1.5:8000
 
-  // --- 펫 관련 설정 (강아지/고양이 등) ---
   String _currentPetType = "dog";         // 기본값: 강아지
   PetConfig _petConfig = PET_CONFIGS["dog"]!; // 기본 설정
 
   String get currentPetType => _currentPetType;
   PetConfig get petConfig => _petConfig;
 
-  // Method to set the temporary images
   void setTemporaryImages(Map<String, XFile?> images) {
     tempFrontImage = images['Front'];
     tempBackImage = images['Back'];
@@ -71,7 +65,6 @@ class CharProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // 펫 종류 변경 메서드 (설정 변경 시 호출)
   void setPetType(String type) {
     if (PET_CONFIGS.containsKey(type)) {
       _currentPetType = type;
@@ -81,21 +74,14 @@ class CharProvider with ChangeNotifier {
     }
   }
 
-  // --- 스탯 관리 로직 ---
-  
-  // 사용되지 않은 스탯 포인트 (훈련 보상으로 획득)
   int _unusedStatPoints = 0;
   int get unusedStatPoints => _unusedStatPoints;
 
-  /// 스탯 포인트 추가 (보너스 등)
   void addUnusedPoints(int points) {
     _unusedStatPoints += points;
     notifyListeners();
   }
 
-  /// 특정 스탯에 포인트 할당 (분배)
-  /// [statType]: 스탯 종류 ('strength', 'intelligence', 등)
-  /// [amount]: 할당할 양 (기본 1)
   void allocateStatSpecific(String statType, [int amount = 1]) {
     if (_character == null || _character!.stat == null) return;
     if (_unusedStatPoints < amount) return; // 포인트 부족 시 중단
@@ -125,41 +111,29 @@ class CharProvider with ChangeNotifier {
     }
     _unusedStatPoints -= amount;
     
-    // 서버 동기화 (비동기)
     syncStatToBackend(); 
     
     notifyListeners();
   }
-
-  /// 스탯 초기화 (포인트 회수 및 초기 상태 복구)
   void resetStats() {
     if (_character == null || _character!.stat == null) return;
     
-    // 1. 현재 총 스탯 중, 초기값(Base Stat)을 제외한 증가분 계산
-    // 기본값: STR 0, INT 0, AGI 0, DEF 10, LUK 5, HAP 0, HP 100
     int refundPoints = 0;
     
     refundPoints += _character!.stat!.strength;      // Base 0
     refundPoints += _character!.stat!.intelligence;  // Base 0
     refundPoints += _character!.stat!.agility;       // Base 0
     
-    // 방어력: Base 10
     if (_character!.stat!.defense > 10) {
       refundPoints += (_character!.stat!.defense - 10);
     }
     
-    // 운: Base 5
     if (_character!.stat!.luck > 5) {
       refundPoints += (_character!.stat!.luck - 5);
     }
     
-    // 그 외 (행복도/체력 등은 포인트로 올리는 것이 아니라면 제외, 
-    // 만약 포인트로 올린 것이라면 로직 추가 필요. 여기선 주요 5대 스탯만 리셋 가정)
-    
-    // 2. 스탯 포인트 환불
     _unusedStatPoints += refundPoints;
     
-    // 3. 스탯 초기화
     _character!.stat!.strength = 0;
     _character!.stat!.intelligence = 0;
     _character!.stat!.agility = 0;
@@ -173,13 +147,9 @@ class CharProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  /// 보상 획득 로직 (AI 분석 결과 반영)
-  /// [baseReward]: 기본 스탯 증가량 {stat_type, value}
-  /// [bonusPoints]: 추가 할당 가능한 포인트 (사용자 분배용)
   void gainReward(Map<String, dynamic> baseReward, int bonusPoints) {
     if (_character == null || _character!.stat == null) return;
     
-    // 1. 기본 보상 즉시 적용 (자동 성장)
     String statType = baseReward['stat_type'] ?? 'strength';
     int value = baseReward['value'] ?? 0;
     
@@ -195,12 +165,10 @@ class CharProvider with ChangeNotifier {
       }
     }
     
-    // 2. 보너스 포인트 적립
     if (bonusPoints > 0) {
       _unusedStatPoints += bonusPoints;
     }
     
-    // 3. 경험치 획득 및 레벨업 체크 (기본 경험치 보상 15로 가정)
     gainExp(15);
     
     _balanceStats();
@@ -209,7 +177,6 @@ class CharProvider with ChangeNotifier {
     notifyListeners();
   }
   
-  // 경험치 획득 및 레벨업 통합 로직
   void gainExp(int amount) {
     if (_character != null && _character!.stat != null) {
       _character!.stat!.exp += amount;
@@ -218,12 +185,20 @@ class CharProvider with ChangeNotifier {
     }
   }
 
-  // 레벨업 체크 로직 (Recursive/For loop for multiple level ups)
+  void updateExperience(int newExp, int newLevel) {
+    if (_character == null || _character!.stat == null) return;
+
+    _character!.stat!.exp = newExp;
+    _character!.stat!.level = newLevel;
+    
+    int currentMaxExp = newLevel * 100;
+    notifyListeners();
+  }
+
   void _checkLevelUp() {
     bool leveledUp = false;
     int earnedPoints = 0;
 
-    // 경험치가 maxExp보다 많은 동안 계속 레벨업 (이월)
     while (_character!.stat!.exp >= maxExp) {
       _character!.stat!.exp -= maxExp;
       _character!.stat!.level += 1;
@@ -238,29 +213,21 @@ class CharProvider with ChangeNotifier {
     }
   }
 
-  // 상태 메시지 업데이트 (캐릭터 대사 전용)
   void updateStatusMessage(String msg) {
-    // 빈 문자열이나 null이 들어오면 무시 (기존 메시지 유지)
     if (msg.isEmpty) return;
     
     _statusMessage = msg;
     notifyListeners();
   }
 
-  // --- 서버 통신 (API) ---
-
-  // 데이터 로드 (서버에서 캐릭터 정보 가져오기)
   Future<void> fetchCharacter([int id = 1]) async {
-    // Clear temporary images on any server fetch -> [Moved to success block]
-    // tempFrontImage = null; ... 
 
     try {
       final token = await AuthService().getToken();
-      // API 호출: GET /v1/characters/{id}
       final response = await http.get(
         Uri.parse('${AppConfig.charactersUrl}/$id'),
         headers: {
-          "Authorization": "Bearer $token", // [추가] 인증 헤더
+          "Authorization": "Bearer $token",
           "Content-Type": "application/json",
         },
       );
@@ -269,17 +236,14 @@ class CharProvider with ChangeNotifier {
         if (response.bodyBytes.isEmpty) {
            throw Exception("Empty response body");
         }
-        // 한글 깨짐 방지를 위해 utf8.decode 사용
         final Map<String, dynamic> data = json.decode(utf8.decode(response.bodyBytes));
         
-        // 데이터 무결성 체크
         if (data.isEmpty) {
            throw Exception("Empty JSON data");
         }
         
         _character = Character.fromJson(data);
         
-        // [New] 서버에서 가져온 펫 종류 적용 (동기화)
         _currentPetType = _character!.petType;
         if (PET_CONFIGS.containsKey(_currentPetType)) {
           _petConfig = PET_CONFIGS[_currentPetType]!;
@@ -287,12 +251,10 @@ class CharProvider with ChangeNotifier {
           print("Unknown pet type: $_currentPetType, using default.");
         }
         
-        // 서버의 'unused_points' 정보를 로컬 변수와 동기화
         if (_character!.stat != null) {
             _unusedStatPoints = _character!.stat!.unused_points;
         }
 
-        // [Fix] 데이터 로드 성공 시에만 임시 이미지 클리어 (깜빡임 방지)
         tempFrontImage = null;
         tempBackImage = null;
         tempSideImage = null;
@@ -311,7 +273,6 @@ class CharProvider with ChangeNotifier {
     }
   }
 
-  // [New] 내 캐릭터 정보 가져오기 (저장된 ID 기반)
   Future<void> fetchMyCharacter() async {
     final charIdStr = await AuthService().getCharacterId();
     if (charIdStr != null) {
@@ -324,12 +285,10 @@ class CharProvider with ChangeNotifier {
       }
     } else {
       print("[Provider] 저장된 캐릭터 ID가 없음. 로그인 필요?");
-      // 테스트용: 기본값 1번 시도 (삭제 가능)
-      // await fetchCharacter(1);
     }
   }
 
-  // [New] 강제 레벨업 요청 (테스트용)
+  //  강제 레벨업 요청 (테스트용)
   Future<void> manualLevelUp() async {
     if (_character == null) return;
     try {
@@ -344,7 +303,6 @@ class CharProvider with ChangeNotifier {
 
       if (response.statusCode == 200) {
         print("[Provider] Manual Level-up Success");
-        // 레벨업 후 정보 갱신
         await fetchCharacter(_character!.id);
         _statusMessage = "레벨업 성공! 🎉";
         notifyListeners();
@@ -360,7 +318,6 @@ class CharProvider with ChangeNotifier {
   Future<void> syncStatToBackend() async {
     if (_character == null || _character!.stat == null) return;
 
-    // [Fix] Capture state locally to preserve data across async gap (prevention of null pointers)
     final int charId = _character!.id;
     final stat = _character!.stat!;
     final bodyData = {
@@ -378,7 +335,6 @@ class CharProvider with ChangeNotifier {
 
     try {
       final token = await AuthService().getToken();
-      // API 호출: PUT /v1/characters/{id}/stats
       await http.put(
         Uri.parse('${AppConfig.charactersUrl}/$charId/stats'),
         headers: {
@@ -392,13 +348,10 @@ class CharProvider with ChangeNotifier {
     }
   }
 
-  // 밸런스 조정 (최대값/최소값 제한 등 안전장치)
   void _balanceStats() {
-    // 예시: 행복도가 100을 넘지 않도록 제한
     if (_character!.stat!.happiness > 100) _character!.stat!.happiness = 100;
   }
 
-  // [New] 캐릭터 생성 및 이미지 업로드 통합 메서드 (Atomic)
   Future<bool> createCharacterWithImages(String name, Map<String, XFile?> images) async {
     _isLoading = true;
     _statusMessage = "캐릭터 생성 중 (사진 전송)...";
@@ -408,7 +361,6 @@ class CharProvider with ChangeNotifier {
       final token = await AuthService().getToken();
       if (token == null) throw Exception("로그인이 필요합니다.");
 
-      // [Atomic Creation] 한번에 요청
       var uri = Uri.parse("${AppConfig.baseUrl}/characters/compose");
       var request = http.MultipartRequest("POST", uri);
       
@@ -423,9 +375,6 @@ class CharProvider with ChangeNotifier {
       for (var entry in images.entries) {
           if (entry.value != null) {
               String fieldName = "${entry.key.toLowerCase()}_image";
-              // XFile -> Byte Stream (Cross-platform safe)
-              // fromPath는 dart:io에 의존하므로 웹/일부 환경에서 에러 발생
-              // readAsBytes()는 모든 플랫폼에서 안전함
               var bytes = await entry.value!.readAsBytes();
               var pic = http.MultipartFile.fromBytes(
                   fieldName, 
@@ -448,13 +397,10 @@ class CharProvider with ChangeNotifier {
           
           print("[Provider] Creation Success: ID $newCharId");
           
-          // ID 저장
           await const FlutterSecureStorage().write(key: 'character_id', value: newCharId.toString());
           
-          // 로컬 상태 업데이트 (화면 즉시 반영용)
           setTemporaryImages(images);
           
-          // 캐릭터 정보 새로고침
           await fetchCharacter(newCharId);
           
           _isLoading = false;
@@ -473,7 +419,8 @@ class CharProvider with ChangeNotifier {
     }
   }
   void clearData() {
-    // 필요한 다른 변수들이 있다면 여기서 모두 null이나 기본값으로 초기화하세요.
+    _character = null;
+    _unusedStatPoints = 0;
     notifyListeners();
   }
 }
