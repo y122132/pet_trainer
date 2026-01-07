@@ -1,7 +1,7 @@
 # backend/app/api/v1/routers.py
 from fastapi import APIRouter
 # [수정] 모든 도메인 라우터를 임포트합니다.
-from app.api.v1 import chat, auth, characters 
+from app.api.v1 import chat, auth, characters, diaries
 from app.api.v1 import battle
 
 # 메인 API 라우터 (/v1)
@@ -20,5 +20,8 @@ api_router.include_router(characters.router)
 
 # 4. 배틀 라우터 (초대 기능 등 HTTP API)
 api_router.include_router(battle.router, prefix="/battle", tags=["battle"])
+
+# 5. 일기장 라우터 (NEW)
+api_router.include_router(diaries.router)
 
 # [정리] 기존의 임시 user_router는 auth.py가 역할을 대신하므로 삭제했습니다.
