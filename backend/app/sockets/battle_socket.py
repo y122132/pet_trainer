@@ -29,6 +29,33 @@ async def matchmaking_endpoint(websocket: WebSocket, user_id: int, token: str | 
 
     await websocket.accept()
     
+    # 2. 레벨 제한 체크 (Lv.10 이상)
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Character).where(Character.user_id == user_id))
+            character = result.scalar_one_or_none()
+            
+            if not character:
+                await websocket.close(code=4004, reason="Character not found")
+                return
+
+            if character.level < 10:
+                print(f"[Battle-Socket] User {user_id} rejected: Level {character.level} < 10")
+                # [User Request] 10레벨 미만 안내 메시지 전송
+                await websocket.send_json({
+                    "type": "ERROR",
+                    "code": "LEVEL_TOO_LOW",
+                    "message": "10레벨 미만은 배틀 시스템을 이용할 수 없습니다."
+                })
+                # 메시지 전송 후 잠시 대기하지 않으면 클라이언트가 받기 전에 끊길 수 있음 (Optional, but safe)
+                await asyncio.sleep(0.1) 
+                await websocket.close(code=4003, reason="Level too low")
+                return
+    except Exception as e:
+        print(f"[Battle-Socket] DB Level Check Error: {e}")
+        await websocket.close(code=4000, reason="Server Error")
+        return
+    
     try:
         # 대기열 등록
         await matchmaker.add_to_queue(user_id, websocket)
@@ -39,6 +66,21 @@ async def matchmaking_endpoint(websocket: WebSocket, user_id: int, token: str | 
             # 클라이언트가 취소 요청("CANCEL")을 보낼 수도 있음
             data = await websocket.receive_text()
             if data == "CANCEL":
+                break
+            elif data == "AI_BATTLE":
+                # [New] AI 대전 요청 시 즉시 매칭 성사
+                matchmaker.remove_from_queue(user_id)
+                import uuid
+                room_id = str(uuid.uuid4())
+                # [Fix] Use helper to create FULL initial state
+                initial_data = create_initial_room_data(room_id, is_ai_battle=True)
+                await save_room_state(room_id, initial_data)
+                
+                await websocket.send_json({
+                    "type": "MATCH_FOUND",
+                    "room_id": room_id,
+                    "opponent_id": 0 # 0 indicates AI/Bot
+                })
                 break
                 
     except WebSocketDisconnect:
@@ -86,7 +128,8 @@ async def save_room_state(room_id: str, data: dict):
         # Pydantic or Custom Serialization
         await redis.set(f"room:{room_id}", json.dumps(data), ex=3600) # 1시간 TTL
     finally:
-        await redis.close() # ConnectionPool will handle it, but good practice if not using context var
+        # pool.disconnect() is handled by RedisManager.close() on shutdown
+        pass
 
 async def load_room_state(room_id: str) -> Optional[dict]:
     """
@@ -103,6 +146,22 @@ async def load_room_state(room_id: str) -> Optional[dict]:
 async def delete_room_state(room_id: str):
     redis = RedisManager.get_client()
     await redis.delete(f"room:{room_id}")
+
+def create_initial_room_data(room_id: str, is_ai_battle: bool = False) -> dict:
+    """방 초기 상태 데이터를 생성합니다."""
+    return {
+        "room_id": room_id,
+        "players": [],          # [user_id1, user_id2]
+        "ready_status": {},     # user_id -> bool
+        "character_stats": {},  # user_id -> dict (serialized Stat)
+        "pet_types": {},        # user_id -> str
+        "learned_skills": {},   # user_id -> list
+        "battle_states": {},    # user_id -> dict (serialized BattleState)
+        "selections": {},       # user_id -> move_id
+        "turn_count": 0,
+        "field_effects": {"weather": "clear", "location": "stadium"},
+        "is_ai_battle": is_ai_battle
+    }
 
 # --- Logic Wrappers ---
 
@@ -133,18 +192,18 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
     
     # 방이 없으면 파라미터 초기화
     if not room_data:
-        room_data = {
-            "room_id": room_id,
-            "players": [],          # [user_id1, user_id2]
-            "ready_status": {},     # user_id -> bool
-            "character_stats": {},  # user_id -> dict (serialized Stat)
-            "pet_types": {},        # user_id -> str
-            "learned_skills": {},   # user_id -> list
-            "battle_states": {},    # user_id -> dict (serialized BattleState)
-            "selections": {},       # user_id -> move_id
-            "turn_count": 0,
-            "field_effects": {"weather": "clear", "location": "stadium"}
-        }
+        room_data = create_initial_room_data(room_id)
+    
+    # [Robustness] Ensure all keys exist (in case of partial initialization)
+    default_data = create_initial_room_data(room_id)
+    for k, v in default_data.items():
+        if k not in room_data:
+            room_data[k] = v
+
+    # AI 배틀 여부 확인
+    from app.game.matchmaker import matchmaker
+    # 룸 데이터가 새로 생성된 경우에만 체크 (또는 URL 파라미터 등으로도 가능하지만 여기선 로직상 첫 진입 유저 기준)
+    # 실제로는 클라이언트가 MATCH_FOUND의 opponent_id가 0임을 알고도 여기 접속함.
 
     # 플레이어 등록
     if user_id not in room_data["players"]:
@@ -153,6 +212,13 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
             del conns[user_id]
             return
         room_data["players"].append(user_id)
+
+    # [New] AI 대전인 경우 봇 추가 (Bot ID: 0)
+    # 클라이언트가 처음 접속할 때 결정
+    if str(user_id) not in room_data["character_stats"] and len(room_data["players"]) == 1:
+        # 이 유저가 처음 들어온 건데, 상대가 봇인지 확인하는 간단한 방법? 
+        # 일단 MATCH_FOUND에서 보낸 정보를 기억하거나, 특정 유저 ID(0)를 플레이어 리스트에 넣음.
+        pass
     
     # DB에서 캐릭터 가져오기
     try:
@@ -197,6 +263,16 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
         await websocket.close(code=4004, reason="DB Error")
         del conns[user_id]
         return
+
+    # [New] AI Battle: Add Bot to the room if not already there
+    if room_data.get("is_ai_battle") and 0 not in room_data["players"]:
+        room_data["players"].append(0)
+        # Init Bot Stats (Clone user's for a fair fight, but can be customized)
+        user_stats = room_data["character_stats"][str(user_id)]
+        room_data["character_stats"]["0"] = dict(user_stats)
+        room_data["pet_types"]["0"] = "bear" # Bot is a bear!
+        room_data["learned_skills"]["0"] = [5, 10, 15, 25, 30, 50] # Some skills
+        room_data["battle_states"]["0"] = BattleState(max_hp=user_stats["health"], current_hp=user_stats["health"]).to_dict()
 
     # Redis 저장
     await save_room_state(room_id, room_data)
@@ -260,17 +336,17 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
                 
                 # 선택 저장
                 room_data["selections"][str(user_id)] = move_id
+                
+                # [New] AI Battle Selection
+                if room_data.get("is_ai_battle"):
+                    import random
+                    bot_skills = room_data["learned_skills"].get("0", [5])
+                    room_data["selections"]["0"] = random.choice(bot_skills)
+                    print(f"[Battle-AI] Bot selected Move {room_data['selections']['0']}")
+
                 await save_room_state(room_id, room_data)
                 
                 await send_to_user(room_id, user_id, {"type": "WAITING", "message": "Waiting..."})
-                
-                # 상대에게 알림
-                for other in room_data["players"]:
-                    if other != user_id:
-                        await send_to_user(room_id, other, {
-                            "type": "OPPONENT_SELECTING", 
-                            "message": "Opponent selecting..."
-                        })
                 
                 # 턴 진행 체크
                 print(f"[Battle-Debug] Room {room_id} Selections: {len(room_data['selections'])}/2")

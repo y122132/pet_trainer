@@ -82,7 +82,7 @@ DEFAULT_BEHAVIOR = PET_BEHAVIORS[16]
 DETECTION_SETTINGS = {
     # 1. 신뢰도 임계값 (Confidence Threshold)
     "logic_conf": {
-        "easy": 0.4,
+        "easy": 0.25,
         "hard": 0.6
     },
     

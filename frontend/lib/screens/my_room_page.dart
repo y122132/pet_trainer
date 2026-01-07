@@ -319,19 +319,67 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          if (charProvider.unusedStatPoints > 0)
-                            ElevatedButton(
-                              onPressed: () => _showStatDialog(context, charProvider, statsMap),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF5D4037),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.upgrade, color: Color(0xFFE91E63)),
+                                tooltip: "레벨업 (테스트)",
+                                onPressed: () async {
+                                   await charProvider.manualLevelUp();
+                                   if (context.mounted) {
+                                     ScaffoldMessenger.of(context).showSnackBar(
+                                       const SnackBar(content: Text("레벨업되었습니다!"))
+                                     );
+                                   }
+                                },
                               ),
-                              child: Text(
-                                "${charProvider.unusedStatPoints}P 성장",
-                                style: GoogleFonts.jua(color: Colors.white, fontSize: 14),
+                              IconButton(
+                                icon: const Icon(Icons.refresh, color: Colors.grey),
+                                tooltip: "스탯 초기화",
+                                onPressed: () {
+                                   showDialog(
+                                     context: context,
+                                     builder: (context) => AlertDialog(
+                                       title: const Text("스탯 초기화"),
+                                       content: const Text("모든 스탯을 초기화하고 포인트를 되돌려받으시겠습니까?\n(기본 스탯 제외)"),
+                                       actions: [
+                                         TextButton(
+                                           onPressed: () => Navigator.pop(context),
+                                           child: const Text("취소"),
+                                         ),
+                                         TextButton(
+                                           onPressed: () {
+                                             charProvider.resetStats();
+                                             Navigator.pop(context);
+                                             if (context.mounted) {
+                                               ScaffoldMessenger.of(context).showSnackBar(
+                                                 const SnackBar(content: Text("스탯이 초기화되었습니다."))
+                                               );
+                                             }
+                                           },
+                                           child: const Text("초기화", style: TextStyle(color: Colors.red)),
+                                         ),
+                                       ],
+                                     )
+                                   );
+                                },
                               ),
-                            ),
+                              if (charProvider.unusedStatPoints > 0)
+                                ElevatedButton(
+                                  onPressed: () => _showStatDialog(context, charProvider, statsMap),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF5D4037),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  ),
+                                  child: Text(
+                                    "${charProvider.unusedStatPoints}P 성장",
+                                    style: GoogleFonts.jua(color: Colors.white, fontSize: 14),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),

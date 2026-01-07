@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
@@ -33,38 +34,76 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
     _fetchDiaries();
   }
 
-  void _toggleLike(int index) {
-    setState(() {
-      final diary = _diaries[index];
-      if (diary['isLiked'] == true) {
-        diary['isLiked'] = false;
-        diary['likes'] = (diary['likes'] ?? 1) - 1;
-      } else {
-        diary['isLiked'] = true;
-        diary['likes'] = (diary['likes'] ?? 0) + 1;
-      }
-    });
-    // TODO: 서버에 좋아요 API 호출 (POST /diaries/{id}/like)
-  }
 
   Future<void> _fetchDiaries() async {
-    setState(() => _isLoading = true);
+    if (_diaries.isEmpty) setState(() => _isLoading = true);
+    
     try {
       final token = await AuthService().getToken();
       final response = await http.get(
-        Uri.parse('${AppConfig.baseUrl}/diaries/${widget.user['id']}'),
+        Uri.parse('${AppConfig.baseUrl}/diaries/user/${widget.user['id']}'),
         headers: {"Authorization": "Bearer $token"},
       );
       if (response.statusCode == 200) {
-        setState(() => _diaries = jsonDecode(utf8.decode(response.bodyBytes)));
+        if (!mounted) return;
+        setState(() {
+          _diaries = jsonDecode(utf8.decode(response.bodyBytes));
+        });
       }
     } catch (e) {
-      debugPrint("일기 로드 실패: $e");
+      print("Error fetching diaries: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // 2. 좋아요 토글
+  Future<void> _toggleLike(int index) async {
+    final diary = _diaries[index];
+    final int diaryId = diary['id'];
+    
+    // Optimistic Update
+    final bool wasLiked = diary['isLiked'] ?? false;
+    final int oldLikes = diary['likes'] ?? 0;
+    
+    setState(() {
+      diary['isLiked'] = !wasLiked;
+      diary['likes'] = wasLiked ? oldLikes - 1 : oldLikes + 1;
+    });
+
+    try {
+      final token = await AuthService().getToken();
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/diaries/$diaryId/like'),
+        headers: {"Authorization": "Bearer $token"},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (mounted) {
+          setState(() {
+            diary['likes'] = data['likes'];
+            diary['isLiked'] = data['isLiked'];
+          });
+        }
+      } else {
+        _revertLike(index, wasLiked, oldLikes);
+      }
+    } catch (e) {
+      _revertLike(index, wasLiked, oldLikes);
+    }
+  }
+
+  void _revertLike(int index, bool wasLiked, int oldLikes) {
+    if (mounted) {
+      setState(() {
+        _diaries[index]['isLiked'] = wasLiked;
+        _diaries[index]['likes'] = oldLikes;
+      });
+    }
+  }
+
+  // 3. 일기 작성 모달
   void _showAddDiarySheet() {
     showModalBottomSheet(
       context: context,
@@ -73,7 +112,11 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
       builder: (context) => _AddDiarySheet(
         petType: petType,
         onSave: (newDiary) {
-          setState(() => _diaries.insert(0, newDiary));
+           // [Optimization] Insert new diary at the top immediately
+           setState(() {
+             _diaries.insert(0, newDiary);
+           });
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일기가 저장되었습니다!")));
         },
       ),
     );
@@ -243,7 +286,7 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
 
   Widget _buildFeedCard(int index) {
     final diary = _diaries[index];
-    final dynamic diaryImage = diary['image'];
+    final dynamic diaryImage = diary['image_url'];
     final bool isLiked = diary['isLiked'] ?? false;
 
     return Container( // 3. 피드 카드
@@ -266,14 +309,21 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 3. 게시글 이미지
-            if (diaryImage != null)
+            if (diaryImage != null && diaryImage.toString().isNotEmpty)
               AspectRatio(
                 aspectRatio: 16 / 10,
                 child: (diaryImage is XFile)
                   ? (kIsWeb ? Image.network(diaryImage.path, fit: BoxFit.cover, filterQuality: FilterQuality.high) : Image.file(File(diaryImage.path), fit: BoxFit.cover, filterQuality: FilterQuality.high))
                   : (diaryImage is File
                       ? Image.file(diaryImage, fit: BoxFit.cover, filterQuality: FilterQuality.high)
-                      : Image.network(diaryImage, fit: BoxFit.cover, filterQuality: FilterQuality.high)),
+                      : Image.network(
+                          diaryImage.toString().startsWith('/') 
+                              ? "${AppConfig.serverBaseUrl}${diaryImage}" 
+                              : diaryImage.toString(), 
+                          fit: BoxFit.cover, 
+                          filterQuality: FilterQuality.high,
+                          errorBuilder: (ctx, err, stack) => Container(color: Colors.grey[200], child: const Icon(Icons.broken_image, color: Colors.grey)),
+                        )),
               ),
             // 3. 텍스트 및 인터랙션
             Padding(
@@ -350,10 +400,10 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
   }
 }
 
-// --- AddDiarySheet (Redesigned) ---
+// 4. 독립적인 작성 모달 (API 직접 호출 + Web Support)
 class _AddDiarySheet extends StatefulWidget {
   final String petType;
-  final Function(dynamic) onSave;
+  final Function(dynamic) onSave; // 성공 객체 반환
   const _AddDiarySheet({required this.petType, required this.onSave});
 
   @override
@@ -361,7 +411,7 @@ class _AddDiarySheet extends StatefulWidget {
 }
 
 class _AddDiarySheetState extends State<_AddDiarySheet> {
-  XFile? _image;
+  XFile? _image; // Use XFile for cross-platform
   final TextEditingController _contentController = TextEditingController();
   bool _isUploading = false;
 
@@ -376,20 +426,49 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
     if (pickedFile != null) setState(() => _image = pickedFile);
   }
 
+  
   Future<void> _submit() async {
     if (_contentController.text.isEmpty) return;
     setState(() => _isUploading = true);
+    
+    try {
+      final token = await AuthService().getToken();
+      var uri = Uri.parse("${AppConfig.baseUrl}/diaries/");
+      var request = http.MultipartRequest("POST", uri);
+      
+      request.headers.addAll({"Authorization": "Bearer $token"});
+      request.fields['content'] = _contentController.text;
+      request.fields['tag'] = _getAutomaticTag();
+      
+      if (_image != null) {
+        if (kIsWeb) {
+            // Web: Bytes
+            var bytes = await _image!.readAsBytes();
+            var multipartFile = http.MultipartFile.fromBytes('image', bytes, filename: _image!.name);
+            request.files.add(multipartFile);
+        } else {
+            // Mobile: Path
+            var multipartFile = await http.MultipartFile.fromPath('image', _image!.path);
+            request.files.add(multipartFile);
+        }
+      }
 
-    await Future.delayed(const Duration(milliseconds: 500));
-    widget.onSave({
-      "image": _image,
-      "content": _contentController.text,
-      "tag": _getAutomaticTag(),
-      "created_at": DateTime.now().toString(),
-      "isLiked": false,
-      "likes": 0,
-    });
-    Navigator.pop(context);
+      var response = await request.send();
+
+      if (response.statusCode == 200) {
+        final respStr = await response.stream.bytesToString();
+        final newDiary = jsonDecode(respStr);
+        
+        widget.onSave(newDiary); // Pass back the new diary object
+        if(mounted) Navigator.pop(context);
+      } else {
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("업로드 실패")));
+      }
+    } catch (e) {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("에러: $e")));
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
   }
 
   @override

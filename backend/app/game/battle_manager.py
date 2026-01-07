@@ -292,6 +292,11 @@ class BattleManager:
                 damage = int(state.max_hp / 8)
                 if damage < 1: damage = 1
                 msg = "화상으로 인해 고통스럽습니다!"
+                
+            elif state.status_ailment == "bleed":
+                damage = int(state.max_hp / 8)
+                if damage < 1: damage = 1
+                msg = "출혈로 인해 체력이 빠져나갑니다!"
             
             # 2. Decrement Turn
             state.status_turns -= 1
@@ -356,6 +361,12 @@ class BattleManager:
             if random.random() < 0.25:
                 # 25% 확률로 행동 불가
                 return False, "몸이 저려서 움직일 수 없습니다!", 0
+        
+        # 공포 (Fear) 체크
+        if state.status_ailment == "fear":
+            if random.random() < 0.50:
+                # 50% 확률로 행동 불가
+                return False, "공포에 질려 움직일 수 없습니다!", 0
         
         # 수면 (Sleep) - Not implemented yet but placeholder
         if state.status_ailment == "sleep":
