@@ -137,7 +137,7 @@ class DebugBoxPainter extends CustomPainter {
   }
 }
 
-// Skeleton Painter
+// Human Skeleton Painter
 class PosePainter extends CustomPainter {
   final List<dynamic> keypoints;
   final String feedback;
@@ -155,73 +155,207 @@ class PosePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (keypoints.isEmpty) return;
 
-    final Color color = feedback.isEmpty || feedback == "no_action" ? Colors.redAccent : Colors.greenAccent;
+    final Color color = Colors.greenAccent; // Human is generally green (safe/owner)
     
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 3.0 
+      ..strokeWidth = 4.0 
       ..style = PaintingStyle.fill;
 
     final linePaint = Paint()
-      ..color = color
-      ..strokeWidth = 2.0;
+      ..color = color.withOpacity(0.8)
+      ..strokeWidth = 2.5;
 
-    double screenRatio = size.width / size.height;
-    double effectiveImgRatio = imgRatio;
-    if (effectiveImgRatio > 1.0 && size.width < size.height) {
-        effectiveImgRatio = 1.0 / effectiveImgRatio; 
-    }
-    
-    double renderW, renderH;
-    if (screenRatio > effectiveImgRatio) {
-       renderW = size.width;
-       renderH = size.width / effectiveImgRatio;
-    } else {
-       renderH = size.height;
-       renderW = size.height * effectiveImgRatio;
-    }
-    
-    double dx = (size.width - renderW) / 2.0;
-    double dy = (size.height - renderH) / 2.0;
+    _drawSkeleton(canvas, size, keypoints, _getHumanConnections(), paint, linePaint);
+  }
+  
+  List<List<int>> _getHumanConnections() {
+      return [
+          [11, 13], [13, 15], [12, 14], [14, 16], [11, 12], [5, 6], [5, 11], [6, 12], 
+          [5, 7], [7, 9], [6, 8], [8, 10], 
+          // Add face?
+          [0, 1], [0, 2], [1, 3], [2, 4] 
+      ];
+  }
 
-    List<Offset> points = [];
+  void _drawSkeleton(Canvas canvas, Size size, List<dynamic> kps, List<List<int>> connections, Paint pPoint, Paint pLine) {
+     double screenRatio = size.width / size.height;
+     double effectiveImgRatio = imgRatio;
+     if (effectiveImgRatio > 1.0 && size.width < size.height) {
+         effectiveImgRatio = 1.0 / effectiveImgRatio; 
+     }
+     
+     double renderW, renderH;
+     if (screenRatio > effectiveImgRatio) {
+        renderW = size.width;
+        renderH = size.width / effectiveImgRatio;
+     } else {
+        renderH = size.height;
+        renderW = size.height * effectiveImgRatio;
+     }
+     
+     double dx = (size.width - renderW) / 2.0;
+     double dy = (size.height - renderH) / 2.0;
 
-    for (var kp in keypoints) {
-      if (kp is List && kp.length >= 2) {
-        double normX = (kp[0] as num).toDouble();
-        double normY = (kp[1] as num).toDouble();
-        
-        double finalX;
-        if (isFrontCamera) {
-             finalX = (1.0 - normX) * renderW + dx;
-        } else {
-             finalX = normX * renderW + dx;
-        }
-        double finalY = normY * renderH + dy;
-        
-        points.add(Offset(finalX, finalY));
-      }
-    }
+     List<Offset> points = [];
+     
+     // 1. Map all points first
+     for (var kp in kps) {
+       if (kp is List && kp.length >= 2) {
+         double normX = (kp[0] as num).toDouble();
+         double normY = (kp[1] as num).toDouble();
+         
+         double finalX;
+         if (isFrontCamera) {
+              finalX = (1.0 - normX) * renderW + dx;
+         } else {
+              finalX = normX * renderW + dx;
+         }
+         double finalY = normY * renderH + dy;
+         
+         points.add(Offset(finalX, finalY));
+       } else {
+         points.add(Offset.zero); // Placeholder
+       }
+     }
 
-    final connections = [
-      [11, 13], [13, 15], [12, 14], [14, 16], [11, 12], [5, 6], [5, 11], [6, 12], 
-      [5, 7], [7, 9], [6, 8], [8, 10],
-    ];
-
-    for (var conn in connections) {
-      if (conn[0] < points.length && conn[1] < points.length) {
-        canvas.drawLine(points[conn[0]], points[conn[1]], linePaint);
-      }
-    }
-    
-    for (var point in points) {
-      canvas.drawCircle(point, 3, paint);
-    }
+     // 2. Draw Lines
+     for (var conn in connections) {
+       if (conn[0] < points.length && conn[1] < points.length) {
+         // Filter out zero points (low confidence or missing)
+         if (points[conn[0]] != Offset.zero && points[conn[1]] != Offset.zero) {
+             canvas.drawLine(points[conn[0]], points[conn[1]], pLine);
+         }
+       }
+     }
+     
+     // 3. Draw Points
+     for (var point in points) {
+       if (point != Offset.zero) {
+          canvas.drawCircle(point, 3, pPoint);
+       }
+     }
   }
 
   @override
   bool shouldRepaint(covariant PosePainter oldDelegate) {
-    return oldDelegate.keypoints != keypoints || oldDelegate.feedback != feedback || oldDelegate.imgRatio != imgRatio;
+    return oldDelegate.keypoints != keypoints || oldDelegate.imgRatio != imgRatio;
+  }
+}
+
+// Pet Skeleton Painter
+class PetPosePainter extends CustomPainter {
+  final List<dynamic> keypoints;
+  final bool isFrontCamera;
+  final double imgRatio;
+
+  PetPosePainter({
+    required this.keypoints,
+    required this.isFrontCamera,
+    required this.imgRatio,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (keypoints.isEmpty) return;
+
+    final Color color = Colors.orangeAccent; // Pet color
+    
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 4.0 
+      ..style = PaintingStyle.fill;
+
+    final linePaint = Paint()
+      ..color = color.withOpacity(0.8)
+      ..strokeWidth = 2.5;
+
+    // Topology: 1-based provided by user -> 0-based
+    // Nose(2) - LeftEye(0), Nose(2) - RightEye(1)
+    // Nose(2) - Neck(3)
+    // Neck(3) - TailRoot(4)
+    // FrontLeft: Neck(3)-Sh(5)-El(6)-Paw(7)
+    // FrontRight: Neck(3)-Sh(8)-El(9)-Paw(10)
+    // BackLeft: Tail(4)-Hip(11)-Kn(12)-Paw(13)
+    // BackRight: Tail(4)-Hip(14)-Kn(15)-Paw(16)
+    
+    final connections = [
+        [2, 0], [2, 1], // Face
+        [2, 3], // Nose-Neck
+        [3, 4], // Spine (Neck-Tail)
+        [3, 5], [5, 6], [6, 7], // FL
+        [3, 8], [8, 9], [9, 10], // FR
+        [4, 11], [11, 12], [12, 13], // BL
+        [4, 14], [14, 15], [15, 16], // BR
+    ];
+
+    // Re-use logic (duplicated for safety as class method is private inside PosePainter)
+    // In production, Mixin is better.
+    _drawSkeleton(canvas, size, keypoints, connections, paint, linePaint);
+  }
+  
+  void _drawSkeleton(Canvas canvas, Size size, List<dynamic> kps, List<List<int>> connections, Paint pPoint, Paint pLine) {
+     double screenRatio = size.width / size.height;
+     double effectiveImgRatio = imgRatio;
+     if (effectiveImgRatio > 1.0 && size.width < size.height) {
+         effectiveImgRatio = 1.0 / effectiveImgRatio; 
+     }
+     
+     double renderW, renderH;
+     if (screenRatio > effectiveImgRatio) {
+        renderW = size.width;
+        renderH = size.width / effectiveImgRatio;
+     } else {
+        renderH = size.height;
+        renderW = size.height * effectiveImgRatio;
+     }
+     
+     double dx = (size.width - renderW) / 2.0;
+     double dy = (size.height - renderH) / 2.0;
+
+     List<Offset> points = [];
+     
+     for (var kp in kps) {
+       if (kp is List && kp.length >= 2) {
+         double normX = (kp[0] as num).toDouble();
+         double normY = (kp[1] as num).toDouble();
+         double conf = (kp.length > 2) ? (kp[2] as num).toDouble() : 1.0;
+         
+         if (conf > 0.35) { // [Tuning] Match backend's 0.35 threshold (Refined Model)
+             double finalX;
+             if (isFrontCamera) {
+                  finalX = (1.0 - normX) * renderW + dx;
+             } else {
+                  finalX = normX * renderW + dx;
+             }
+             double finalY = normY * renderH + dy;
+             points.add(Offset(finalX, finalY));
+         } else {
+             points.add(Offset.zero);
+         }
+       } else {
+         points.add(Offset.zero);
+       }
+     }
+
+     for (var conn in connections) {
+       if (conn[0] < points.length && conn[1] < points.length) {
+         if (points[conn[0]] != Offset.zero && points[conn[1]] != Offset.zero) {
+             canvas.drawLine(points[conn[0]], points[conn[1]], pLine);
+         }
+       }
+     }
+     
+     for (var point in points) {
+       if (point != Offset.zero) {
+          canvas.drawCircle(point, 3, pPoint);
+       }
+     }
+  }
+
+  @override
+  bool shouldRepaint(covariant PetPosePainter oldDelegate) {
+    return oldDelegate.keypoints != keypoints || oldDelegate.imgRatio != imgRatio;
   }
 }
 

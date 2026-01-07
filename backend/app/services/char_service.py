@@ -252,6 +252,10 @@ async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int)
     if not winner_char:
         return None
         
+    # [New] If loser is Bot (ID 0), skip loser logic if any (currently only winner gets exp)
+    if loser_id == 0:
+        print("[CharService] Battle vs Bot finished. Winner: Human")
+        
     return await _give_exp_and_levelup(db, winner_char, exp_gain=50)
 
 async def process_battle_draw(db: AsyncSession, user_id1: int, user_id2: int):

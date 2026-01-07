@@ -1,226 +1,79 @@
 {
-    "1": {
-        "name": "짖기",
-        "power": 20,
-        "accuracy": 100,
-        "type": "normal",
-        "description": "큰 소리로 짖어 상대를 놀라게 한다."
-    },
-    "2": {
-        "name": "버티기",
-        "power": 0,
-        "accuracy": 100,
-        "type": "normal",
-        "description": "공격을 버텨내며 방어력을 높인다."
-    },
-    "3": {
-        "name": "회복 본능",
-        "power": 0,
-        "accuracy": 100,
-        "type": "heal",
-        "description": "체력을 약간 회복한다."
-    },
-    "4": {
-        "name": "꼬리 살랑",
-        "power": 0,
-        "accuracy": 100,
-        "type": "normal",
-        "description": "방심하게 만들어 상대의 방어력을 낮춘다."
-    },
     "5": {
-        "name": "간식 발견",
-        "power": 40,
-        "accuracy": 90,
-        "type": "normal",
-        "description": "간식을 발견한 기쁨으로 돌진한다."
-    },
-    "6": {
-        "name": "전광석화",
-        "power": 40,
-        "accuracy": 100,
-        "type": "normal",
-        "description": "눈에 보이지 않는 속도로 먼저 공격한다."
-    },
-    "101": {
-        "name": "할퀴기",
-        "power": 35,
-        "accuracy": 95,
-        "type": "normal",
-        "description": "날카로운 발톱으로 상대를 할퀸다."
-    },
-    "102": {
-        "name": "냥점프",
+        "name": "경계 태세",
         "power": 0,
         "accuracy": 100,
-        "type": "evade",
-        "description": "높이 점프하여 회피율을 높인다."
+        "type": "normal",
+        "description": "자세를 낮추고 경계하여 회피율을 높인다."
     },
-    "103": {
-        "name": "신경 긁기",
-        "power": 15,
+    "10": {
+        "name": "위협의 포효",
+        "power": 0,
+        "accuracy": 100,
+        "type": "normal",
+        "description": "거칠게 포효하여 상대의 기를 꺽어 공격력을 낮춘다."
+    },
+    "15": {
+        "name": "사냥 개시",
+        "power": 60,
+        "accuracy": 100,
+        "type": "normal",
+        "description": "누구보다 빠르게 먼저 공격한다. 사냥의 시작을 알린다."
+    },
+    "25": {
+        "name": "출혈 이빨",
+        "power": 50,
+        "accuracy": 95,
+        "type": "normal",
+        "description": "상대를 물어뜯어 출혈을 일으킨다."
+    },
+    "30": {
+        "name": "야성 폭주",
+        "power": 0,
+        "accuracy": 100,
+        "type": "normal",
+        "description": "야성을 폭발시켜 방어를 포기하고 공격력을 대폭 올린다."
+    },
+    "45": {
+        "name": "전투 감각",
+        "power": 0,
         "accuracy": 100,
         "type": "psychic",
-        "description": "상대의 신경을 긁어 공격력을 낮춘다."
+        "description": "전투 흐름을 읽어 명중률과 치명타율을 높인다."
     },
-    "104": {
-        "name": "급습",
-        "power": 40,
+    "50": {
+        "name": "본능 각성",
+        "power": 70,
         "accuracy": 100,
+        "type": "fighting",
+        "description": "위기에 몰릴수록 더 강력한 힘을 발휘한다."
+    },
+    "65": {
+        "name": "집중",
+        "power": 0,
+        "accuracy": 100,
+        "type": "normal",
+        "description": "정신을 집중하여 급소를 노릴 확률을 높인다."
+    },
+    "75": {
+        "name": "지배의 포효",
+        "power": 0,
+        "accuracy": 90,
         "type": "dark",
-        "description": "보이지 않는 곳에서 기습한다."
+        "description": "압도적인 존재감으로 상대를 공포에 질리게 한다."
     },
-    "105": {
-        "name": "냥냥펀치",
-        "power": 15,
-        "accuracy": 90,
-        "type": "fighting",
-        "description": "빠르게 연속으로 펀치를 날린다."
-    },
-    "201": {
-        "name": "불꽃세례",
-        "power": 40,
-        "accuracy": 100,
-        "type": "fire",
-        "description": "작은 불꽃을 발사한다."
-    },
-    "202": {
-        "name": "화염방사",
-        "power": 90,
-        "accuracy": 100,
-        "type": "fire",
-        "description": "강렬한 불꽃을 내뿜는다."
-    },
-    "203": {
-        "name": "불꽃엄니",
-        "power": 65,
-        "accuracy": 95,
-        "type": "fire",
-        "description": "불꽃을 머금은 이빨로 문다."
-    },
-    "204": {
-        "name": "도깨비불",
-        "power": 0,
-        "accuracy": 85,
-        "type": "fire",
-        "description": "도깨비불로 상대를 화상 입힌다."
-    },
-    "211": {
-        "name": "물대포",
-        "power": 40,
-        "accuracy": 100,
-        "type": "water",
-        "description": "물을 발사한다."
-    },
-    "212": {
-        "name": "하이드로펌프",
-        "power": 110,
-        "accuracy": 80,
-        "type": "water",
-        "description": "고압의 물을 발사한다."
-    },
-    "213": {
-        "name": "폭포오르기",
-        "power": 80,
-        "accuracy": 100,
-        "type": "water",
-        "description": "기세 좋게 돌진한다."
-    },
-    "221": {
-        "name": "전기자석파",
-        "power": 0,
-        "accuracy": 90,
-        "type": "electric",
-        "description": "약학 전기로 마비시킨다."
-    },
-    "222": {
-        "name": "10만볼트",
-        "power": 90,
-        "accuracy": 100,
-        "type": "electric",
-        "description": "강력한 전류를 발사한다."
-    },
-    "223": {
-        "name": "번개엄니",
-        "power": 65,
-        "accuracy": 95,
-        "type": "electric",
-        "description": "전류가 흐르는 이빨로 문다."
-    },
-    "224": {
-        "name": "전기쇼크",
-        "power": 40,
-        "accuracy": 100,
-        "type": "electric",
-        "description": "전기를 흘려보낸다."
-    },
-    "231": {
-        "name": "덩굴채찍",
-        "power": 45,
-        "accuracy": 100,
-        "type": "grass",
-        "description": "덩굴로 후려친다."
-    },
-    "232": {
-        "name": "에너지볼",
-        "power": 90,
-        "accuracy": 100,
-        "type": "grass",
-        "description": "자연의 힘을 모아 발사한다."
-    },
-    "241": {
-        "name": "인파이트",
-        "power": 120,
-        "accuracy": 100,
-        "type": "fighting",
-        "description": "방어를 포기하고 맹공격한다."
-    },
-    "242": {
-        "name": "지진",
-        "power": 100,
-        "accuracy": 100,
-        "type": "ground",
-        "description": "땅을 흔들어 공격한다."
-    },
-    "243": {
-        "name": "스톤샤워",
-        "power": 75,
-        "accuracy": 90,
-        "type": "rock",
-        "description": "바위를 떨어뜨린다."
-    },
-    "251": {
-        "name": "칼춤",
+    "90": {
+        "name": "전투의 정점",
         "power": 0,
         "accuracy": 100,
         "type": "normal",
-        "description": "전투 춤을 추어 공격력을 크게 올린다."
+        "description": "수많은 전투 경험으로 모든 능력을 끌어올린다."
     },
-    "252": {
-        "name": "명상",
-        "power": 0,
+    "100": {
+        "name": "야수의 왕",
+        "power": 150,
         "accuracy": 100,
-        "type": "psychic",
-        "description": "정신을 통일하여 특수공격을 올린다."
-    },
-    "253": {
-        "name": "방어",
-        "power": 0,
-        "accuracy": 100,
-        "type": "normal",
-        "description": "이번 턴 공격을 막는다."
-    },
-    "261": {
-        "name": "쾌청",
-        "power": 0,
-        "accuracy": 100,
-        "type": "fire",
-        "description": "햇살을 강하게 만든다."
-    },
-    "262": {
-        "name": "비바라기",
-        "power": 0,
-        "accuracy": 100,
-        "type": "water",
-        "description": "비를 내리게 한다."
+        "type": "dragon",
+        "description": "짐승의 왕으로서 모든 것을 짓밟는다."
     }
 }

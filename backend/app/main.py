@@ -19,6 +19,11 @@ from app.ai_core.vision import detector
 
 from app.db.database_redis import RedisManager # 추가
 
+# Admin
+from sqladmin import Admin
+from app.db.database import engine
+from app.admin_panel import UserAdmin, CharacterAdmin, StatAdmin, ActionLogAdmin, DiaryAdmin, DiaryLikeAdmin
+
 
 app = FastAPI(title="PetTrainer API")
 
@@ -70,6 +75,17 @@ async def on_startup():
 app.include_router(api_router)
 app.include_router(websocket_router)
 app.include_router(battle_router)
+
+# Admin Panel Setup
+from app.admin_auth import authentication_backend
+
+admin = Admin(app, engine, authentication_backend=authentication_backend)
+admin.add_view(UserAdmin)
+admin.add_view(CharacterAdmin)
+admin.add_view(StatAdmin)
+admin.add_view(ActionLogAdmin)
+admin.add_view(DiaryAdmin)
+admin.add_view(DiaryLikeAdmin)
 
 @app.get("/")
 async def root():

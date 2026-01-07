@@ -16,22 +16,7 @@ from app.ai_core.brain.graphs import get_character_response
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 router = APIRouter()
-async def listen_to_notifications(websocket: WebSocket, user_id: int):
-    """Redis Pub/Sub을 구독하여 훈련 중에도 채팅 알림을 전달합니다."""
-    redis_client = RedisManager.get_client()
-    pubsub = redis_client.pubsub()
-    await pubsub.subscribe(f"user_notify_{user_id}")
-    
-    try:
-        async for message in pubsub.listen():
-            if message['type'] == 'message':
-                # Redis 채널에서 알림이 오면 프론트엔드로 즉시 전송
-                # 프론트엔드는 이 JSON의 'type'을 보고 상단 알림 배너를 띄웁니다.
-                await websocket.send_text(message['data'])
-    except Exception as e:
-        print(f"[NOTIFY_ERROR] User {user_id}: {e}")
-    finally:
-        await pubsub.unsubscribe(f"user_notify_{user_id}")
+
         
 @router.websocket("/ws/analysis/{user_id}")
 async def analysis_endpoint(
@@ -65,8 +50,6 @@ async def analysis_endpoint(
         nickname = user.nickname if user else f"User_{user_id}"
 
         print(f"[FSM_WS] 연결 수락: User {user_id}, 모드 {mode}, 펫 {pet_type}, 난이도 {difficulty}", flush=True)
-        
-        notification_task = asyncio.create_task(listen_to_notifications(websocket, user_id))
 
     except Exception as e:
         print(f"[FSM_WS] 연결 실패: {e}")
@@ -351,7 +334,6 @@ async def analysis_endpoint(
     except Exception as e:
         print(f"[FSM_WS] 소켓 에러 발생: {e}", flush=True)
     finally:
-        notification_task.cancel()
         try:
             await websocket.close()
         except:
