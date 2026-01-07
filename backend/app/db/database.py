@@ -78,13 +78,14 @@ async def init_db():
             char = char_res.scalar_one_or_none()
             if not char:
                 print(f"Creating Character for User {username}...")
-                skills = [1, 2] if pet_type == 'dog' else [101, 102]
+                # 실제 MOVE_DATA에 존재하는 스킬 ID 부여 (Lv.5 캐릭터이므로 ID 5 포함)
+                skills = [5] # '경계 태세'
                 char = Character(
                     user_id=user_obj.id, 
                     name=char_name, 
                     status="normal", 
                     pet_type=pet_type,
-                    learned_skills=skills # develop 브랜치 필수 필드
+                    learned_skills=skills # 실제 스킬 ID 반영
                 )
                 session.add(char)
                 await session.flush()

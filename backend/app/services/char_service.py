@@ -220,33 +220,36 @@ async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain
         stat.health += 10 # HP Boost
         stat.unused_points += 1
         
-        # 스킬 습득
+        # 스킬 습득 (현재 레벨 이하의 모든 누락된 기술 체크)
         learnset = PET_LEARNSET.get(pet_type, {})
-        skills_at_level = learnset.get(stat.level, [])
-        current_skills = character.learned_skills or []
+        current_skills = list(character.learned_skills or [])
         
-        for skill_id in skills_at_level:
-            if skill_id not in current_skills:
-                current_skills.append(skill_id)
-                # 스킬 데이터에서 이름 가져오기
-                from app.game.game_assets import MOVE_DATA
-                skill_name = MOVE_DATA.get(skill_id, {}).get("name", f"Unknown Skill {skill_id}")
-                new_skills.append({"id": skill_id, "name": skill_name})
+        # 레벨 1부터 현재 레벨까지 모든 스킬을 확인하여 누락된 것이 있으면 추가
+        for lv_match, skills_at_lv in learnset.items():
+            if lv_match <= stat.level:
+                for skill_id in skills_at_lv:
+                    if skill_id not in current_skills:
+                        current_skills.append(skill_id)
+                        # 스킬 데이터에서 이름 가져오기
+                        from app.game.game_assets import MOVE_DATA
+                        skill_name = MOVE_DATA.get(skill_id, {}).get("name", f"Unknown Skill {skill_id}")
+                        new_skills.append({"id": skill_id, "name": skill_name})
         
-        character.learned_skills = list(current_skills)
-        
-        # [New] 최근 습득 스킬 기록 (마이룸 알림용)
         if new_skills:
+            character.learned_skills = list(current_skills)
+            
+            # [New] 최근 습득 스킬 기록 (마이룸 알림용)
             recent = list(character.recent_skills or [])
             for ns in new_skills:
-                # ns is now a dict {"id": ..., "name": ...}
                 ns_id = ns["id"]
-                # ID가 중복되지 않게 기록 (JSONB에는 딕셔너리로 저장)
                 if not any(r.get("id") == ns_id for r in recent if isinstance(r, dict)):
                     recent.append(ns)
-                elif ns_id not in recent and not isinstance(ns, dict): # 하위 호환성
-                     recent.append(ns)
             character.recent_skills = recent
+            
+            # SQLAlchemy JSONB 변경 감지 강제 (만약을 위해)
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(character, "learned_skills")
+            flag_modified(character, "recent_skills")
 
     await db.commit()
     
