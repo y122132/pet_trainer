@@ -72,7 +72,8 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
        trainingCtrl.setCharProvider(charProvider);
        trainingCtrl.onSuccessCallback = _handleSuccess;
        
-       charProvider.fetchCharacter();
+       // [Fix] Load My Character instead of default (1)
+       charProvider.fetchMyCharacter();
     });
   }
 
