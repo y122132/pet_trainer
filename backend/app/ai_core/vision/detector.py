@@ -23,7 +23,7 @@ def load_models():
                 # 1. 사람 포즈 (주인 인식)
                 model_pose = YOLO("yolo11n-pose.pt", verbose=False) 
                 # 2. 반려동물 포즈 (핵심 모델) - epoch50 적용
-                model_pet_pose = YOLO("epoch50.pt", verbose=False)
+                model_pet_pose = YOLO("epoch70.pt", verbose=False)
                 # 3. 사물 탐지 (장난감, 밥그릇 등)
                 model_detect = YOLO("yolo11n.pt", verbose=False)
                 print("YOLO models loaded successfully. (로딩 완료)")
@@ -70,17 +70,17 @@ def process_frame(
             "message": f"Frame {frame_index} skipped"
         }
 
-    # 2. 모델 로드
-    model_pose, model_pet_pose, model_detect = load_models()
-    
-    # 3. 이미지 디코딩
+    # 3. 이미지 디코딩 및 모델 로드
     try:
+        # 모델 로드 (가장 먼저 수행하여 실패 시 즉시 중단)
+        model_pose, model_pet_pose, model_detect = load_models()
+
         np_data = np.frombuffer(image_bytes, np.uint8)
         frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
         if frame is None:
             return {"success": False, "message": "이미지 디코딩 실패"}
     except Exception as e:
-        return {"success": False, "message": f"디코딩 에러: {e}"}
+        return {"success": False, "message": f"처리 에러 (Decoding/Loading): {e}"}
 
     height, width, _ = frame.shape
     aspect_ratio = width / height if height > 0 else 1.0
