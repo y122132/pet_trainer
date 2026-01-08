@@ -23,7 +23,7 @@ def load_models():
                 # 1. 사람 포즈 (주인 인식)
                 model_pose = YOLO("yolo11n-pose.pt", verbose=False) 
                 # 2. 반려동물 포즈 (핵심 모델) - epoch50 적용
-                model_pet_pose = YOLO("epoch70.pt", verbose=False)
+                model_pet_pose = YOLO("epoch187.pt", verbose=False)
                 # 3. 사물 탐지 (장난감, 밥그릇 등)
                 model_detect = YOLO("yolo11n.pt", verbose=False)
                 print("YOLO models loaded successfully. (로딩 완료)")
@@ -145,7 +145,11 @@ def process_frame(
             conf = float(box.conf[0])
             
             # Class Mapping (Model -> COCO)
-            mapped_cls = 16 if cls_source == 0 else (15 if cls_source == 1 else -1)
+            # 0:Dog(16), 1:Cat(15), 2:Bird(14)
+            if cls_source == 0: mapped_cls = 16
+            elif cls_source == 1: mapped_cls = 15
+            elif cls_source == 2: mapped_cls = 14
+            else: mapped_cls = -1
             
             # Target Check & Confidence Check
             if mapped_cls == target_class_id and conf >= LOGIC_CONF:
