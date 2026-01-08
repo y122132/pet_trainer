@@ -141,6 +141,14 @@ async def analysis_endpoint(
     # [NEW] 연결 직후 초기 인사 (Greeting)
     # 앱 시작 시 침묵(Startup Silence) 방지
     await trigger_llm("greeting", is_success=False)
+    
+    # [NEW] Anti-Flickering State
+    vision_state = {
+        "last_pet_box": None,
+        "missing_count": 0,
+        "is_tracking": False,
+        "last_response": None # [NEW] Zero-Order Hold (프레임 스킵용 캐시)
+    }
 
     
     # [Optimization] 프레임 스킵 카운터
@@ -191,7 +199,8 @@ async def analysis_endpoint(
                 difficulty,
                 frame_index=frame_count,
                 process_interval=PROCESS_INTERVAL,
-                frame_id=frame_id  # [NEW] Pass ID
+                frame_id=frame_id,  # [NEW] Pass ID
+                vision_state=vision_state # [NEW] Inject State
             )
 
             if result.get("skipped", False):

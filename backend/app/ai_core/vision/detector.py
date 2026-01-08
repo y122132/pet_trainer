@@ -22,8 +22,8 @@ def load_models():
             try:
                 # 1. 사람 포즈 (주인 인식)
                 model_pose = YOLO("yolo11n-pose.pt", verbose=False) 
-                # 2. 반려동물 포즈 (핵심 모델) - epoch50 적용
-                model_pet_pose = YOLO("epoch70.pt", verbose=False)
+                # 2. 반려동물 포즈 (핵심 모델) - pet_pose_best.pt 적용
+                model_pet_pose = YOLO("pet_pose_best.pt", verbose=False)
                 # 3. 사물 탐지 (장난감, 밥그릇 등)
                 model_detect = YOLO("yolo11n.pt", verbose=False)
                 print("YOLO models loaded successfully. (로딩 완료)")
@@ -57,7 +57,8 @@ def process_frame(
     difficulty: str = "easy",
     frame_index: int = 0,
     process_interval: int = 1,
-    frame_id: int = -1  # [NEW] Frame ID for sync
+    frame_id: int = -1,
+    vision_state: dict = None # [NEW] Anti-Flickering State
 ) -> dict:
     """
     프레임을 분석하여 반려동물과 타겟 물체의 상호작용을 판단합니다.
@@ -65,6 +66,14 @@ def process_frame(
     
     # 1. 성능 최적화: 프레임 스킵
     if process_interval > 1 and (frame_index % process_interval != 0):
+        # [Optimization] Zero-Order Hold (결과 재사용)
+        # 이전 결과가 있으면 그대로 반환하여 클라이언트 화면이 부드럽게 이어지게 함.
+        if vision_state and vision_state.get("last_response"):
+            cached = vision_state["last_response"].copy() # Shallow copy
+            cached["frame_id"] = frame_id # ID는 최신으로 동기화
+            cached["skipped"] = True      # 디버깅용 마킹 (실제론 처리 안함)
+            return cached
+            
         return {
             "success": False, 
             "skipped": True, 
@@ -90,8 +99,17 @@ def process_frame(
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
     # 4. 설정값
-    INFERENCE_CONF = 0.25
-    LOGIC_CONF = 0.35 # 정밀도를 위해 약간 높게 설정
+    # [Anti-Flickering] 기본 추론은 넓게(0.15), 로직에서 필터링
+    INFERENCE_LOW_CONF = 0.15 
+    LOGIC_HIGH_CONF = 0.35 # 첫 발견 기준
+    LOGIC_LOW_CONF = 0.20  # 유지 기준 (Hysteresis)
+    
+    # State 조회
+    last_pet_exists = False
+    if vision_state and vision_state.get("is_tracking", False):
+        last_pet_exists = True
+        
+    LOGIC_CONF = LOGIC_LOW_CONF if last_pet_exists else LOGIC_HIGH_CONF
     
     base_response = {
         "success": False,
@@ -101,7 +119,7 @@ def process_frame(
         "bbox": [], "pet_keypoints": [], "human_keypoints": [],
         "message": "", "feedback_message": "", "is_specific_feedback": False,
         "base_reward": {}, "bonus_points": 0,
-        "frame_id": frame_id # [NEW] Return the same ID
+        "frame_id": frame_id 
     }
 
     results_detect = None
@@ -113,10 +131,11 @@ def process_frame(
         with model_lock:
             # A. 반려동물 포즈
             if model_pet_pose:
-                results_pet = model_pet_pose(frame_rgb, conf=0.35, imgsz=640, verbose=False)
+                # [Anti-Flickering] 낮은 임계값으로 추론 (후보군 확보)
+                results_pet = model_pet_pose(frame_rgb, conf=INFERENCE_LOW_CONF, imgsz=640, verbose=False)
             # B. 사물 탐지
             if model_detect:
-                results_detect = model_detect(frame_rgb, conf=INFERENCE_CONF, imgsz=640, verbose=False)
+                results_detect = model_detect(frame_rgb, conf=0.25, imgsz=640, verbose=False)
             # C. 사람 포즈
             if model_pose:
                 results_human = model_pose(frame_rgb, conf=0.25, classes=[0], imgsz=640, verbose=False)
@@ -145,9 +164,14 @@ def process_frame(
             conf = float(box.conf[0])
             
             # Class Mapping (Model -> COCO)
-            mapped_cls = 16 if cls_source == 0 else (15 if cls_source == 1 else -1)
+            # 0:Dog(16), 1:Cat(15), 2:Bird(14)
+            if cls_source == 0: mapped_cls = 16
+            elif cls_source == 1: mapped_cls = 15
+            elif cls_source == 2: mapped_cls = 14
+            else: mapped_cls = -1
             
             # Target Check & Confidence Check
+            # [Anti-Flickering] Use dynamic LOGIC_CONF (0.35 or 0.20)
             if mapped_cls == target_class_id and conf >= LOGIC_CONF:
                 if conf > best_conf:
                     best_conf = conf
@@ -171,6 +195,35 @@ def process_frame(
                             if c > 0.5:
                                 if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
                                 if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
+        
+        # [Anti-Flickering] Persistence Logic (단기 기억)
+        if found_pet:
+            # 성공 -> 상태 업데이트
+            if vision_state is not None:
+                vision_state["last_pet_box"] = pet_info.copy() # 전체 정보 저장
+                vision_state["missing_count"] = 0
+                vision_state["is_tracking"] = True
+        
+        elif vision_state is not None and vision_state.get("is_tracking", False):
+            # 실패했지만 추적 중이었음 -> 유예 기간 체크
+            MAX_MISSING = 5 # 약 0.15~0.2초
+            if vision_state["missing_count"] < MAX_MISSING:
+                # [유령 복구] 이전 정보 사용
+                last_info = vision_state.get("last_pet_box")
+                if last_info:
+                    pet_info = last_info # 복구
+                    found_pet = True
+                    # [Fix] 잔상 복구 시 신뢰도 점수도 복구
+                    if len(pet_info["box"]) > 4:
+                        best_conf = pet_info["box"][4]
+                    
+                    vision_state["missing_count"] += 1
+                    # Note: keypoints 등도 last_info에 포함되어 있음
+                    # 시각적 구분을 위해 conf를 살짝 낮출 수도 있음 (선택사항)
+            else:
+                # 유예 기간 초과 -> 완전 소실
+                vision_state["is_tracking"] = False
+                vision_state["last_pet_box"] = None
 
         if found_pet:
             detected_objects.append(pet_info["box"])
@@ -189,7 +242,7 @@ def process_frame(
             # Skip conflict classes (Pet, Human, Bear)
             if cls_id in [0, 15, 16, 77]: continue 
             
-            if cls_id in target_props and conf >= LOGIC_CONF:
+            if cls_id in target_props and conf >= 0.35: # 물체는 0.35 고정 (변경 없음)
                 x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
                 nx1, ny1, nx2, ny2 = np.clip([x1, y1, x2, y2], 0.0, 1.0)
                 current_box = [float(nx1), float(ny1), float(nx2), float(ny2), float(conf), float(cls_id)]
@@ -327,5 +380,9 @@ def process_frame(
             "feedback_message": "distance_fail", # or "not_interacting"
             "is_specific_feedback": True
         })
+
+    # [Optimization] 결과 캐싱 (Zero-Order Hold)
+    if vision_state is not None:
+        vision_state["last_response"] = base_response
 
     return base_response
