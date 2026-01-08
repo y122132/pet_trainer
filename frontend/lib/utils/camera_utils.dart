@@ -72,5 +72,16 @@ Uint8List resizeAndCompressImage(Map<String, dynamic> data) {
   }
 
   // Encode to JPEG (Quality 80)
-  return Uint8List.fromList(img.encodeJpg(finalImage, quality: 80));
+  List<int> jpeg = img.encodeJpg(finalImage, quality: 80);
+
+  // [NEW] Append Frame ID (4 bytes, Big Endian)
+  int frameId = data['frameId'] ?? -1;
+  if (frameId != -1) {
+    // 32-bit integer to 4 bytes
+    final idBytes = Uint8List(4)
+      ..buffer.asByteData().setInt32(0, frameId, Endian.big);
+    jpeg = [...jpeg, ...idBytes];
+  }
+
+  return Uint8List.fromList(jpeg);
 }

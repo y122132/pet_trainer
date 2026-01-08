@@ -28,7 +28,9 @@ class TrainingController extends ChangeNotifier {
   
   // For Overlay
   List<dynamic> bbox = [];
-  List<dynamic> keypoints = [];
+  List<dynamic> keypoints = []; // Legacy or Mixed
+  List<dynamic> petKeypoints = [];
+  List<dynamic> humanKeypoints = [];
   double imageWidth = 0;
   double imageHeight = 0;
   
@@ -48,6 +50,10 @@ class TrainingController extends ChangeNotifier {
   int _lastFrameSentTimestamp = 0;
   int _frameStartTime = 0;
   static const int _frameInterval = 150;
+  
+  // [NEW] Frame Synchronization
+  int _currentFrameId = 0;
+  int _pendingFrameId = -1; // ID of the frame currently being processed by server
 
   // Connection
   bool get isConnected => _socketClient.isConnected;
@@ -66,6 +72,7 @@ class TrainingController extends ChangeNotifier {
     isAnalyzing = true;
     _canSendFrame = true;
     errorMessage = null;
+    _currentFrameId = 0; // Reset ID
     notifyListeners();
 
     _socketClient.connect(petType, difficulty, mode);
@@ -92,6 +99,8 @@ class TrainingController extends ChangeNotifier {
     // Reset State
     bbox = [];
     keypoints = [];
+    petKeypoints = [];
+    humanKeypoints = [];
     feedback = "";
     trainingState = TrainingStatus.ready;
     stayProgress = 0.0;
@@ -119,10 +128,15 @@ class TrainingController extends ChangeNotifier {
       int deviceAngle = (currentOrientation == Orientation.landscape) ? 90 : 0;
       int rotationAngle = (sensorOrientation - deviceAngle + 360) % 360;
 
+      // [NEW] Increment Frame ID
+      _currentFrameId++;
+      final thisFrameId = _currentFrameId;
+
       final rawData = {
         'width': image.width,
         'height': image.height,
         'rotationAngle': rotationAngle,
+        'frameId': thisFrameId, // [NEW] Pass ID to Isolate
         'planes': image.planes.map((plane) => {
           'bytes': plane.bytes,
           'bytesPerRow': plane.bytesPerRow,
@@ -137,6 +151,7 @@ class TrainingController extends ChangeNotifier {
          _frameStartTime = DateTime.now().millisecondsSinceEpoch;
          _lastFrameSentTimestamp = _frameStartTime;
          _canSendFrame = false; // Lock
+         _pendingFrameId = thisFrameId; // [NEW] Track pending ID
          
          _socketClient.sendMessage(jpegBytes);
       }
@@ -151,17 +166,38 @@ class TrainingController extends ChangeNotifier {
   // --- Message Handling ---
 
   void _handleMessage(dynamic message) {
-     _canSendFrame = true; // Unlock
-
-     // Calculate Latency
-     final now = DateTime.now().millisecondsSinceEpoch;
-     if (_frameStartTime > 0) {
-       latency = now - _frameStartTime;
-     }
-
+     
+     // [NEW] Parse Check - Is this the frame response we are waiting for?
+     // We do NOT unlock _canSendFrame until we verify ID or detect error/timeout (timeout separate logic)
+     // Actually, receiving ANY message usually implies socket is alive.
+     
      try {
        final data = jsonDecode(message);
-       final statusStr = data['status'] as String?;
+       
+       // [NEW] Latency & Lock Logic
+       final int responseFrameId = data['frame_id'] ?? -1;
+       
+       // Only process logic if ID matches (Strict Sync)
+       // If ID is -1, it's an async event (Greeting, Idle, etc) -> Process without unlocking frame
+       if (responseFrameId != -1 && responseFrameId == _pendingFrameId) {
+          _canSendFrame = true; // Unlock for next frame
+          
+          final now = DateTime.now().millisecondsSinceEpoch;
+          if (_frameStartTime > 0) {
+            latency = now - _frameStartTime;
+          }
+       } else if (responseFrameId != -1 && responseFrameId != _pendingFrameId) {
+          // Stale frame response (Old) -> DONT unlock, ignore latency
+          print("Ignored Stale Frame: Resp($responseFrameId) != Pending($_pendingFrameId)");
+          return; 
+       }
+       // If responseFrameId == -1, it is a system message. Pass through but don't unlock frame (unless we need to?)
+       // Actually, async messages shouldn't block frame sending. But strictly, frame lock controls FRAME rate.
+       // Async messages don't affect that.
+       
+       // ... Rest of logic updates state ...
+       
+       final statusStr = data['status'] as String?; // [Restored] Fix compilation error
        
        // Update Training Status
        if (statusStr != null && statusStr != 'keep') {
@@ -184,7 +220,13 @@ class TrainingController extends ChangeNotifier {
 
        // Update Overlay Data
        if (data.containsKey('bbox')) bbox = data['bbox'];
-       if (data.containsKey('keypoints')) keypoints = data['keypoints'];
+       
+       // Handle New Dual Skeleton
+       if (data.containsKey('pet_keypoints')) petKeypoints = data['pet_keypoints'];
+       if (data.containsKey('human_keypoints')) humanKeypoints = data['human_keypoints'];
+       
+       // Fallback
+       if (data.containsKey('keypoints') && humanKeypoints.isEmpty) keypoints = data['keypoints']; // Legacy
        if (data.containsKey('image_width')) imageWidth = (data['image_width'] as num).toDouble();
        if (data.containsKey('image_height')) imageHeight = (data['image_height'] as num).toDouble();
        

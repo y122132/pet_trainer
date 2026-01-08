@@ -72,7 +72,8 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
        trainingCtrl.setCharProvider(charProvider);
        trainingCtrl.onSuccessCallback = _handleSuccess;
        
-       charProvider.fetchCharacter();
+       // [Fix] Load My Character instead of default (1)
+       charProvider.fetchMyCharacter();
     });
   }
 
@@ -149,13 +150,21 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                      isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
                                      imgRatio: _cameraController.value.aspectRatio,
                                   )),
-                                  if (trainingCtrl.imageWidth > 0)
+                                  // Pet Skeleton
+                                  if (trainingCtrl.petKeypoints.isNotEmpty)
+                                     CustomPaint(painter: PetPosePainter(
+                                        keypoints: trainingCtrl.petKeypoints,
+                                        isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
+                                        imgRatio: _cameraController.value.aspectRatio,
+                                     )),
+                                     
+                                  // Human Skeleton (Legacy or New)
+                                  if (trainingCtrl.humanKeypoints.isNotEmpty || trainingCtrl.keypoints.isNotEmpty)
                                      CustomPaint(painter: PosePainter(
-                                        keypoints: trainingCtrl.keypoints,
+                                        keypoints: trainingCtrl.humanKeypoints.isNotEmpty ? trainingCtrl.humanKeypoints : trainingCtrl.keypoints,
                                         feedback: trainingCtrl.feedback,
                                         isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
                                         imgRatio: _cameraController.value.aspectRatio,
-
                                      ))
                                ],
                                

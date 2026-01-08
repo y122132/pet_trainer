@@ -376,10 +376,12 @@ class CharProvider with ChangeNotifier {
           if (entry.value != null) {
               String fieldName = "${entry.key.toLowerCase()}_image";
               var bytes = await entry.value!.readAsBytes();
+              String newFilename = '${entry.key.toLowerCase()}.png'; // 예: 'front.png'
+
               var pic = http.MultipartFile.fromBytes(
                   fieldName, 
                   bytes,
-                  filename: entry.value!.name
+                  filename: newFilename // 표준화된 영문 파일명 사용
               );
               request.files.add(pic);
           } else {
@@ -422,5 +424,56 @@ class CharProvider with ChangeNotifier {
     _character = null;
     _unusedStatPoints = 0;
     notifyListeners();
+  }
+
+  // [New] 단일 캐릭터 이미지 업데이트 메서드
+  Future<bool> updateCharacterImage(int charId, String imageKey, XFile newImageFile) async {
+    _isLoading = true;
+    _statusMessage = "이미지 업데이트 중...";
+    notifyListeners();
+
+    try {
+      final token = await AuthService().getToken();
+      if (token == null) throw Exception("로그인이 필요합니다.");
+
+      var uri = Uri.parse("${AppConfig.baseUrl}/characters/$charId/image/$imageKey");
+      var request = http.MultipartRequest("PUT", uri);
+      
+      request.headers.addAll({
+        "Authorization": "Bearer $token",
+      });
+
+      // 파일 추가
+      var bytes = await newImageFile.readAsBytes();
+      var pic = http.MultipartFile.fromBytes(
+          "image_file", // This must match the backend endpoint's File(...) parameter name
+          bytes,
+          filename: 'update.png', // Standardized filename
+      );
+      request.files.add(pic);
+
+      print("[Provider] Sending single image update request for char $charId, key $imageKey...");
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          print("[Provider] Image update Success: ${data['image_url']}");
+          _isLoading = false;
+          _statusMessage = "이미지 업데이트 성공!";
+          notifyListeners();
+          return true;
+      } else {
+          final errorParams = jsonDecode(response.body);
+          throw Exception(errorParams['detail'] ?? "이미지 업데이트 실패 (${response.statusCode})");
+      }
+
+    } catch (e) {
+      print("[Provider] Image update Error: $e");
+      _statusMessage = "이미지 업데이트 오류: $e";
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
   }
 }

@@ -22,6 +22,7 @@ import 'package:pet_trainer_frontend/api_config.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../config/design_system.dart';
+import 'character_image_update_screen.dart';
 
 class MenuPage extends StatefulWidget {
   const MenuPage({super.key});
@@ -124,6 +125,17 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.image, color: Colors.blue),
+              title: const Text("캐릭터 사진 변경"),
+              onTap: () {
+                Navigator.pop(context); // Close the dialog
+                final charProvider = Provider.of<CharProvider>(context, listen: false);
+                if (charProvider.character != null) {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => CharacterImageUpdateScreen(character: charProvider.character!)));
+                }
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text("로그아웃"),
@@ -235,11 +247,18 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
   Widget _buildCenterpiece(dynamic image) {
     Widget imageWidget;
     if (image is XFile) {
-      if (kIsWeb) {
-        imageWidget = Image.network(image.path, fit: BoxFit.cover, filterQuality: FilterQuality.high);
-      } else {
-        imageWidget = Image.file(File(image.path), fit: BoxFit.cover, filterQuality: FilterQuality.high);
-      }
+        if (kIsWeb) {
+            imageWidget = Image.network(
+                image.path, 
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                errorBuilder: (context, error, stackTrace) {
+                    return const Icon(Icons.pets, color: Colors.grey, size: 40);
+                },
+            );
+        } else {
+            imageWidget = Image.file(File(image.path), fit: BoxFit.cover,);
+        }
     } else if (image is String && image.isNotEmpty) {
         // [Fix] 상대 경로(/uploads/...) 및 로컬호스트 레거시 데이터 처리
         String imageUrl = image;
@@ -248,7 +267,14 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
         } else if (imageUrl.contains('localhost')) {
             imageUrl = imageUrl.replaceFirst('localhost', AppConfig.serverIp);
         }
-        imageWidget = Image.network(imageUrl, fit: BoxFit.cover,);
+        imageWidget = Image.network(
+            imageUrl, 
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.high,
+            errorBuilder: (context, error, stackTrace) {
+                return const Icon(Icons.pets, color: Colors.grey, size: 40);
+            },
+        );
     } else {
       imageWidget = Image.asset('assets/images/단팥 기본.png', fit: BoxFit.contain);
     }

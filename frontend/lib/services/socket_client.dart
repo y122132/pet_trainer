@@ -8,7 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:pet_trainer_frontend/api_config.dart';
 import 'package:pet_trainer_frontend/services/auth_service.dart';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+// [Deleted] Unused import
 
 class SocketClient {
   WebSocketChannel? _channel;
@@ -31,12 +31,13 @@ class SocketClient {
     if (_isConnected) return; // 이미 연결되어 있으면 무시
 
     try {
-      // [추가] 기기에 저장된 실제 유저 ID 가져오기
-      final storage = FlutterSecureStorage();
-      final String? userId = await storage.read(key: 'user_id');
+      // [추가] 기기에 저장된 실제 유저 ID 및 토큰 가져오기
+      // Fix: Use AuthService which uses correct AndroidOptions for secure storage
+      final String? userId = await AuthService().getUserId();
+      final String? token = await AuthService().getToken();
 
-      // URL 쿼리 파라미터 구성 (하드코딩된 /1 대신 /$userId 사용)
-      final uri = Uri.parse('$_wsUrl/$userId?pet_type=$petType&difficulty=$difficulty&mode=$mode');
+      // URL 쿼리 파라미터 구성 (하드코딩된 /1 대신 /$userId 사용, 토큰 추가)
+      final uri = Uri.parse('$_wsUrl/$userId?pet_type=$petType&difficulty=$difficulty&mode=$mode&token=$token');
       print("Socket Connecting to: $uri");
       
       _channel = WebSocketChannel.connect(uri);

@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 import '../services/battle_service.dart';
 import '../providers/chat_provider.dart';
 import '../providers/battle_provider.dart';
+import 'pet_universe_screen.dart';
 
 class UserListScreen extends StatefulWidget {
   final int initialTab;
@@ -524,9 +525,17 @@ class _UserListScreenState extends State<UserListScreen>
                       },
                 )
               else
-                IconButton(
-                  icon: const Icon(Icons.chat_bubble_outline_rounded, color: AppColors.primaryMint),
-                  onPressed: () => _goToChat(user),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.home_filled, color: const Color(0xFF5D4037)),
+                      onPressed: () => _goToPetUniverse(user),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chat_bubble_outline_rounded, color: Colors.teal),
+                      onPressed: () => _goToChat(user),
+                    ),
+                  ],
                 ),
             ],
           ),
@@ -553,6 +562,15 @@ class _UserListScreenState extends State<UserListScreen>
              Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
            ],
         ),
+      ),
+    );
+  }
+
+  void _goToPetUniverse(dynamic user) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PetUniverseScreen(user: user),
       ),
     );
   }
