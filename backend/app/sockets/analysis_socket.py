@@ -325,6 +325,7 @@ async def analysis_endpoint(
                                 "message": "훈련 성공!", # 시스템 메시지 고정
                                 "base_reward": result.get("base_reward", {}),
                                 "bonus_points": result.get("bonus_points", 0),
+                                "levelup_result": service_result.get("levelup_result"), # [New]
                                 "count": service_result.get("daily_count", 0),
                                 "bbox": []
                             }

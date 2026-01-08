@@ -49,7 +49,7 @@ class Character {
   final int userId;
   final String name;
   final String petType; // 반려동물 종류 (dog, cat 등) - [New]
-  final List<int> learnedSkills; // 습득한 기술 ID 목록 - [New]
+  List<int> learnedSkills; // 습득한 기술 ID 목록 - [New]
   final Stat? stat; // 연관된 스탯 객체
   final String? imagePath;
 

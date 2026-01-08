@@ -74,3 +74,37 @@ class ActionLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow) # 생성 시간
 
     character: Mapped["Character"] = relationship("Character", back_populates="action_logs")
+
+# --- SQLAlchemy Events ---
+from sqlalchemy import event
+
+@event.listens_for(Stat.level, 'set')
+def on_level_set(target, value, oldvalue, initiator):
+    """
+    레벨이 변경될 때(어드민 수동 변경 포함) 해당 레벨 이하의 모든 스킬을 자동으로 습득합니다.
+    """
+    if target.character:
+        char = target.character
+        pet_type = char.pet_type.lower()
+        
+        try:
+            from app.game.game_assets import PET_LEARNSET
+            learnset = PET_LEARNSET.get(pet_type, {})
+            
+            current_skills = set(char.learned_skills or [])
+            new_skills_count = 0
+            
+            # 레벨 이하의 모든 스킬 체크
+            for lvl, skills in learnset.items():
+                if lvl <= value:
+                    for sid in skills:
+                        if sid not in current_skills:
+                            current_skills.add(sid)
+                            new_skills_count += 1
+            
+            if new_skills_count > 0:
+                # JSONB 필드 변경 감지를 위해 새로운 리스트 할당
+                char.learned_skills = sorted(list(current_skills))
+                print(f"[Event] Level {value} set for Char {char.id}. Added {new_skills_count} skills.")
+        except Exception as e:
+            print(f"[Event Error] Skill sync failed: {e}")

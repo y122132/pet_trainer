@@ -16,6 +16,7 @@ class StatDistributionDialog extends StatefulWidget {
   // 새로 획득한 보상 표시를 위한 파라미터 (선택)
   final Map<String, dynamic>? earnedReward;
   final int? earnedBonus;
+  final Map<String, dynamic>? levelupResult; // [NEW]
   final VoidCallback? onContinue; // [NEW] 계속하기 콜백
   
   const StatDistributionDialog({
@@ -30,6 +31,7 @@ class StatDistributionDialog extends StatefulWidget {
     this.continueLabel = "한 번 더 하기",
     this.earnedReward,
     this.earnedBonus,
+    this.levelupResult,
     this.onContinue,
   });
 
@@ -88,17 +90,44 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
       rewardText += ", 보너스: +$bonus";
     }
 
-    return Container(
-      margin: const EdgeInsets.only(top: 10, bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.green.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.green.shade200),
-      ),
-      child: Text(
+    List<Widget> children = [
+      Text(
         rewardText,
         style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.bold),
+      ),
+    ];
+
+    // [New] Level up & Skill notification
+    if (widget.levelupResult != null) {
+       final newSkills = widget.levelupResult!['new_skills'] as List?;
+       if (newSkills != null && newSkills.isNotEmpty) {
+          final skillNames = newSkills.map((s) => s['name'] ?? '새 기술').join(", ");
+          children.add(const SizedBox(height: 4));
+          children.add(Text(
+            "✨ 레벨업! 신규 기술 습득: $skillNames",
+            style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.w900, fontSize: 13),
+          ));
+       } else {
+          children.add(const SizedBox(height: 4));
+          children.add(const Text(
+            "🎊 레벨업 성공!",
+            style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
+          ));
+       }
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10, bottom: 10),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
       ),
     );
   }

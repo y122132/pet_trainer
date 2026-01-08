@@ -198,6 +198,42 @@ MOVE_DATA = {
         ],
         "effect_chance": 100,
         "max_pp": 1
+    },
+
+    # [New Skills for Level 30, 60, 80]
+    301: {
+        "name": "강력한 발톱",
+        "power": 55,
+        "accuracy": 100,
+        "type": "normal",
+        "category": "physical",
+        "description": "날카로운 발톱으로 상대를 강하게 할퀸다.",
+        "scaling_stat": "strength",
+        "scaling_factor": 1.2,
+        "max_pp": 15
+    },
+    302: {
+        "name": "치유의 손길",
+        "power": 40,
+        "accuracy": 100,
+        "type": "psychic",
+        "category": "status",
+        "description": "상처를 어루만져 체력을 크게 회복한다.",
+        "scaling_stat": "intelligence",
+        "scaling_factor": 1.5,
+        "max_pp": 10,
+        "effect": {"type": "heal", "target": "self", "value": 40}
+    },
+    303: {
+        "name": "화염 방사",
+        "power": 85,
+        "accuracy": 100,
+        "type": "fire",
+        "category": "special",
+        "description": "뜨거운 불꽃을 내뿜어 상대를 태워버린다.",
+        "scaling_stat": "intelligence",
+        "scaling_factor": 1.1,
+        "max_pp": 10
     }
 }
 
@@ -231,11 +267,13 @@ COMMON_LEARNSET = {
     10: [10],
     15: [15],
     25: [25],
-    30: [30],
+    30: [30, 301],
     45: [45],
     50: [50],
+    60: [302],
     65: [65],
     75: [75],
+    80: [303],
     90: [90],
     100: [100]
 }

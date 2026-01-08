@@ -73,9 +73,14 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
     if updated_stat_val > 0 and updated_stat_val % 10 == 0:
         milestone_reached = True
 
-    # 5. DB 커밋 및 갱신
+    # 5. [New] Give XP and Level up (Integration)
+    # Give decent XP for training (e.g. 25 EXP)
+    levelup_res = await _give_exp_and_levelup(db, character_obj, exp_gain=25)
+    
+    # 6. DB 커밋 및 갱신
     await db.commit()
     await db.refresh(stat)
+    await db.refresh(character_obj) # To get updated learned_skills
     
     # 6. 일일 수행 횟수 계산 (오늘 날짜 기준)
     today_start = datetime.utcnow().date()
@@ -91,7 +96,8 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
     return {
         "stat": stat,
         "daily_count": daily_count,
-        "milestone_reached": milestone_reached
+        "milestone_reached": milestone_reached,
+        "levelup_result": levelup_res # [New] Return for AnalysisSocket
     }
 
 async def get_character(db: AsyncSession, char_id: int):
@@ -180,6 +186,14 @@ async def update_character_stats(db: AsyncSession, char_id: int, stats_update: d
     if "exp" in stats_update: stat.exp = stats_update["exp"]
     if "level" in stats_update: stat.level = stats_update["level"]
     
+    # [New] Handle learned_skills in Character table
+    if "learned_skills" in stats_update:
+        # Fetch character to update learned_skills
+        char_res = await db.execute(select(Character).where(Character.id == char_id))
+        char = char_res.scalar_one_or_none()
+        if char:
+            char.learned_skills = stats_update["learned_skills"]
+    
     await db.commit()
     await db.refresh(stat)
     return stat
@@ -217,17 +231,12 @@ async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain
         stat.health += 10 # HP Boost
         stat.unused_points += 1
         
-        # 스킬 습득
+        # [Note] Skill acquisition is now handled automatically via SQLAlchemy events in character.py
+        # We just need to track which skills were added for the return message
         learnset = PET_LEARNSET.get(pet_type, {})
         skills_at_level = learnset.get(stat.level, [])
-        current_skills = character.learned_skills or []
-        
         for skill_id in skills_at_level:
-            if skill_id not in current_skills:
-                current_skills.append(skill_id)
-                new_skills.append(skill_id)
-        
-        character.learned_skills = list(current_skills)
+             new_skills.append(skill_id)
 
     await db.commit()
     

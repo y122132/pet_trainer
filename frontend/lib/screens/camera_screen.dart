@@ -82,7 +82,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     final ctrl = Provider.of<TrainingController>(context, listen: false);
     final reward = ctrl.lastReward;
     if (reward != null) {
-       _showSuccessDialog(reward['base'], reward['bonus']);
+       _showSuccessDialog(reward['base'], reward['bonus'], reward['levelup']);
     }
   }
 
@@ -254,7 +254,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     }
   }
 
-  void _showSuccessDialog(Map<String, dynamic> baseReward, int bonus) {
+  void _showSuccessDialog(Map<String, dynamic> baseReward, int bonus, [Map<String, dynamic>? levelupResult]) {
     if (!mounted) return;
     final charProvider = Provider.of<CharProvider>(context, listen: false);
     final trainingCtrl = Provider.of<TrainingController>(context, listen: false);
@@ -275,6 +275,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
           title: "🎉 훈련 성공!",
           earnedReward: baseReward,
           earnedBonus: bonus,
+          levelupResult: levelupResult, // [New]
           confirmLabel: "마이룸으로 이동",
           skipLabel: "나중에 하기",
           onConfirm: (allocated, remaining) {

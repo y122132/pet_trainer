@@ -247,16 +247,17 @@ class TrainingController extends ChangeNotifier {
        }
 
        // Success Handling
-       if (statusStr == 'success') {
+        if (statusStr == 'success') {
           if (data.containsKey('base_reward')) {
              final base = data['base_reward'];
              final bonus = data['bonus_points'] ?? 0;
+             final Map<String, dynamic>? levelup = data['levelup_result'];
              
              // [Fix] Store reward data BEFORE notifying the view
-             lastReward = {'base': base, 'bonus': bonus};
+             lastReward = {'base': base, 'bonus': bonus, 'levelup': levelup};
 
              // Update Provider Reward (Stats)
-             _charProvider?.gainReward(base, bonus); 
+             _charProvider?.gainReward(base, bonus, levelup); 
              
              // Notify View to show dialog
              if (onSuccessCallback != null) {
@@ -265,7 +266,7 @@ class TrainingController extends ChangeNotifier {
              
              stopTraining(); // Stop Loop
           }
-       }
+        }
        
        notifyListeners();
 

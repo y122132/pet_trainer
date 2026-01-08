@@ -147,9 +147,14 @@ class CharProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void gainReward(Map<String, dynamic> baseReward, int bonusPoints) {
+  /// 보상 획득 로직 (AI 분석 결과 반영)
+  /// [baseReward]: 기본 스탯 증가량 {stat_type, value}
+  /// [bonusPoints]: 추가 할당 가능한 포인트 (사용자 분배용)
+  /// [levelupResult]: 서버에서 계산된 레벨업 결과 (경험치, 신규 기술 등)
+  void gainReward(Map<String, dynamic> baseReward, int bonusPoints, [Map<String, dynamic>? levelupResult]) {
     if (_character == null || _character!.stat == null) return;
     
+    // 1. 기본 보상 즉시 적용 (자동 성장)
     String statType = baseReward['stat_type'] ?? 'strength';
     int value = baseReward['value'] ?? 0;
     
@@ -165,11 +170,35 @@ class CharProvider with ChangeNotifier {
       }
     }
     
+    // 2. 보너스 포인트 적립
     if (bonusPoints > 0) {
       _unusedStatPoints += bonusPoints;
     }
     
-    gainExp(15);
+    // 3. 경험치 획득 및 레벨업 체크
+    if (levelupResult != null) {
+        // 서버에서 이미 계산된 정보가 있으면 최우선 반영
+        final statData = levelupResult['stat'];
+        if (statData != null) {
+            _character!.stat!.level = statData['level'] ?? _character!.stat!.level;
+            _character!.stat!.exp = statData['exp'] ?? _character!.stat!.exp;
+            _unusedStatPoints = statData['unused_points'] ?? _unusedStatPoints;
+        }
+        
+        // 배틀 보상의 경우 new_skills가 넘어올 수 있음
+        if (levelupResult.containsKey('new_skills')) {
+            final List<dynamic> newSkills = levelupResult['new_skills'];
+            for (var ns in newSkills) {
+                int nsId = (ns is int) ? ns : (ns['id'] as int);
+                if (!_character!.learnedSkills.contains(nsId)) {
+                    _character!.learnedSkills.add(nsId);
+                }
+            }
+        }
+    } else {
+        // 로컬 시뮬레이션 (Fallback)
+        gainExp(15);
+    }
     
     _balanceStats();
     syncStatToBackend();
@@ -330,7 +359,8 @@ class CharProvider with ChangeNotifier {
       "health": stat.health,
       "exp": stat.exp,
       "level": stat.level,
-      "unused_points": _unusedStatPoints
+      "unused_points": _unusedStatPoints,
+      "learned_skills": _character!.learnedSkills
     };
 
     try {

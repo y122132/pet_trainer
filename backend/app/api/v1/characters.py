@@ -38,6 +38,7 @@ class StatUpdateSchema(BaseModel):
     luck: int | None = None
     happiness: int | None = None
     unused_points: int | None = None
+    learned_skills: list[int] | None = None
 
 # --- 캐릭터 관련 엔드포인트 ---
 

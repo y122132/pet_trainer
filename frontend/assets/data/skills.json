@@ -75,5 +75,26 @@
         "accuracy": 100,
         "type": "dragon",
         "description": "짐승의 왕으로서 모든 것을 짓밟는다."
+    },
+    "301": {
+        "name": "강력한 발톱",
+        "power": 55,
+        "accuracy": 100,
+        "type": "normal",
+        "description": "날카로운 발톱으로 상대를 강하게 할퀸다."
+    },
+    "302": {
+        "name": "치유의 손길",
+        "power": 40,
+        "accuracy": 100,
+        "type": "psychic",
+        "description": "상처를 어루만져 체력을 크게 회복한다."
+    },
+    "303": {
+        "name": "화염 방사",
+        "power": 85,
+        "accuracy": 100,
+        "type": "fire",
+        "description": "뜨거운 불꽃을 내뿜어 상대를 태워버린다."
     }
 }

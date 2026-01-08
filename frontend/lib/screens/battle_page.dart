@@ -205,9 +205,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
 
         
 
-        List<Map<String, dynamic>?> displaySkills = List<Map<String, dynamic>?>.from(state.mySkills);
-        while (displaySkills.length < 4) displaySkills.add(null);
-        if (displaySkills.length > 4) displaySkills = displaySkills.sublist(0, 4);
+        final List<Map<String, dynamic>> displaySkills = List<Map<String, dynamic>>.from(state.mySkills);
 
         return PopScope(
           canPop: false, // 시스템 뒤로가기로 바로 나가는 것을 방지
