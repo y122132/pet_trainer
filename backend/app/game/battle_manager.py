@@ -51,7 +51,7 @@ class BattleState:
 class EffectStrategy(ABC):
     @abstractmethod
     def apply(self, effect: dict, attacker_state: BattleState, defender_state: BattleState, 
-              attacker_name: str, defender_name: str) -> Optional[dict]:
+              attacker_name: str, defender_name: str, attacker_stat: Any = None, move_data: dict = None) -> Optional[dict]:
         """
         효과를 적용하고 로그(dict)를 반환합니다. 효과가 없으면 None.
         """
@@ -59,7 +59,7 @@ class EffectStrategy(ABC):
 
 # --- [Concrete Strategies] ---
 class StatChangeStrategy(EffectStrategy):
-    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name):
+    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name, attacker_stat=None, move_data=None):
         stat_name = effect["stat"]
         val = effect["value"]
         target = effect["target"]
@@ -96,7 +96,7 @@ class StatChangeStrategy(EffectStrategy):
         return None
 
 class StatusStrategy(EffectStrategy):
-    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name):
+    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name, attacker_stat=None, move_data=None):
         status = effect["status"]
         target = effect["target"]
         target_state = attacker_state if target == "self" else defender_state
@@ -119,13 +119,26 @@ class StatusStrategy(EffectStrategy):
         return None
 
 class HealStrategy(EffectStrategy):
-    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name):
-        amount_pct = effect.get("amount", effect.get("value", 50))
+    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name, attacker_stat=None, move_data=None):
         target = effect["target"]
         target_state = attacker_state if target == "self" else defender_state
         
         if target_state.current_hp > 0:
-            heal_amount = int(target_state.max_hp * (amount_pct / 100))
+            # [New] Scaling logic for heal
+            scaling_stat = move_data.get("scaling_stat") if move_data else None
+            scaling_factor = move_data.get("scaling_factor", 1.0) if move_data else 1.0
+            power = move_data.get("power", 0) if move_data else 0
+            
+            if scaling_stat and attacker_stat:
+                # Stat based healing: (Stat * Factor * Power * 0.5) / 10 (normalized)
+                base_val = getattr(attacker_stat, scaling_stat, 10)
+                stage_multiplier = attacker_state.get_stage_multiplier(scaling_stat)
+                heal_amount = int((base_val * stage_multiplier * scaling_factor * power * 0.5) / 10)
+            else:
+                # Percentage based healing (Default)
+                amount_pct = effect.get("amount", effect.get("value", 50))
+                heal_amount = int(target_state.max_hp * (amount_pct / 100))
+            
             if heal_amount < 1: heal_amount = 1
             
             old_hp = target_state.current_hp
@@ -142,7 +155,7 @@ class HealStrategy(EffectStrategy):
         return None
 
 class FieldStrategy(EffectStrategy):
-    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name):
+    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name, attacker_stat=None, move_data=None):
         field_name = effect.get("field", "weather")
         val = effect.get("value", "clear")
         
@@ -162,7 +175,7 @@ class FieldStrategy(EffectStrategy):
         }
 
 class RecoilStrategy(EffectStrategy):
-    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name):
+    def apply(self, effect, attacker_state, defender_state, attacker_name, defender_name, attacker_stat=None, move_data=None):
         pct = effect.get("value", 25)
         target = effect["target"]
         target_state = attacker_state if target == "self" else defender_state
@@ -232,7 +245,7 @@ class BattleManager:
             strategy = cls._strategies.get(etype)
             
             if strategy:
-                log = strategy.apply(effect, attacker_state, defender_state, attacker_name, defender_name)
+                log = strategy.apply(effect, attacker_state, defender_state, attacker_name, defender_name, attacker_stat, move)
                 if log:
                     logs.append(log)
             else:

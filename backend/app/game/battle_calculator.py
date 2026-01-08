@@ -35,17 +35,29 @@ class BattleCalculator:
         # 1. 스탯 & 랭크 반영 (Physical/Special Split)
         move_category = move.get("category", "physical")
         
-        # Determine Stats based on Category
+        # [New] Scaling Stat & Factor Override
+        move_scaling_stat = move.get("scaling_stat")
+        move_scaling_factor = move.get("scaling_factor", 1.0)
+
+        # Determine Stats based on Category (Default)
         if move_category == "special":
             # Special: Intelligence vs Intelligence (Sp.Def)
-            atk_val = attacker_stat.intelligence * attacker_state.get_stage_multiplier("intelligence")
+            base_atk_val = attacker_stat.intelligence * attacker_state.get_stage_multiplier("intelligence")
             def_val = defender_stat.intelligence * defender_state.get_stage_multiplier("intelligence") 
         elif move_category == "status":
             return 0, False, "normal"
         else:
             # Physical (Default): Strength vs Defense
-            atk_val = attacker_stat.strength * attacker_state.get_stage_multiplier("strength")
+            base_atk_val = attacker_stat.strength * attacker_state.get_stage_multiplier("strength")
             def_val = defender_stat.defense * defender_state.get_stage_multiplier("defense")
+
+        # Apply Scaling Override
+        if move_scaling_stat:
+            # Manual Stat Override
+            atk_stat_val = getattr(attacker_stat, move_scaling_stat, base_atk_val)
+            atk_val = atk_stat_val * attacker_state.get_stage_multiplier(move_scaling_stat) * move_scaling_factor
+        else:
+            atk_val = base_atk_val
 
         # 화상 상태일 경우 (Physical Only) 공격력 반감
         if move_category == "physical" and attacker_state.status_ailment == "burn":

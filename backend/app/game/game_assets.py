@@ -198,6 +198,46 @@ MOVE_DATA = {
         ],
         "effect_chance": 100,
         "max_pp": 1
+    },
+
+    # Lv30 강력한 발톱: 일반 / 높은 데미지 / 힘 계수 반영
+    301: {
+        "name": "강력한 발톱",
+        "power": 55,
+        "accuracy": 100,
+        "type": "normal",
+        "category": "physical",
+        "description": "날카로운 발톱으로 상대를 강하게 할퀸다.",
+        "scaling_stat": "strength",
+        "scaling_factor": 1.2,
+        "max_pp": 15
+    },
+
+    # Lv60 치유의 손길: 에스퍼 / 아군(본인) 회복 / 지능 계수 반영
+    302: {
+        "name": "치유의 손길",
+        "power": 40,
+        "accuracy": 100,
+        "type": "psychic",
+        "category": "status", # Categorized as status since it's a heal
+        "description": "상처를 어루만져 체력을 크게 회복한다.",
+        "scaling_stat": "intelligence",
+        "scaling_factor": 1.5,
+        "max_pp": 10,
+        "effect": {"type": "heal", "target": "self", "value": 40} # Power is used for scaling logic in calculator
+    },
+
+    # Lv80 화염 방사: 불 / 높은 데미지 / 지능 계수 반영
+    303: {
+        "name": "화염 방사",
+        "power": 85,
+        "accuracy": 100,
+        "type": "fire",
+        "category": "special",
+        "description": "뜨거운 불꽃을 내뿜어 상대를 태워버린다.",
+        "scaling_stat": "intelligence",
+        "scaling_factor": 1.1,
+        "max_pp": 10
     }
 }
 
@@ -231,11 +271,13 @@ COMMON_LEARNSET = {
     10: [10],
     15: [15],
     25: [25],
-    30: [30],
+    30: [30, 301],
     45: [45],
     50: [50],
+    60: [302],
     65: [65],
     75: [75],
+    80: [303],
     90: [90],
     100: [100]
 }
