@@ -53,28 +53,20 @@ class SkillPanelWidget extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               Expanded(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Expanded(child: _buildSkillButton(context, displaySkills.length > 0 ? displaySkills[0] : null)),
-                          const SizedBox(width: 16),
-                          Expanded(child: _buildSkillButton(context, displaySkills.length > 1 ? displaySkills[1] : null)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Expanded(child: _buildSkillButton(context, displaySkills.length > 2 ? displaySkills[2] : null)),
-                          const SizedBox(width: 16),
-                          Expanded(child: _buildSkillButton(context, displaySkills.length > 3 ? displaySkills[3] : null)),
-                        ],
-                      ),
-                    ),
-                  ],
+                child: GridView.builder(
+                  padding: EdgeInsets.zero,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 2.1,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
+                  // Show at least 4 slots, or more if needed
+                  itemCount: skills.length > 4 ? skills.length : 4,
+                  itemBuilder: (context, index) {
+                    final skill = index < skills.length ? skills[index] : null;
+                    return _buildSkillButton(context, skill);
+                  },
                 ),
               ),
             ],
