@@ -41,6 +41,7 @@ flutter:
     - assets/images/characters/
     - assets/images/
     - assets/data/
+    - assets/data/skills.json
 
 
 flutter_launcher_icons:

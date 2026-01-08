@@ -1,20 +1,20 @@
 // frontend/lib/screens/my_room_page.dart
+import 'dart:io';
+import '../api_config.dart';
+import '../config/theme.dart';
+import 'skill_management_screen.dart';
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
-
 import '../providers/char_provider.dart';
 import '../providers/chat_provider.dart';
-import '../services/auth_service.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../widgets/common/stat_widgets.dart';
 import '../widgets/char_message_bubble.dart';
 import '../widgets/stat_distribution_dialog.dart';
-import '../api_config.dart';
-import '../config/theme.dart'; // AppColors를 위해 유지
 
 class MyRoomPage extends StatefulWidget {
   const MyRoomPage({super.key});
@@ -50,6 +50,12 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
   }
 
   void _onCharacterTap(CharProvider provider) {
+    if (provider.hasNewSkillAlert) {
+      provider.updateStatusMessage("배울 수 있는 스킬이 있습니다! (터치해서 확인)");
+      setState(() => _showBubble = true);
+      return; // 스킬 알림이 최우선이므로 아래 랜덤 메시지는 실행 안 함
+    }
+
     List<String> messages = [
       "오늘 운동은 언제 하시나요?",
       "간식이 먹고 싶어요! 멍!",
@@ -270,7 +276,14 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                 
                 // 2. Character Frame
                 GestureDetector(
-                  onTap: () => _onCharacterTap(charProvider),
+                  onTap: () {
+                    if (charProvider.statusMessage.contains("배울 수 있는 스킬")) {
+                      charProvider.clearSkillAlert();
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const SkillManagementScreen()));
+                    } else {
+                      _onCharacterTap(charProvider);
+                    }
+                  },
                   child: AnimatedBuilder(
                     animation: _breathingAnimation,
                     builder: (context, child) => Transform.scale(scale: _breathingAnimation.value, child: child),
@@ -414,7 +427,7 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
 
                           // Right: Stats List (must be in Expanded)
                           Expanded(
-                            flex: 5,
+                            flex: 6,
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -423,8 +436,19 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                                 statBar("DEX", stat?.agility ?? 0, Colors.green.shade400),
                                 statBar("DEF", stat?.defense ?? 0, Colors.brown.shade400),
                                 statBar("LUK", stat?.luck ?? 0, Colors.amber.shade400),
-                                const Divider(height: 10, color: Colors.transparent),
-                                statBar("HP", stat?.health ?? 0, Colors.pink.shade300, maxValue: 100), // ERROR FIXED
+                                const Divider(height: 20, color: Colors.transparent),
+                                statBar("HP", stat?.health ?? 0, Colors.pink.shade300, maxValue: 100),
+                                
+                                const SizedBox(height: 16),
+                                SizedBox(width: double.infinity, child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    charProvider.clearSkillAlert();
+                                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SkillManagementScreen()));
+                                  },
+                                  icon: const Icon(Icons.auto_fix_high, size: 18),
+                                  label: const Text("기술 관리 및 도감", style: TextStyle(fontWeight: FontWeight.bold)),
+                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint, foregroundColor: AppColors.softCharcoal),
+                                )),
                               ],
                             ),
                           ),

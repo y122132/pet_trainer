@@ -30,6 +30,7 @@ class BattleProvider extends ChangeNotifier {
   // Getters
   BattleUIState get state => _state;
   Stream<BattleEvent> get eventStream => _animationManager.eventStream;
+  Map<String, dynamic> get skillData => _skillData;
 
   BattleProvider() {
     _animationManager = BattleAnimationManager(skillData: _skillData);

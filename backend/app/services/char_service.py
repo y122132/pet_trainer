@@ -2,7 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.db.models.character import Character, Stat, ActionLog
 from datetime import datetime
-
+from app.game.game_assets import COMMON_LEARNSET
+from sqlalchemy.orm import Session
 async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_result: dict):
     """
     YOLO 분석 결과(성공 시)를 바탕으로 캐릭터의 스탯을 업데이트하고 행동 로그를 저장합니다.
@@ -301,3 +302,17 @@ async def delete_character(db: AsyncSession, char_id: int) -> bool:
         await db.commit()
         return True
     return False
+
+async def check_and_unlock_skills(db: Session, character: Character, current_level: int):
+    should_be_learned = []
+    for lv, skill_ids in COMMON_LEARNSET.items():
+        if current_level >= lv:
+            should_be_learned.extend(skill_ids)
+    
+    updated_learned_skills = list(set(character.learned_skills + should_be_learned))
+    
+    if len(updated_learned_skills) > len(character.learned_skills):
+        character.learned_skills = updated_learned_skills
+        db.add(character)
+        await db.commit()
+        print(f"--- [해금 성공] 새 스킬이 추가되었습니다: {updated_learned_skills} ---")

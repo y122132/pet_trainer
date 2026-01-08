@@ -7,8 +7,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'config/theme.dart';
 import 'providers/char_provider.dart';
 import 'providers/chat_provider.dart';
+import 'providers/battle_provider.dart';
 import 'screens/main_title_screen.dart';
-
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -18,6 +18,7 @@ void main() {
         providers: [
           ChangeNotifierProvider(create: (_) => CharProvider()),
           ChangeNotifierProvider(create: (_) => ChatProvider()),
+          ChangeNotifierProvider(create: (_) => BattleProvider()),
         ],
         child: const MyApp(),
       ),

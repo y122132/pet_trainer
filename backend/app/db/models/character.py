@@ -18,7 +18,8 @@ class Character(Base):
     name: Mapped[str] = mapped_column(String, index=True) # 캐릭터 이름
     status: Mapped[str] = mapped_column(String, default="normal") # 상태 (예: normal, hungry, sleepy)
     pet_type: Mapped[str] = mapped_column(String, default="dog") # 반려동물 종류 (dog, cat 등)
-    learned_skills: Mapped[list[int]] = mapped_column(JSONB, default=[]) # 습득한 기술 ID 리스트
+    learned_skills: Mapped[list[int]] = mapped_column(JSONB, default=[5]) # 습득한 기술 ID 리스트
+    equipped_skills: Mapped[list[int]] = mapped_column(JSONB, default=[5])
 
     # Image URLs
     front_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
@@ -28,10 +29,8 @@ class Character(Base):
     
     # 관계 설정 (Relationships)
     user: Mapped["User"] = relationship("User", back_populates="character")
-    
     # 1:1 관계 - uselist=False
     stat: Mapped["Stat"] = relationship("Stat", back_populates="character", uselist=False, cascade="all, delete-orphan")
-    
     # 1:N 관계 - 행동 로그
     action_logs: Mapped[list["ActionLog"]] = relationship("ActionLog", back_populates="character", cascade="all, delete-orphan")
 

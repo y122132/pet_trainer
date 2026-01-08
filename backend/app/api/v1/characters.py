@@ -1,16 +1,20 @@
 # backend/app/api/v1/characters.py
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.database import get_db
-from app.services import char_service
-from pydantic import BaseModel
 import os
-import shutil
 import time
+import shutil
 from pathlib import Path
+from sqlalchemy import select
+from pydantic import BaseModel
+from app.db.database import get_db
+from sqlalchemy.orm import Session
+from app.db.models.user import User
+from app.services import char_service
+from app.db.models.character import Character
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.schemas.character import EquipSkillsRequest
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
 from app.core.security import get_current_user_id
-
 # 캐릭터 전용 라우터 정의
 router = APIRouter(prefix="/characters", tags=["characters"])
 
@@ -106,16 +110,19 @@ async def update_stats(
 
 @router.post("/{char_id}/level-up")
 async def manual_level_up(char_id: int, db: AsyncSession = Depends(get_db)):
-    """테스트용: 강제로 1레벨을 올립니다."""
+    """테스트용: 강제로 1레벨을 올리고 스킬 해금을 체크합니다."""
     char = await char_service.get_character(db, char_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
     
-    # 레벨업에 필요한 경험치 지급 (stat.level * 100)
     exp_needed = char.stat.level * 100
     result = await char_service._give_exp_and_levelup(db, char, exp_needed)
-    return {"message": "Level up success", "result": result}
-    return {"message": "Stats updated", "stats": updated_stat}
+    
+    await char_service.check_and_unlock_skills(db, char, char.stat.level)
+    
+    await db.commit()
+    
+    return {"message": "Level up and skill unlock check success", "new_level": char.stat.level}
 
 @router.post("/compose")
 async def create_character_with_images(
@@ -128,9 +135,6 @@ async def create_character_with_images(
     db: AsyncSession = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    """
-    캐릭터 생성과 이미지 업로드를 한 번에 처리합니다. (Atomic Transaction)
-    """
     # 1. 파일 확장자 선검사 (빠른 실패)
     image_files = [front_image, back_image, side_image, face_image]
     for file in image_files:
@@ -308,3 +312,30 @@ async def update_single_character_image(
         raise HTTPException(status_code=404, detail="Character not found after update attempt")
         
     return {"message": f"{image_key} updated successfully", "image_url": new_image_url}
+
+@router.post("/me/equip-skills")
+async def equip_skills(
+    req: EquipSkillsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id)
+):
+    char_res = await db.execute(select(Character).where(Character.user_id == current_user_id))
+    char = char_res.scalar_one_or_none()
+    if not char:
+        raise HTTPException(status_code=404, detail="캐릭터를 찾을 수 없습니다.")
+
+    # 1. 검증: 최대 4개 제한
+    if len(req.skill_ids) > 4:
+        raise HTTPException(status_code=400, detail="최대 4개까지 장착 가능합니다.")
+
+    # 2. 검증: 실제로 해금(learned)한 스킬인가?
+    for s_id in req.skill_ids:
+        if s_id not in char.learned_skills:
+            raise HTTPException(status_code=403, detail=f"미해금 스킬 포함: {s_id}")
+
+    # 3. 저장
+    char.equipped_skills = req.skill_ids
+    db.add(char) 
+    await db.commit()
+    
+    return {"status": "success", "equipped_skills": char.equipped_skills}
