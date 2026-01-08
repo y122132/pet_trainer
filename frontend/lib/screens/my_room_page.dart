@@ -102,10 +102,12 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
     if (mounted) {
       Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("로그아웃 되었습니다.")),
+      const SnackBar(content: Text("로그아웃 되었습니다."))
       );
     }
   }
+
+
 
   void _showStatDialog(BuildContext context, CharProvider provider, Map<String, int> currentStats) {
       showDialog(
@@ -208,6 +210,9 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
         ),
       );
     }
+
+    // [Restore battle_rolling Logic] Calculate maxExp based on level
+    final int maxExp = (stat?.level ?? 1) * 100;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFFF9E6),
@@ -384,12 +389,14 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                       ),
                       const SizedBox(height: 8),
                       LinearProgressIndicator(
-                        value: (stat?.exp ?? 0) / 100.0,
+                        value: (stat?.exp ?? 0) / maxExp,
                         backgroundColor: Colors.brown[100],
                         color: Colors.brown[400],
                         minHeight: 8,
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 8),
+                      Text("EXP ${stat?.exp ?? 0} / $maxExp", style: GoogleFonts.jua(color: Colors.grey[600], fontSize: 12)),
+                      const SizedBox(height: 12),
 
                       // Card Body (Radar Chart and Stats)
                       Row(

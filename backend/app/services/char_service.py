@@ -94,7 +94,7 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
         "milestone_reached": milestone_reached
     }
 
-async def get_character_with_stats(db: AsyncSession, char_id: int):
+async def get_character(db: AsyncSession, char_id: int):
     """
     캐릭터 정보와 스탯을 함께 조회합니다.
     """
@@ -155,7 +155,7 @@ async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: 
     await db.refresh(new_char)
     
     # 생성된 캐릭터 반환 (스탯 포함)
-    return await get_character_with_stats(db, new_char.id)
+    return await get_character(db, new_char.id)
 
 async def update_character_stats(db: AsyncSession, char_id: int, stats_update: dict):
     """
@@ -185,9 +185,6 @@ async def update_character_stats(db: AsyncSession, char_id: int, stats_update: d
     return stat
 
 async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain: int) -> dict:
-    """
-    내부 헬퍼 함수: 캐릭터에게 경험치를 지급하고 레벨업 처리
-    """
     from app.game.game_assets import PET_LEARNSET, PET_BASE_STATS
     
     stmt_stat = select(Stat).where(Stat.character_id == character.id)
@@ -206,6 +203,7 @@ async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain
     while stat.exp >= stat.level * 100:
         stat.exp -= stat.level * 100
         stat.level += 1
+        stat.unused_points += 5
         level_up_occurred = True
         
         # 스탯 성장
@@ -236,14 +234,13 @@ async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain
     return {
         "exp_gained": exp_gain,
         "new_level": stat.level,
+        "new_exp": stat.exp,
         "level_up": level_up_occurred,
-        "new_skills": new_skills
+        "new_skills": new_skills,
+        "unused_points": stat.unused_points
     }
 
 async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int):
-    """
-    전투 종료 후 승자에게 경험치를 지급하고 레벨업 및 스킬 습득을 처리합니다.
-    """
     # 1. 승자 캐릭터 조회
     stmt = select(Character).where(Character.user_id == winner_id)
     res = await db.execute(stmt)
@@ -259,9 +256,6 @@ async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int)
     return await _give_exp_and_levelup(db, winner_char, exp_gain=50)
 
 async def process_battle_draw(db: AsyncSession, user_id1: int, user_id2: int):
-    """
-    [NEW] 무승부 시 양쪽 모두에게 소정의 경험치 지급 (승리의 50% = 25EXP)
-    """
     rewards = {}
     
     stmt = select(Character).where(Character.user_id.in_([user_id1, user_id2]))

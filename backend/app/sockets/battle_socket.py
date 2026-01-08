@@ -1,147 +1,133 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Dict, List, Optional
+
+#backend/app/sockets/battle_socket.py
 import json
+import uuid
+import random
 import asyncio
-from app.game.battle_manager import BattleManager, BattleState
-from app.game.battle_calculator import BattleCalculator
-from app.game.game_assets import MOVE_DATA
-from app.db.database import AsyncSessionLocal
-from app.services import char_service
 from sqlalchemy import select
-from app.db.models.character import Character, Stat
 from dataclasses import asdict
-from app.core.security import verify_websocket_token
+from app.services import char_service
+from typing import Dict, List, Optional
+from app.game.game_assets import MOVE_DATA
+from app.game.matchmaker import matchmaker
+from app.db.database import AsyncSessionLocal
 from app.db.database_redis import RedisManager
+from app.db.models.character import Character, Stat
+from app.core.security import verify_websocket_token
+from app.game.battle_calculator import BattleCalculator
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from app.game.battle_manager import BattleManager, BattleState
 
 router = APIRouter()
 
-# --- Matchmaking Endpoint ---
-from app.game.matchmaker import matchmaker
+class BattleConnectionManager:
+    def __init__(self):
+        # {room_id: {user_id: websocket}}
+        self.active_connections: Dict[str, Dict[int, WebSocket]] = {}
+
+    async def connect(self, room_id: str, user_id: int, websocket: WebSocket):
+        if room_id not in self.active_connections:
+            self.active_connections[room_id] = {}
+        self.active_connections[room_id][user_id] = websocket
+
+    def disconnect(self, room_id: str, user_id: int):
+        if room_id in self.active_connections:
+            if user_id in self.active_connections[room_id]:
+                del self.active_connections[room_id][user_id]
+            if not self.active_connections[room_id]:
+                del self.active_connections[room_id]
+
+    async def broadcast(self, room_id: str, message: dict):
+        if room_id in self.active_connections:
+            targets = list(self.active_connections[room_id].items())
+            for uid, ws in targets:
+                try:
+                    if ws.client_state.value == 1:
+                        await ws.send_json(message)
+                except:
+                    self.disconnect(room_id, uid)
+
+    async def send_to_user(self, room_id: str, user_id: int, message: dict):
+        ws = self.active_connections.get(room_id, {}).get(user_id)
+        if ws:
+            await ws.send_json(message)
+
+manager = BattleConnectionManager()
 
 @router.websocket("/ws/battle/matchmaking/{user_id}")
 async def matchmaking_endpoint(websocket: WebSocket, user_id: int, token: str | None = None):
-    # 1. 보안 검증
     try:
         await verify_websocket_token(websocket, token)
-    except Exception as e:
-        print(f"[Battle-Socket] Token verification failed: {e} (Token: {token})")
-        return
+        await websocket.accept()
 
-    await websocket.accept()
-    
-    # 2. 레벨 제한 체크 (Lv.10 이상)
-    try:
         async with AsyncSessionLocal() as db:
-            result = await db.execute(select(Character).where(Character.user_id == user_id))
-            character = result.scalar_one_or_none()
+            char_res = await db.execute(select(Character).where(Character.user_id == user_id))
+            char = char_res.scalar_one_or_none()
             
-            if not character:
-                await websocket.close(code=4004, reason="Character not found")
+            if not char:
+                await websocket.close(code=4004)
                 return
 
-            if character.level < 10:
-                print(f"[Battle-Socket] User {user_id} rejected: Level {character.level} < 10")
-                # [User Request] 10레벨 미만 안내 메시지 전송
+            stat_res = await db.execute(select(Stat).where(Stat.character_id == char.id))
+            char_stat = stat_res.scalar_one_or_none()
+            
+            if not char_stat or char_stat.level < 10:
                 await websocket.send_json({
-                    "type": "ERROR",
-                    "code": "LEVEL_TOO_LOW",
-                    "message": "10레벨 미만은 배틀 시스템을 이용할 수 없습니다."
+                    "type": "ERROR", 
+                    "code": "LEVEL_LOW", 
+                    "message": f"Lv.10부터 가능합니다. (현재: {char_stat.level if char_stat else 1})"
                 })
-                # 메시지 전송 후 잠시 대기하지 않으면 클라이언트가 받기 전에 끊길 수 있음 (Optional, but safe)
-                await asyncio.sleep(0.1) 
-                await websocket.close(code=4003, reason="Level too low")
+                await websocket.close(code=4003)
                 return
-    except Exception as e:
-        print(f"[Battle-Socket] DB Level Check Error: {e}")
-        await websocket.close(code=4000, reason="Server Error")
-        return
-    
-    try:
-        # 대기열 등록
+
         await matchmaker.add_to_queue(user_id, websocket)
         
-        # 연결 유지 (매칭 대기)
         while True:
-            # 클라이언트로부터 메시지 받을 일은 딱히 없으나, 연결 유지 확인용
-            # 클라이언트가 취소 요청("CANCEL")을 보낼 수도 있음
             data = await websocket.receive_text()
-            if data == "CANCEL":
-                break
-            elif data == "AI_BATTLE":
-                # [New] AI 대전 요청 시 즉시 매칭 성사
-                matchmaker.remove_from_queue(user_id)
-                import uuid
+            if data == "CANCEL": break
+            if data == "AI_BATTLE":
                 room_id = str(uuid.uuid4())
-                # [Fix] Use helper to create FULL initial state
-                initial_data = create_initial_room_data(room_id, is_ai_battle=True)
-                await save_room_state(room_id, initial_data)
-                
-                await websocket.send_json({
-                    "type": "MATCH_FOUND",
-                    "room_id": room_id,
-                    "opponent_id": 0 # 0 indicates AI/Bot
-                })
+                await save_room_state(room_id, create_initial_room_data(room_id, is_ai_battle=True))
+                await websocket.send_json({"type": "MATCH_FOUND", "room_id": room_id, "opponent_id": 0})
                 break
-                
     except WebSocketDisconnect:
         pass
     finally:
         matchmaker.remove_from_queue(user_id)
 
-
-# --- Connection Management (Local) ---
-# 웹소켓 연결은 직렬화할 수 없으므로 여전히 서버 메모리에 유지해야 합니다.
-# Key: room_id, Value: Dict[user_id, WebSocket]
-local_connections: Dict[str, Dict[int, WebSocket]] = {}
-
-def get_room_connections(room_id: str) -> Dict[int, WebSocket]:
-    if room_id not in local_connections:
-        local_connections[room_id] = {}
-    return local_connections[room_id]
-
-async def broadcast_to_room(room_id: str, message: dict):
-    conns = get_room_connections(room_id)
-    # [Scalability Note] 다중 인스턴스 환경라면 여기서 Redis Pub/Sub을 발행해야 함.
-    # 현재는 Redis State Persistence에 집중하므로, 동일 서버에 접속한 유저에게만 전송.
-    for ws in conns.values():
-        try:
-            await ws.send_json(message)
-        except:
-            pass # Disconnected logic handled elsewhere
-
-async def send_to_user(room_id: str, user_id: int, message: dict):
-    conns = get_room_connections(room_id)
-    if user_id in conns:
-        try:
-            await conns[user_id].send_json(message)
-        except:
-            pass
-
-# --- Redis State Helpers ---
-
 async def save_room_state(room_id: str, data: dict):
-    """
-    방의 상태(JSON)를 Redis에 저장합니다.
-    """
     redis = RedisManager.get_client()
-    try:
-        # Pydantic or Custom Serialization
-        await redis.set(f"room:{room_id}", json.dumps(data), ex=3600) # 1시간 TTL
-    finally:
-        # pool.disconnect() is handled by RedisManager.close() on shutdown
-        pass
+    await redis.set(f"room:{room_id}", json.dumps(data), ex=3600)
 
 async def load_room_state(room_id: str) -> Optional[dict]:
-    """
-    Redis에서 방 상태를 불러옵니다.
-    """
     redis = RedisManager.get_client()
     data = await redis.get(f"room:{room_id}")
-    # redis-py's close is safe on pools
-    # await redis.close() 
-    if data:
-        return json.loads(data)
-    return None
+    return json.loads(data) if data else None
+
+async def handle_forfeit(room_id: str, leaver_id: int):
+    """유저가 나갔을 때(기권) 남은 유저 승리 처리"""
+    room_data = await load_room_state(room_id)
+    if not room_data: return
+
+    # 남은 유저 찾기
+    winner_id = None
+    for p_id in room_data["players"]:
+        if p_id != leaver_id:
+            winner_id = p_id
+            break
+
+    if winner_id is not None and winner_id != 0: # 0은 봇
+        await manager.send_to_user(room_id, winner_id, {
+            "type": "GAME_OVER",
+            "result": "WIN",
+            "reason": "opponent_fled",
+            "message": "상대방이 대전을 포기했습니다."
+        })
+        # 기권 승 보상 지급 (평소보다 적게 혹은 적절히)
+        async with AsyncSessionLocal() as db:
+            await char_service.process_battle_result(db, winner_id, leaver_id)
+    
+    await RedisManager.get_client().delete(f"room:{room_id}")
 
 async def delete_room_state(room_id: str):
     redis = RedisManager.get_client()
@@ -162,213 +148,68 @@ def create_initial_room_data(room_id: str, is_ai_battle: bool = False) -> dict:
         "field_effects": {"weather": "clear", "location": "stadium"},
         "is_ai_battle": is_ai_battle
     }
-
-# --- Logic Wrappers ---
-
-# --- Logic Wrappers ---
-
-# Helpers removed; using BattleState methods directly.
-
-
 # --- Endpoints ---
-
 @router.websocket("/ws/battle/{room_id}/{user_id}")
 async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, token: str | None = None):
-    # 1. 보안 검증
     try:
         await verify_websocket_token(websocket, token)
-    except Exception as e:
-        print(f"Token verification failed: {e}")
-        return
+        await websocket.accept()
+        await manager.connect(room_id, user_id, websocket)
 
-    # 2. 로컬 연결 관리
-    await websocket.accept()
-    
-    conns = get_room_connections(room_id)
-    conns[user_id] = websocket
-    
-    # 3. Redis 상태 로드 및 초기화
-    room_data = await load_room_state(room_id)
-    
-    # 방이 없으면 파라미터 초기화
-    if not room_data:
-        room_data = create_initial_room_data(room_id)
-    
-    # [Robustness] Ensure all keys exist (in case of partial initialization)
-    default_data = create_initial_room_data(room_id)
-    for k, v in default_data.items():
-        if k not in room_data:
-            room_data[k] = v
-
-    # AI 배틀 여부 확인
-    from app.game.matchmaker import matchmaker
-    # 룸 데이터가 새로 생성된 경우에만 체크 (또는 URL 파라미터 등으로도 가능하지만 여기선 로직상 첫 진입 유저 기준)
-    # 실제로는 클라이언트가 MATCH_FOUND의 opponent_id가 0임을 알고도 여기 접속함.
-
-    # 플레이어 등록
-    if user_id not in room_data["players"]:
-        if len(room_data["players"]) >= 2:
-            await websocket.close(code=4003, reason="Room is full")
-            del conns[user_id]
-            return
-        room_data["players"].append(user_id)
-
-    # [New] AI 대전인 경우 봇 추가 (Bot ID: 0)
-    # 클라이언트가 처음 접속할 때 결정
-    if str(user_id) not in room_data["character_stats"] and len(room_data["players"]) == 1:
-        # 이 유저가 처음 들어온 건데, 상대가 봇인지 확인하는 간단한 방법? 
-        # 일단 MATCH_FOUND에서 보낸 정보를 기억하거나, 특정 유저 ID(0)를 플레이어 리스트에 넣음.
-        pass
-    
-    # DB에서 캐릭터 가져오기
-    try:
+        room_data = await load_room_state(room_id) or create_initial_room_data(room_id)
+        
+        # 유저 정보 로드 및 초기화
         async with AsyncSessionLocal() as db:
-            stmt = select(Character).where(Character.user_id == user_id)
-            result = await db.execute(stmt)
-            character_obj = result.scalar_one_or_none()
+            char = (await db.execute(select(Character).where(Character.user_id == user_id))).scalar_one_or_none()
+            stat = (await db.execute(select(Stat).where(Stat.character_id == char.id))).scalar_one_or_none()
             
-            if character_obj:
-                # Stat
-                stmt_stat = select(Stat).where(Stat.character_id == character_obj.id)
-                res_stat = await db.execute(stmt_stat)
-                stat_obj = res_stat.scalar_one_or_none()
-                
-                if stat_obj:
-                    # Serialize Stat
-                    room_data["character_stats"][str(user_id)] = {
-                        "strength": stat_obj.strength,
-                        "defense": stat_obj.defense,
-                        "agility": stat_obj.agility,
-                        "intelligence": stat_obj.intelligence,
-                        "luck": stat_obj.luck,
-                        "health": stat_obj.health
-                    }
-                    room_data["pet_types"][str(user_id)] = character_obj.pet_type
-                    room_data["learned_skills"][str(user_id)] = character_obj.learned_skills or [1]
-                    
-                    # BattleState Init (if not exists)
-                    if str(user_id) not in room_data["battle_states"]:
-                        initial_bs = BattleState(max_hp=stat_obj.health, current_hp=stat_obj.health)
-                        room_data["battle_states"][str(user_id)] = initial_bs.to_dict()
-                else:
-                    await websocket.close(code=4004, reason="No stat found")
-                    del conns[user_id]
-                    return
-            else:
-                 await websocket.close(code=4004, reason="No character found")
-                 del conns[user_id]
-                 return
-    except Exception as e:
-        print(f"DB Error: {e}")
-        await websocket.close(code=4004, reason="DB Error")
-        del conns[user_id]
-        return
+            # 룸 데이터 갱신
+            if user_id not in room_data["players"]: room_data["players"].append(user_id)
+            room_data["character_stats"][str(user_id)] = {k: v for k, v in stat.__dict__.items() if not k.startswith('_')}
+            room_data["pet_types"][str(user_id)] = char.pet_type
+            room_data["learned_skills"][str(user_id)] = char.learned_skills or [1]
+            if str(user_id) not in room_data["battle_states"]:
+                room_data["battle_states"][str(user_id)] = BattleState(max_hp=stat.health, current_hp=stat.health).to_dict()
 
-    # [New] AI Battle: Add Bot to the room if not already there
-    if room_data.get("is_ai_battle") and 0 not in room_data["players"]:
-        room_data["players"].append(0)
-        # Init Bot Stats (Clone user's for a fair fight, but can be customized)
-        user_stats = room_data["character_stats"][str(user_id)]
-        room_data["character_stats"]["0"] = dict(user_stats)
-        room_data["pet_types"]["0"] = "bear" # Bot is a bear!
-        room_data["learned_skills"]["0"] = [5, 10, 15, 25, 30, 50] # Some skills
-        room_data["battle_states"]["0"] = BattleState(max_hp=user_stats["health"], current_hp=user_stats["health"]).to_dict()
+        # AI 봇 설정
+        if room_data.get("is_ai_battle") and 0 not in room_data["players"]:
+            room_data["players"].append(0)
+            room_data["character_stats"]["0"] = room_data["character_stats"][str(user_id)]
+            room_data["pet_types"]["0"] = "bear"
+            room_data["learned_skills"]["0"] = [5, 15, 30]
+            room_data["battle_states"]["0"] = room_data["battle_states"][str(user_id)]
 
-    # Redis 저장
-    await save_room_state(room_id, room_data)
+        await save_room_state(room_id, room_data)
+        await manager.broadcast(room_id, {"type": "JOIN", "user_id": user_id, "message": f"User {user_id} joined."})
 
-    # 접속 알림
-    await broadcast_to_room(room_id, {
-        "type": "JOIN",
-        "user_id": user_id,
-        "current_players": len(room_data["players"]),
-        "message": f"User {user_id} joined the battle."
-    })
-    
-    # 풀방 체크 & 배틀 시작
-    if len(room_data["players"]) == 2:
-        await start_battle_check(room_id)
+        if len(room_data["players"]) == 2:
+            await start_battle_check(room_id)
 
-    # --- 메인 루프 ---
-    try:
+        # 메인 루프
         while True:
             msg = await websocket.receive_json()
-            
-            # [Fix] 상태 최신화 (다른 유저에 의해 변경되었을 수 있으므로 매번 로드)
             room_data = await load_room_state(room_id)
             if not room_data: break
-            
+
             if msg.get("action") == "select_move":
                 move_id = msg.get("move_id")
-                
-                # [Debug] Trace
-                print(f"[Battle-Debug] User {user_id} selecting Move {move_id}")
-                
-                # 검증
-                known_skills = room_data["learned_skills"].get(str(user_id), [])
-                
-                # [New] Struggle Check (PP Check)
-                bs_dict = room_data["battle_states"].get(str(user_id))
-                if bs_dict is None:
-                    print(f"[Battle-Socket-Crash] Critical: User {user_id} has no battle state in room {room_id}")
-                    await send_to_user(room_id, user_id, {"type": "ERROR", "message": "State Error: Rejoin recommended"})
-                    continue
-                    
-                bs_obj = BattleState.from_dict(bs_dict)
-                
-                all_pp_zero = True
-                for skid in known_skills:
-                    if bs_obj.pp.get(str(skid), 99) > 0: # Default non-zero if missing for now
-                        all_pp_zero = False
-                        break
-                
-                if all_pp_zero:
-                    move_id = 0 # Force Struggle
-                
-                if move_id != 0 and move_id not in known_skills:
-                   print(f"[Battle-Debug] Invalid Skill: {move_id} not in {known_skills}")
-                   await send_to_user(room_id, user_id, {"type": "ERROR", "message": "Invalid Skill"})
-                   continue
-                
-                # 행동 불가 체크 (process_turn_redis 확인)
-                # bs_obj already loaded check above
-                pass
-                
-                # 선택 저장
                 room_data["selections"][str(user_id)] = move_id
                 
-                # [New] AI Battle Selection
                 if room_data.get("is_ai_battle"):
-                    import random
-                    bot_skills = room_data["learned_skills"].get("0", [5])
-                    room_data["selections"]["0"] = random.choice(bot_skills)
-                    print(f"[Battle-AI] Bot selected Move {room_data['selections']['0']}")
+                    room_data["selections"]["0"] = random.choice(room_data["learned_skills"]["0"])
 
                 await save_room_state(room_id, room_data)
-                
-                await send_to_user(room_id, user_id, {"type": "WAITING", "message": "Waiting..."})
-                
-                # 턴 진행 체크
-                print(f"[Battle-Debug] Room {room_id} Selections: {len(room_data['selections'])}/2")
+                await manager.send_to_user(room_id, user_id, {"type": "WAITING"})
+
                 if len(room_data["selections"]) == 2:
                     await process_turn_redis(room_id)
-                elif len(room_data["selections"]) > 2:
-                    print(f"[Battle-Debug] Error: Too many selections {room_data['selections']}")
-                    room_data["selections"] = {} # Reset safety
-                    await save_room_state(room_id, room_data)
 
     except WebSocketDisconnect:
-        conns = get_room_connections(room_id)
-        if user_id in conns: del conns[user_id]
-        await broadcast_to_room(room_id, {"type": "LEAVE", "user_id": user_id})
+        manager.disconnect(room_id, user_id)
+        await handle_forfeit(room_id, user_id)
     except Exception as e:
-        import traceback
-        print(f"[Battle-Socket-Crash] Unhandled Exception: {e}")
-        traceback.print_exc()
-        # Close with error code
-        await websocket.close(code=4000, reason=f"Server Error: {str(e)}")
-        conns = get_room_connections(room_id)
-        if user_id in conns: del conns[user_id]
+        print(f"Error: {e}")
+        await websocket.close(code=4000)
         
 async def start_battle_check(room_id: str):
     room_data = await load_room_state(room_id)
@@ -403,7 +244,7 @@ async def start_battle_check(room_id: str):
             "skills": details
         }
         
-    await broadcast_to_room(room_id, {
+    await manager.broadcast(room_id, {
         "type": "BATTLE_START",
         "players": stats_info,
         "message": "Battle Started!"
@@ -418,11 +259,6 @@ async def process_turn_redis(room_id: str):
     u1, u2 = players[0], players[1]
     su1, su2 = str(u1), str(u2)
     
-    # 1. Deserialize
-    # Stat은 계산 시 Object 형태가 필요할 수 있음 (BattleCalculator가 속성 접근을 .strength로 하는지 dict[]로 하는지 확인 필요)
-    # 기존 코드: stat.strength -> Object Access
-    # 따라서 Mock Object 또는 DictToObj 변환 필요.
-    # 간단히 namedtuple이나 class로 변환
     class StatObj:
         def __init__(self, d):
             for k, v in d.items(): setattr(self, k, v)
@@ -571,7 +407,7 @@ async def process_turn_redis(room_id: str):
     
     is_over = state1.current_hp <= 0 or state2.current_hp <= 0
     
-    await broadcast_to_room(room_id, {
+    await manager.broadcast(room_id, {
         "type": "TURN_RESULT",
         "results": turn_logs,
         "player_states": player_states,
@@ -596,7 +432,7 @@ async def process_turn_redis(room_id: str):
              except Exception as e:
                  print(f"DB Error (Draw): {e}")
 
-             await broadcast_to_room(room_id, {
+             await manager.broadcast(room_id, {
                  "type": "GAME_OVER", 
                  "result": "DRAW",
                  "rewards": draw_rewards # 클라이언트에서 이 정보를 보여줘야 함
@@ -610,17 +446,17 @@ async def process_turn_redis(room_id: str):
              except Exception as e:
                  print(f"DB Update/Reward Error: {e}")
                  
-             await send_to_user(room_id, winner, {
+             await manager.send_to_user(room_id, winner, {
                  "type": "GAME_OVER",
                  "result": "WIN",
                  "winner": winner,
                  "reward": reward_info
              })
              
-             await send_to_user(room_id, loser, {
+             await manager.send_to_user(room_id, loser, {
                  "type": "GAME_OVER",
                  "result": "LOSE",
                  "winner": winner
              })
         # Cleanup
-        await delete_room_state(room_id)
+        await RedisManager.get_client().delete(f"room:{room_id}")

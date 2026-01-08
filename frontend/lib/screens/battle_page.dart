@@ -1,17 +1,18 @@
-import 'package:flutter/material.dart';
+// frontend/lib/screens/battle_page.dart
+import 'dart:ui';
+import 'dart:async';
 import 'dart:convert';
-import 'dart:async'; // [Fix] Import
-import 'dart:ui'; // For ImageFilter
+import '../../config/theme.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pet_trainer_frontend/api_config.dart';
+import 'package:pet_trainer_frontend/models/battle_state.dart';
 import 'package:pet_trainer_frontend/providers/char_provider.dart';
 import 'package:pet_trainer_frontend/providers/battle_provider.dart';
-import 'package:pet_trainer_frontend/models/battle_state.dart';
-import 'package:pet_trainer_frontend/widgets/battle/battle_character_widget.dart';
 import 'package:pet_trainer_frontend/widgets/battle/battle_log_widget.dart';
 import 'package:pet_trainer_frontend/widgets/battle/skill_panel_widget.dart';
 import 'package:pet_trainer_frontend/widgets/battle/floating_text_overlay.dart';
-import '../../config/theme.dart'; // Import AppTheme
+import 'package:pet_trainer_frontend/widgets/battle/battle_character_widget.dart';
 
 class BattlePage extends StatelessWidget {
   const BattlePage({super.key});
@@ -119,13 +120,26 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
            break;
          case BattleEventType.victory:
             try {
-              if (event.message != null && event.message!.isNotEmpty) {
-                 _showRewardDialog(jsonDecode(event.message!));
+              if (event.message != null) {
+                final reward = jsonDecode(event.message!);
+
+                final charProvider = Provider.of<CharProvider>(context, listen: false);
+                if (reward['new_exp'] != null) {
+                  charProvider.updateExperience(
+                    reward['new_exp'], 
+                    reward['new_level'] ?? charProvider.character!.stat!.level
+                    );
+                }
+                if (reward['reason'] == 'opponent_fled') {
+                  _showGameOverDialog(true, specialMessage: "상대방이 접속을 끊었습니다.\n당신의 기권승입니다!");
+                } else {
+                  _showRewardDialog(reward);
+                }
               } else {
-                 _showGameOverDialog(true); 
+                _showGameOverDialog(true);
               }
             } catch (e) {
-               _showGameOverDialog(true);
+              _showGameOverDialog(true);
             }
             break;
          case BattleEventType.defeat:
@@ -189,164 +203,166 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
         final String myPetType = charProvider.currentPetType;
         final myId = charProvider.character?.userId ?? 0;
 
+        
+
         List<Map<String, dynamic>?> displaySkills = List<Map<String, dynamic>?>.from(state.mySkills);
         while (displaySkills.length < 4) displaySkills.add(null);
         if (displaySkills.length > 4) displaySkills = displaySkills.sublist(0, 4);
 
-        return Scaffold(
-          extendBodyBehindAppBar: true,
-          backgroundColor: Colors.black,
-          appBar: AppBar(
-             title: const Text("PET BATTLE", style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0, color: AppColors.softCharcoal)),
-             centerTitle: true,
-             backgroundColor: Colors.transparent,
-             elevation: 0,
-             leading: IconButton(icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.softCharcoal), onPressed: () => Navigator.pop(context)),
-          ),
-          body: Stack(
-            children: [
-              // 0. Background (Cute Forest - Softer)
-              Positioned.fill(
-                child: Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Color(0xFFD4EAC8), // Soft Sage Green
-                        Color(0xFFE8F6F3), // Soft Mint White
-                      ],
-                      stops: [0.3, 1.0]
-                    )
-                  ),
-                ),
-              ),
-              // Clouds (Background decor)
-              Positioned(top: 50, left: 30, child: Icon(Icons.cloud, size: 60, color: Colors.white.withOpacity(0.6))),
-              Positioned(top: 80, right: 50, child: Icon(Icons.cloud, size: 40, color: Colors.white.withOpacity(0.4))),
-              
-              // Ground Effect (Rounded Hill)
-              Positioned(
-                 bottom: -50, left: 0, right: 0, height: 200,
-                 child: Container(
-                   decoration: BoxDecoration(
-                     color: const Color(0xFFC1DFC4).withOpacity(0.6), // Darker Sage Hill
-                     borderRadius: const BorderRadius.vertical(top: Radius.circular(100))
-                   ),
-                 ),
-              ),
+        return PopScope(
+          canPop: false, // 시스템 뒤로가기로 바로 나가는 것을 방지
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) return;
 
-              // 1. OPPONENT (Top Right)
-              Positioned(top: 130, right: 40, child: Transform.scale(scale: 0.9,
-                child: AnimatedBuilder(animation: Listenable.merge([_dashAnimation, _shakeAnimation]), builder: (ctx, child) {
-                   Offset dashOff = (_attackerId != myId) ? _dashAnimation.value : Offset.zero;
-                   // Shake if I am NOT the target (meaning opponent is target)
-                   double shakeX = (_shakeTargetId != null && _shakeTargetId != myId) ? _shakeAnimation.value : 0.0;
-                   
-                   return Transform.translate(offset: dashOff + Offset(shakeX, 0), child: child);
-                }, child: BattleAvatarWidget(
-                   petType: state.oppPetType,
-                   idleAnimation: _idleAnimation,
-                   imageType: 'side',
-                   sideUrl: state.oppSideUrl,
-                   damageOpacity: 0.0,
-                )))
-              ),
-              // HUD (Top Right)
-              Positioned(
-                 top: 100, left: 20, right: 20,
-                 child: SafeArea(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        _buildGlassHud(
-                          name: state.oppName, 
-                          hp: state.oppHp, 
-                          maxHp: state.oppMaxHp, 
-                          isMe: false, 
-                          statuses: state.oppStatuses
-                        ),
-                      ],
-                    )
-                 )
-              ),
-
-              // 2. PLAYER (Bottom Left)
-              Positioned(bottom: 350, left: 50, child: Transform.scale(scale: 1.1,
-                child: AnimatedBuilder(animation: Listenable.merge([_shakeAnimation, _dashAnimation]), builder: (ctx, child) {
-                   Offset dashOff = (_attackerId == myId) ? _dashAnimation.value : Offset.zero;
-                   // Shake if I AM the target
-                   double shakeX = (_shakeTargetId == myId) ? _shakeAnimation.value : 0.0;
-                   
-                   return Transform.translate(offset: dashOff + Offset(shakeX, 0), child: child);
-                }, child: BattleAvatarWidget(
-                   petType: myPetType, 
-                   idleAnimation: _idleAnimation, 
-                   imageType: 'side', 
-                   sideUrl: charProvider.character?.sideUrl,
-                   damageOpacity: 0.0,
-                )))
-              ),
-              // HUD (Bottom Left) - MOVED UP
-              Positioned(
-                 bottom: 330, left: 20, right: 20, // Moved up from 270 to 330
-                 child: Row(
-                   children: [
-                     _buildGlassHud(
-                       name: "YOU", 
-                       hp: state.myHp, 
-                       maxHp: state.myMaxHp, 
-                       isMe: true, 
-                       statuses: state.myStatuses
-                     ),
-                   ],
-                 )
-              ),
-
-              // 3. LOGS (Top Center - Ticker Style)
-              Positioned(
-                 top: 150, left: 40, right: 40, 
-                 height: 40, 
-                 child: Center(
-                    child: BattleLogWidget(logs: state.logs)
-                 )
-              ),
-              
-              // 4. SKILLS
-              Positioned(bottom: 0, left: 0, right: 0, child: SkillPanelWidget(
-                 skills: displaySkills, isMyTurn: state.isMyTurn, isConnected: state.isConnected, 
-                 statusMessage: state.statusMessage, onSkillSelected: controller.sendMove
-              )),
-
-              // 5. OVERLAYS (Damage Text, Flash)
-              IgnorePointer(child: FloatingTextOverlay(items: _floatingTexts, myId: myId)),
-              
-              // FLASH EFFECT
-              AnimatedBuilder(
-                animation: _flashAnimation,
-                builder: (context, child) {
-                  return IgnorePointer(
-                    child: Container(
-                      color: Colors.white.withOpacity(_flashAnimation.value < 0.5 ? _flashAnimation.value : (1.0 - _flashAnimation.value)),
-                    ),
-                  );
+            // 다이얼로그 띄우기
+            final bool shouldLeave = await _showExitConfirmationDialog(context);
+            if (shouldLeave && context.mounted) {
+              _handleForfeit(context); // 기권 처리 및 나가기
+            }
+          },
+          child: Scaffold(
+            extendBodyBehindAppBar: true,
+            backgroundColor: Colors.black,
+            appBar: AppBar(
+              title: const Text("PET BATTLE", style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0, color: AppColors.softCharcoal)),
+              centerTitle: true,
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.softCharcoal),
+                onPressed: () async {
+                  final bool shouldLeave = await _showExitConfirmationDialog(context);
+                  if (shouldLeave && context.mounted) {
+                    _handleForfeit(context);
+                  }
                 },
               ),
+            ),
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Color(0xFFD4EAC8),
+                          Color(0xFFE8F6F3), 
+                        ],
+                        stops: [0.3, 1.0]
+                      )
+                    ),
+                  ),
+                ),
+                Positioned(top: 50, left: 30, child: Icon(Icons.cloud, size: 60, color: Colors.white.withOpacity(0.6))),
+                Positioned(top: 80, right: 50, child: Icon(Icons.cloud, size: 40, color: Colors.white.withOpacity(0.4))),
+                
+                // Ground Effect (Rounded Hill)
+                Positioned(
+                  bottom: -50, left: 0, right: 0, height: 200,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFC1DFC4).withOpacity(0.6), // Darker Sage Hill
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(100))
+                    ),
+                  ),
+                ),
 
-              if (state.isOpponentThinking && state.isConnected) 
-                 Positioned(
-                    bottom: 310, right: 20,
-                    child: _buildThinkingIndicator()
-                 ),
-            ],
+                // 1. OPPONENT (Top Right)
+                Positioned(top: 130, right: 40, child: Transform.scale(scale: 0.9,
+                  child: AnimatedBuilder(animation: Listenable.merge([_dashAnimation, _shakeAnimation]), builder: (ctx, child) {
+                    Offset dashOff = (_attackerId != myId) ? _dashAnimation.value : Offset.zero;
+                    double shakeX = (_shakeTargetId != null && _shakeTargetId != myId) ? _shakeAnimation.value : 0.0;
+                    
+                    return Transform.translate(offset: dashOff + Offset(shakeX, 0), child: child);
+                  }, child: BattleAvatarWidget(
+                    petType: state.oppPetType,
+                    idleAnimation: _idleAnimation,
+                    imageType: 'side',
+                    sideUrl: state.oppSideUrl,
+                    damageOpacity: 0.0,
+                  )))
+                ),
+                Positioned(
+                  top: 100, left: 20, right: 20,
+                  child: SafeArea(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          _buildGlassHud(
+                            name: state.oppName, 
+                            hp: state.oppHp, 
+                            maxHp: state.oppMaxHp, 
+                            isMe: false, 
+                            statuses: state.oppStatuses
+                          ),
+                        ],
+                      )
+                  )
+                ),
+                Positioned(bottom: 350, left: 50, child: Transform.scale(scale: 1.1,
+                  child: AnimatedBuilder(animation: Listenable.merge([_shakeAnimation, _dashAnimation]), builder: (ctx, child) {
+                    Offset dashOff = (_attackerId == myId) ? _dashAnimation.value : Offset.zero;
+                    double shakeX = (_shakeTargetId == myId) ? _shakeAnimation.value : 0.0;
+                    
+                    return Transform.translate(offset: dashOff + Offset(shakeX, 0), child: child);
+                  }, child: BattleAvatarWidget(
+                    petType: myPetType, 
+                    idleAnimation: _idleAnimation, 
+                    imageType: 'side', 
+                    sideUrl: charProvider.character?.sideUrl,
+                    damageOpacity: 0.0,
+                  )))
+                ),
+                Positioned(
+                  bottom: 330, left: 20, right: 20,
+                  child: Row(
+                    children: [
+                      _buildGlassHud(
+                        name: "YOU", 
+                        hp: state.myHp, 
+                        maxHp: state.myMaxHp, 
+                        isMe: true, 
+                        statuses: state.myStatuses
+                      ),
+                    ],
+                  )
+                ),
+                Positioned(
+                  top: 150, left: 40, right: 40, 
+                  height: 40, 
+                  child: Center(
+                      child: BattleLogWidget(logs: state.logs)
+                  )
+                ),
+                Positioned(bottom: 0, left: 0, right: 0, child: SkillPanelWidget(
+                  skills: displaySkills, isMyTurn: state.isMyTurn, isConnected: state.isConnected, 
+                  statusMessage: state.statusMessage, onSkillSelected: controller.sendMove
+                )),
+                IgnorePointer(child: FloatingTextOverlay(items: _floatingTexts, myId: myId)),
+                AnimatedBuilder(
+                  animation: _flashAnimation,
+                  builder: (context, child) {
+                    return IgnorePointer(
+                      child: Container(
+                        color: Colors.white.withOpacity(_flashAnimation.value < 0.5 ? _flashAnimation.value : (1.0 - _flashAnimation.value)),
+                      ),
+                    );
+                  },
+                ),
+                if (state.isOpponentThinking && state.isConnected) 
+                  Positioned(
+                      bottom: 310, right: 20,
+                      child: _buildThinkingIndicator()
+                  ),
+              ],
+            ),
           ),
         );
       },
     );
   }
-
-  // --- Glassmorphism HUD Builder ---
-  // --- Cute HUD Builder ---
   Widget _buildGlassHud({required String name, required int hp, required int maxHp, required bool isMe, required List<dynamic> statuses}) {
     double hpPercent = (hp / maxHp).clamp(0.0, 1.0);
     Color barColor = hpPercent > 0.5 ? AppColors.success : (hpPercent > 0.2 ? Colors.orange : AppColors.danger);
@@ -373,14 +389,13 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
             ],
           ),
           const SizedBox(height: 8),
-          // HP Bar (Rounded & Puffy)
           Stack(
             children: [
               Container(height: 12, decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(10))),
               AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 height: 12, 
-                width: 156 * hpPercent, // 180 - 24padding
+                width: 156 * hpPercent,
                 decoration: BoxDecoration(
                   color: barColor, 
                   borderRadius: BorderRadius.circular(10),
@@ -389,7 +404,6 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
               ),
             ],
           ),
-          // Status Icons
           if (statuses.isNotEmpty) ...[
              const SizedBox(height: 4),
              Row(children: statuses.map((s) => const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.bolt, color: AppColors.accentYellow, size: 16))).toList())
@@ -468,8 +482,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       ),
     );
   }
-  
-  void _showGameOverDialog(bool iWon) {
+  void _showGameOverDialog(bool iWon, {String? specialMessage}) {
     showDialog(
       context: context,
       barrierColor: Colors.black87,
@@ -477,8 +490,17 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Text(iWon ? "VICTORY! 🏆" : "DEFEAT... �", style: TextStyle(color: iWon ? AppColors.secondaryPink : Colors.grey, fontWeight: FontWeight.w900, fontSize: 24)),
-        content: Text(iWon ? "승리했습니다! 정말 대단해요!" : "아쉽게 패배했습니다.\n다음에 다시 도전해보세요!", style: const TextStyle(color: AppColors.softCharcoal), textAlign: TextAlign.center),
+        title: Text(iWon ? "VICTORY! 🏆" : "DEFEAT... 💀", 
+        style: TextStyle(
+          color: iWon ? AppColors.secondaryPink : Colors.grey, 
+          fontWeight: FontWeight.w900, 
+          fontSize: 24),
+          ),
+        content: Text(
+          specialMessage ?? (iWon ? "승리했습니다! 정말 대단해요!" : "아쉽게 패배했습니다.\n다음에 다시 도전해보세요!"), 
+          style: const TextStyle(color: AppColors.softCharcoal), 
+          textAlign: TextAlign.center,
+        ),
         actions: [
           Center(
             child: TextButton(
@@ -497,9 +519,48 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       ),
     );
   }
+  void _handleForfeit(BuildContext context) {
+  //BattleProvider에 서버로 기권을 알리는 메서드가 필요합니다.
+  // 예: _controller.sendForfeit();
+  // 지금은 일단 이전 화면으로 나가는 처리를 합니다.
+  Navigator.of(context).pop(); 
+  }
+  Future<bool> _showExitConfirmationDialog(BuildContext context) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+            SizedBox(width: 10),
+            Text("배틀 포기", style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.softCharcoal)),
+          ],
+        ),
+        content: const Text(
+          "정말 대전에서 나가시겠습니까?\n지금 중단하면 패배로 기록됩니다.",
+          style: TextStyle(fontSize: 16, color: Colors.black87),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false), // 아니오
+            child: const Text("계속하기", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(context, true), // 예
+            child: const Text("포기하기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
 }
-
-// Simple Grid Painter for Cyber effect
 class GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -507,14 +568,10 @@ class GridPainter extends CustomPainter {
       ..color = Colors.purple.withOpacity(0.2)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
-
-    // Draw horizontal lines with perspective (simplified)
     for (double i = 0; i < size.height; i += 30) {
        canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
     }
-    // Draw vertical lines
     for (double i = 0; i < size.width; i += 40) {
-       // Perspective fan-out could be added here, but simple grid is okay
        canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
     }
   }

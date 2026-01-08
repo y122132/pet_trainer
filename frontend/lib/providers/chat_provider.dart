@@ -98,6 +98,11 @@ class ChatProvider extends ChangeNotifier {
     _channel = null;
     _isConnected = false;
     _currentUserId = null;
+    _onlineStatus.clear();  
+    _unreadCounts.clear();    
+    _activeChatUserId = null; 
+    
+    debugPrint("🧹 ChatProvider: 소켓 연결 해제 및 모든 데이터 초기화 완료");
     notifyListeners();
   }
 
