@@ -248,6 +248,15 @@ PET_LEARNSET = {
     "robot": COMMON_LEARNSET
 }
 
+PET_TYPE_MAP = {
+    "dog": "normal",
+    "cat": "normal",
+    "bear": "earth",
+    "bird": "wind",
+    "dragon": "fire",
+    "fish": "water"
+}
+
 
 # 4. Status Effects Info (Updated)
 STATUS_DATA = {
