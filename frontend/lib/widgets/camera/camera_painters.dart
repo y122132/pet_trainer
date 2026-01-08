@@ -4,6 +4,7 @@ import 'dart:math' as math;
 // YOLO COCO Class ID Map
 const Map<int, String> yoloClasses = {
   0: 'Person',
+  14: 'Bird',
   15: 'Cat',
   16: 'Dog',
   28: 'Handbag',
