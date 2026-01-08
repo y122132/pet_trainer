@@ -99,10 +99,10 @@ def process_frame(
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
     # 4. 설정값
-    # [Anti-Flickering] 기본 추론은 넓게(0.15), 로직에서 필터링
-    INFERENCE_LOW_CONF = 0.15 
-    LOGIC_HIGH_CONF = 0.35 # 첫 발견 기준
-    LOGIC_LOW_CONF = 0.20  # 유지 기준 (Hysteresis)
+    # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
+    INFERENCE_LOW_CONF = 0.40 
+    LOGIC_HIGH_CONF = 0.55 # 첫 발견 기준 (0.55)
+    LOGIC_LOW_CONF = 0.40  # 유지 기준 (Hysteresis)
     
     # State 조회
     last_pet_exists = False
