@@ -99,10 +99,10 @@ def process_frame(
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
     # 4. 설정값
-    # [Anti-Flickering] 기본 추론은 넓게(0.15), 로직에서 필터링
-    INFERENCE_LOW_CONF = 0.15 
-    LOGIC_HIGH_CONF = 0.35 # 첫 발견 기준
-    LOGIC_LOW_CONF = 0.20  # 유지 기준 (Hysteresis)
+    # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
+    INFERENCE_LOW_CONF = 0.40 
+    LOGIC_HIGH_CONF = 0.55 # 첫 발견 기준 (0.55)
+    LOGIC_LOW_CONF = 0.40  # 유지 기준 (Hysteresis)
     
     # State 조회
     last_pet_exists = False
@@ -165,27 +165,42 @@ def process_frame(
             cls_source = int(box.cls[0])
             conf = float(box.conf[0])
             
-            # [Fix] Class Mapping (Name-Based)
-            # 인덱스(0,1,2)에 의존하지 않고 라벨 이름으로 매핑
-            class_name = names.get(cls_source, "").lower()
-            
-            if "dog" in class_name: mapped_cls = 16
-            elif "cat" in class_name: mapped_cls = 15
-            elif "bird" in class_name: mapped_cls = 14
-            else: mapped_cls = -1
+            # [Fix] Class Mapping (ID-Based for epoch50.pt)
+            # 매핑 규칙: 0(Dog)->16, 1(Cat)->15, 2(Bird)->14
+            if cls_source == 0: mapped_cls = 16   # Dog
+            elif cls_source == 1: mapped_cls = 15 # Cat
+            elif cls_source == 2: mapped_cls = 14 # Bird
+            else:
+                # Fallback to name-based if ID doesn't match known custom classes
+                class_name = names.get(cls_source, "").lower()
+                if "dog" in class_name: mapped_cls = 16
+                elif "cat" in class_name: mapped_cls = 15
+                elif "bird" in class_name: mapped_cls = 14
+                else: mapped_cls = -1
             
             # Target Check & Confidence Check
             # [Anti-Flickering] Use dynamic LOGIC_CONF (0.35 or 0.20)
-            if mapped_cls == target_class_id and conf >= LOGIC_CONF:
-                if conf > best_conf:
+            if mapped_cls in [14, 15, 16] and conf >= LOGIC_CONF:
+                # 1. BBox Construction
+                x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
+                nx1, ny1, nx2, ny2 = np.clip([x1, y1, x2, y2], 0.0, 1.0)
+                current_pet_box = [float(nx1), float(ny1), float(nx2), float(ny2), float(conf), float(mapped_cls)]
+                
+                # Add to total detections (for visualization of ALL pets)
+                detected_objects.append(current_pet_box)
+
+                # 2. Keypoint Logic (Select PRIMARY pet for interaction)
+                # If target_class_id is -1, we pick the highest confidence pet automatically
+                is_target = False
+                if target_class_id == -1:
+                    if conf > best_conf: is_target = True
+                elif mapped_cls == target_class_id:
+                    if conf > best_conf: is_target = True
+                
+                if is_target:
                     best_conf = conf
                     found_pet = True
-                    
-                    # Box
-                    x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
-                    nx1, ny1, nx2, ny2 = np.clip([x1, y1, x2, y2], 0.0, 1.0)
-                    pet_box = [float(nx1), float(ny1), float(nx2), float(ny2), float(conf), float(mapped_cls)]
-                    pet_info["box"] = pet_box
+                    pet_info["box"] = current_pet_box
                     
                     # Keypoints
                     pet_info["keypoints"] = []
@@ -220,6 +235,8 @@ def process_frame(
                     # [Fix] 잔상 복구 시 신뢰도 점수도 복구
                     if len(pet_info["box"]) > 4:
                         best_conf = pet_info["box"][4]
+                        # 복구된 박스도 시각화 목록에 추가 (유령 효과)
+                        detected_objects.append(pet_info["box"])
                     
                     vision_state["missing_count"] += 1
                     # Note: keypoints 등도 last_info에 포함되어 있음
@@ -230,7 +247,7 @@ def process_frame(
                 vision_state["last_pet_box"] = None
 
         if found_pet:
-            detected_objects.append(pet_info["box"])
+            # Note: pet_info["box"] is already added to detected_objects inside the loop or recovery block
             base_response["pet_keypoints"] = pet_info["keypoints"]
             base_response["conf_score"] = best_conf
 
@@ -280,6 +297,35 @@ def process_frame(
         detected_objects.append(prop_boxes[pid])
     
     base_response["bbox"] = detected_objects
+
+    # [NEW] Rich Detections (Label & Color included)
+    # This allows clients to simply render what we send without maintaining their own mappings
+    rich_detections = []
+    
+    # Define mappings (BGR for OpenCV compatibility)
+    # Dog(16): Orange, Cat(15): Yellow-Orange, Bird(14): Cyan, Human(0): Green
+    CLASS_META = {
+        16: {"label": "Dog", "color": (0, 165, 255)},
+        15: {"label": "Cat", "color": (0, 128, 255)},
+        14: {"label": "Bird", "color": (255, 255, 0)},
+        0:  {"label": "Human", "color": (0, 255, 0)},
+    }
+    
+    for obj in detected_objects:
+        # obj format: [x1, y1, x2, y2, conf, cls_id]
+        cls_id = int(obj[5])
+        conf = float(obj[4])
+        meta = CLASS_META.get(cls_id, {"label": "Unknown", "color": (255, 0, 0)})
+        
+        rich_detections.append({
+            "box": obj[:4], # [x1, y1, x2, y2]
+            "class_id": cls_id,
+            "conf": conf,
+            "label": meta["label"],
+            "color": meta["color"]
+        })
+        
+    base_response["detections"] = rich_detections
 
     # ---------------------------------------------------------
     # 로직 판단 (Logic Decision)
