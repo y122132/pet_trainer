@@ -6,12 +6,34 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:jwt_decode/jwt_decode.dart';
 
 import '../api_config.dart';
 import '../widgets/cute_avatar.dart';
 import '../services/auth_service.dart';
 
+// --- Models ---
+class Comment {
+  final int id;
+  final String content;
+  final String nickname;
+  final String? petType;
+  final int userId;
+
+  Comment({required this.id, required this.content, required this.nickname, this.petType, required this.userId});
+
+  factory Comment.fromJson(Map<String, dynamic> json) {
+    return Comment(
+      id: json['id'],
+      content: json['content'],
+      nickname: json['nickname'] ?? '익명',
+      petType: json['pet_type'] ?? 'dog',
+      userId: json['user_id'] ?? 0,
+    );
+  }
+}
+
+// --- Main Screen ---
 class PetUniverseScreen extends StatefulWidget {
   final Map<String, dynamic> user;
 
@@ -57,12 +79,10 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
     }
   }
 
-  // 2. 좋아요 토글
   Future<void> _toggleLike(int index) async {
     final diary = _diaries[index];
     final int diaryId = diary['id'];
     
-    // Optimistic Update
     final bool wasLiked = diary['isLiked'] ?? false;
     final int oldLikes = diary['likes'] ?? 0;
     
@@ -103,7 +123,6 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
     }
   }
 
-  // 3. 일기 작성 모달
   void _showAddDiarySheet() {
     showModalBottomSheet(
       context: context,
@@ -112,7 +131,6 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
       builder: (context) => _AddDiarySheet(
         petType: petType,
         onSave: (newDiary) {
-           // [Optimization] Insert new diary at the top immediately
            setState(() {
              _diaries.insert(0, newDiary);
            });
@@ -122,10 +140,33 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
     );
   }
 
+  // --- Comment Feature ---
+  void _showCommentsSheet(int diaryId, int diaryIndex) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _CommentsSheet(
+        diaryId: diaryId,
+        diaryAuthorId: widget.user['id'],
+        onCommentPosted: () {
+          setState(() {
+            _diaries[diaryIndex]['comments_count'] = (_diaries[diaryIndex]['comments_count'] ?? 0) + 1;
+          });
+        },
+        onCommentDeleted: () {
+          setState(() {
+            _diaries[diaryIndex]['comments_count'] = (_diaries[diaryIndex]['comments_count'] ?? 1) - 1;
+          });
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFFF9E6), // 1. 배경색
+      backgroundColor: const Color(0xFFFFF9E6),
       appBar: AppBar(
         title: Text(
           "${widget.user['nickname']}의 미니홈피",
@@ -142,13 +183,13 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddDiarySheet,
         backgroundColor: const Color(0xFF5D4037),
-        shape: const StadiumBorder(), // 5. 알약 모양
+        shape: const StadiumBorder(),
         icon: const Icon(Icons.edit, color: Colors.white),
         label: Text("오늘의 기록",
             style: GoogleFonts.jua(color: Colors.white, fontSize: 16)),
       ),
       body: Container(
-        decoration: BoxDecoration( // 1. 배경 패턴
+        decoration: BoxDecoration(
           image: DecorationImage(
             image: const AssetImage('assets/images/login_bg.png'),
             fit: BoxFit.cover,
@@ -157,7 +198,7 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
         ),
         child: Padding(
           padding: const EdgeInsets.all(12.0),
-          child: Container( // 1. 액자 프레임
+          child: Container(
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(20.0),
@@ -171,23 +212,26 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
             ),
             child: Column(
               children: [
-                _buildMiniProfile(), // 2. 상단 프로필
-                _buildTabs(), // 4. 탭 메뉴
+                _buildMiniProfile(),
+                _buildTabs(),
                 const Divider(height: 1, color: Color(0xFFF5EFE6)),
                 Expanded(
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : _diaries.isEmpty
                           ? const Center(
-                              child: Text(
-                              "아직 기록된 추억이 없어요.\n첫 일기를 작성해보세요!",
-                              textAlign: TextAlign.center,
-                            ))
-                          : ListView.builder(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: _diaries.length,
-                              itemBuilder: (context, index) =>
-                                  _buildFeedCard(index), // 3. SNS 피드 리스트
+                              child:
+                                  Text("아직 기록된 추억이 없어요.\n첫 일기를 작성해보세요!",
+                                      textAlign: TextAlign.center,
+                                    ))
+                          : RefreshIndicator(
+                              onRefresh: _fetchDiaries,
+                              child: ListView.builder(
+                                padding: const EdgeInsets.all(16),
+                                itemCount: _diaries.length,
+                                itemBuilder: (context, index) =>
+                                    _buildFeedCard(index),
+                              ),
                             ),
                 ),
               ],
@@ -198,16 +242,14 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
     );
   }
 
-  // --- UI Components (Redesigned) ---
-
   Widget _buildMiniProfile() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Row(
         children: [
-          CircleAvatar( // 2. 원형 프로필 사진
+          CircleAvatar(
             radius: 40,
-            backgroundColor: const Color(0xFF5D4037), // 테두리 색
+            backgroundColor: const Color(0xFF5D4037),
             child: Padding(
               padding: const EdgeInsets.all(3.0),
               child: ClipOval(
@@ -228,7 +270,7 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
                   style: GoogleFonts.jua(fontSize: 22, color: const Color(0xFF4E342E)),
                 ),
                 const SizedBox(height: 8),
-                Container( // 2. 기분 문구
+                Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFF9E6),
@@ -236,7 +278,7 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
                     border: Border.all(color: const Color(0xFFD7CCC8)),
                   ),
                   child: Text(
-                    "🐶 오늘은 산책 가는 날!", // Placeholder
+                    "🐶 오늘은 산책 가는 날!",
                     style: GoogleFonts.jua(fontSize: 13, color: const Color(0xFF795548)),
                   ),
                 ),
@@ -270,8 +312,8 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF5D4037) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20), // 4. 둥근 모서리
-          border: Border.all(color: const Color(0xFFBCAAA4)), // 4. 갈색 테두리
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFBCAAA4)),
         ),
         child: Text(
           label,
@@ -288,15 +330,16 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
     final diary = _diaries[index];
     final dynamic diaryImage = diary['image_url'];
     final bool isLiked = diary['isLiked'] ?? false;
+    final int commentsCount = diary['comments_count'] ?? 0;
 
-    return Container( // 3. 피드 카드
+    return Container(
       margin: const EdgeInsets.only(bottom: 24),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(25.0),
         border: Border.all(color: Colors.grey.withOpacity(0.1)),
         boxShadow: [
-          BoxShadow( // 5. 아주 연한 그림자
+          BoxShadow(
             color: Colors.grey.withOpacity(0.08),
             blurRadius: 20,
             offset: const Offset(0, 5),
@@ -308,24 +351,25 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 3. 게시글 이미지
             if (diaryImage != null && diaryImage.toString().isNotEmpty)
               AspectRatio(
                 aspectRatio: 16 / 10,
-                child: (diaryImage is XFile)
-                  ? (kIsWeb ? Image.network(diaryImage.path, fit: BoxFit.cover, filterQuality: FilterQuality.high) : Image.file(File(diaryImage.path), fit: BoxFit.cover, filterQuality: FilterQuality.high))
-                  : (diaryImage is File
-                      ? Image.file(diaryImage, fit: BoxFit.cover, filterQuality: FilterQuality.high)
-                      : Image.network(
-                          diaryImage.toString().startsWith('/') 
-                              ? "${AppConfig.serverBaseUrl}${diaryImage}" 
-                              : diaryImage.toString(), 
-                          fit: BoxFit.cover, 
-                          filterQuality: FilterQuality.high,
-                          errorBuilder: (ctx, err, stack) => Container(color: Colors.grey[200], child: const Icon(Icons.broken_image, color: Colors.grey)),
-                        )),
+                child:
+                    (diaryImage is XFile)
+                        ? (kIsWeb
+                            ? Image.network(diaryImage.path, fit: BoxFit.cover, filterQuality: FilterQuality.high)
+                            : Image.file(File(diaryImage.path), fit: BoxFit.cover, filterQuality: FilterQuality.high))
+                        : (diaryImage is File
+                            ? Image.file(diaryImage, fit: BoxFit.cover, filterQuality: FilterQuality.high)
+                            : Image.network(
+                                diaryImage.toString().startsWith('/')
+                                    ? "${AppConfig.serverBaseUrl}${diaryImage}"
+                                    : diaryImage.toString(),
+                                fit: BoxFit.cover,
+                                filterQuality: FilterQuality.high,
+                                errorBuilder: (ctx, err, stack) => Container(color: Colors.grey[200], child: const Icon(Icons.broken_image, color: Colors.grey)),
+                              )),
               ),
-            // 3. 텍스트 및 인터랙션
             Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
@@ -338,7 +382,7 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
                   const SizedBox(height: 8),
                   Text(
                     diary['content'],
-                    style: GoogleFonts.jua( // 3. Jua 폰트, 진한 갈색
+                    style: GoogleFonts.jua(
                       fontSize: 16,
                       color: const Color(0xFF5D4037),
                       height: 1.5,
@@ -348,7 +392,6 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
                   Row(
                     mainAxisAlignment: MainAxisAlignment.start,
                     children: [
-                      // 3. 인터랙션 버튼
                       InkWell(
                         onTap: () => _toggleLike(index),
                         borderRadius: BorderRadius.circular(20),
@@ -372,7 +415,7 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
                       ),
                       const SizedBox(width: 12),
                       InkWell(
-                        onTap: () {/* 댓글 기능 (기존 로직 없으므로 비워둠) */},
+                        onTap: () => _showCommentsSheet(diary['id'], index),
                         borderRadius: BorderRadius.circular(20),
                         child: Padding(
                           padding: const EdgeInsets.all(8.0),
@@ -381,7 +424,7 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
                               const Icon(Icons.mode_comment_outlined, color: Color(0xFFBCAAA4), size: 20),
                               const SizedBox(width: 6),
                               Text(
-                                "0", // Placeholder
+                                "$commentsCount",
                                 style: GoogleFonts.jua(color: const Color(0xFF795548)),
                               ),
                             ],
@@ -400,10 +443,10 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
   }
 }
 
-// 4. 독립적인 작성 모달 (API 직접 호출 + Web Support)
+// --- Add Diary Sheet (Original) ---
 class _AddDiarySheet extends StatefulWidget {
   final String petType;
-  final Function(dynamic) onSave; // 성공 객체 반환
+  final Function(dynamic) onSave;
   const _AddDiarySheet({required this.petType, required this.onSave});
 
   @override
@@ -411,7 +454,7 @@ class _AddDiarySheet extends StatefulWidget {
 }
 
 class _AddDiarySheetState extends State<_AddDiarySheet> {
-  XFile? _image; // Use XFile for cross-platform
+  XFile? _image;
   final TextEditingController _contentController = TextEditingController();
   bool _isUploading = false;
 
@@ -426,7 +469,6 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
     if (pickedFile != null) setState(() => _image = pickedFile);
   }
 
-  
   Future<void> _submit() async {
     if (_contentController.text.isEmpty) return;
     setState(() => _isUploading = true);
@@ -442,12 +484,10 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
       
       if (_image != null) {
         if (kIsWeb) {
-            // Web: Bytes
             var bytes = await _image!.readAsBytes();
             var multipartFile = http.MultipartFile.fromBytes('image', bytes, filename: _image!.name);
             request.files.add(multipartFile);
         } else {
-            // Mobile: Path
             var multipartFile = await http.MultipartFile.fromPath('image', _image!.path);
             request.files.add(multipartFile);
         }
@@ -459,7 +499,7 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
         final respStr = await response.stream.bytesToString();
         final newDiary = jsonDecode(respStr);
         
-        widget.onSave(newDiary); // Pass back the new diary object
+        widget.onSave(newDiary);
         if(mounted) Navigator.pop(context);
       } else {
         if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("업로드 실패")));
@@ -473,6 +513,7 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Original build method for _AddDiarySheet...
     return Container(
       padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -486,7 +527,7 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text("오늘의 추억 기록", style: GoogleFonts.jua(fontSize: 20, color: const Color(0xFF5D4037))),
+            Text("오늘의 추억 기록", style: GoogleFonts.jua(fontSize: 20, color: const Color(0xFF5D4037))), 
             const SizedBox(height: 24),
             GestureDetector(
               onTap: _pickImage,
@@ -533,7 +574,7 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF5D4037),
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: const StadiumBorder(), // 5. 알약 모양
+                shape: const StadiumBorder(),
               ),
               child: _isUploading
                   ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
@@ -542,6 +583,233 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
             const SizedBox(height: 20),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// --- Comments Sheet ---
+class _CommentsSheet extends StatefulWidget {
+  final int diaryId;
+  final int diaryAuthorId;
+  final VoidCallback onCommentPosted;
+  final VoidCallback onCommentDeleted;
+
+  const _CommentsSheet({required this.diaryId, required this.diaryAuthorId, required this.onCommentPosted, required this.onCommentDeleted});
+
+  @override
+  State<_CommentsSheet> createState() => _CommentsSheetState();
+}
+
+class _CommentsSheetState extends State<_CommentsSheet> {
+  final TextEditingController _commentController = TextEditingController();
+  List<Comment> _comments = [];
+  bool _isLoading = true;
+  bool _isPosting = false;
+  int? _currentUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUser().then((_) {
+      _fetchComments();
+    });
+  }
+
+  Future<void> _loadCurrentUser() async {
+    final token = await AuthService().getToken();
+    if (token == null) return;
+    try {
+      final payload = Jwt.parseJwt(token);
+      if (mounted) {
+        setState(() {
+          _currentUserId = int.tryParse(payload['sub'].toString());
+        });
+      }
+    } catch (e) {
+      print("Error decoding token: $e");
+    }
+  }
+
+  Future<void> _fetchComments() async {
+    setState(() => _isLoading = true);
+    try {
+      final token = await AuthService().getToken();
+      final response = await http.get(
+        Uri.parse('${AppConfig.baseUrl}/diaries/${widget.diaryId}/comments'),
+        headers: {"Authorization": "Bearer $token"},
+      );
+      if (response.statusCode == 200) {
+        final responseBody = utf8.decode(response.bodyBytes);
+        final List<dynamic> data = jsonDecode(responseBody);
+        if (mounted) {
+          setState(() {
+            _comments = data.map((item) => Comment.fromJson(item)).toList();
+          });
+        }
+      }
+    } catch (e) {
+      print("Error fetching comments: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _postComment() async {
+    if (_commentController.text.trim().isEmpty) return;
+    setState(() => _isPosting = true);
+
+    try {
+      final token = await AuthService().getToken();
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/diaries/${widget.diaryId}/comments'),
+        headers: {
+          "Authorization": "Bearer $token",
+          "Content-Type": "application/json",
+        },
+        body: jsonEncode({"content": _commentController.text.trim()}),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (mounted) {
+          _commentController.clear();
+          widget.onCommentPosted();
+          await _fetchComments();
+        }
+      } else {
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("댓글 작성 실패")));
+      }
+    } catch (e) {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("에러: $e")));
+    } finally {
+      if (mounted) setState(() => _isPosting = false);
+    }
+  }
+
+  Future<void> _deleteComment(int commentId) async {
+    final bool? confirmed = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFFFFF9E6),
+        title: Text('댓글 삭제', style: GoogleFonts.jua(color: const Color(0xFF5D4037))),
+        content: Text('정말로 이 댓글을 삭제하시겠어요?', style: GoogleFonts.jua(color: const Color(0xFF795548))),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text('취소', style: GoogleFonts.jua(color: Colors.grey))),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: Text('삭제', style: GoogleFonts.jua(color: const Color(0xFFE57373)))),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final token = await AuthService().getToken();
+      final response = await http.delete(
+        Uri.parse('${AppConfig.baseUrl}/diaries/${widget.diaryId}/comments/$commentId'),
+        headers: {"Authorization": "Bearer $token"},
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        if (mounted) {
+          setState(() {
+            _comments.removeWhere((c) => c.id == commentId);
+          });
+          widget.onCommentDeleted();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("댓글이 삭제되었습니다.")));
+          }
+        }
+      } else {
+         if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("삭제에 실패했습니다.")));
+      }
+    } catch (e) {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("에러: $e")));
+    }
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFFF9E6),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text("댓글", style: GoogleFonts.jua(fontSize: 20, color: const Color(0xFF5D4037))), 
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _comments.isEmpty
+                    ? const Center(child: Text("첫 댓글을 남겨보세요!"))
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _comments.length,
+                        itemBuilder: (context, index) {
+                          final comment = _comments[index];
+                          final bool isAuthor = comment.userId == widget.diaryAuthorId && comment.userId != 0;
+                          final bool isMyComment = comment.userId == _currentUserId && comment.userId != 0;
+                          
+                          return ListTile(
+                            leading: CuteAvatar(petType: comment.petType ?? 'dog', size: 40),
+                            title: Row(
+                              children: [
+                                Text(comment.nickname, style: GoogleFonts.jua(fontWeight: FontWeight.bold, color: const Color(0xFF4E342E))),
+                                if (isAuthor)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 6.0),
+                                    child: FaIcon(FontAwesomeIcons.crown, color: Colors.amber[600], size: 14),
+                                  ),
+                              ],
+                            ),
+                            subtitle: Text(comment.content, style: GoogleFonts.jua(color: const Color(0xFF795548))),
+                            trailing: isMyComment
+                                ? IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.grey, size: 20),
+                                    onPressed: () => _deleteComment(comment.id),
+                                  )
+                                : null,
+                          );
+                        },
+                      ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), spreadRadius: -5, blurRadius: 10)],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _commentController,
+                    style: GoogleFonts.jua(),
+                    decoration: InputDecoration(
+                      hintText: "따뜻한 댓글을 남겨주세요...",
+                      hintStyle: GoogleFonts.jua(color: const Color(0xFFBCAAA4)),
+                      border: InputBorder.none,
+                    ),
+                    maxLines: 1,
+                  ),
+                ),
+                IconButton(
+                  icon: _isPosting 
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
+                      : const Icon(Icons.send, color: Color(0xFF5D4037)),
+                  onPressed: _isPosting ? null : _postComment,
+                ),
+              ],
+            ),
+          )
+        ],
       ),
     );
   }
