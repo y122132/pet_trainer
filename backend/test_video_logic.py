@@ -128,6 +128,14 @@ def main():
     frame_idx = 0
     start_time_all = time.time()
     
+    # [NEW] Anti-Flickering State for Test
+    vision_state = {
+        "last_pet_box": None,
+        "missing_count": 0,
+        "is_tracking": False,
+        "last_response": None
+    }
+    
     # Loop Logic (Video vs Image)
     while True:
         if not is_image:
@@ -150,7 +158,8 @@ def main():
             mode=args.mode, 
             target_class_id=16, # Default Dog
             process_interval=1, 
-            frame_index=frame_idx
+            frame_index=frame_idx,
+            vision_state=vision_state # [NEW] Pass State
         )
         
         dt = time.time() - t0
