@@ -158,16 +158,20 @@ def process_frame(
     # ---------------------------------------------------------
     if results_pet and results_pet[0].boxes:
         best_conf = 0.0
+        # [Fix] Name-Based Mapping applied
+        names = results_pet[0].names
         
         for i, box in enumerate(results_pet[0].boxes):
             cls_source = int(box.cls[0])
             conf = float(box.conf[0])
             
-            # Class Mapping (Model -> COCO)
-            # 0:Dog(16), 1:Cat(15), 2:Bird(14)
-            if cls_source == 0: mapped_cls = 16
-            elif cls_source == 1: mapped_cls = 15
-            elif cls_source == 2: mapped_cls = 14
+            # [Fix] Class Mapping (Name-Based)
+            # 인덱스(0,1,2)에 의존하지 않고 라벨 이름으로 매핑
+            class_name = names.get(cls_source, "").lower()
+            
+            if "dog" in class_name: mapped_cls = 16
+            elif "cat" in class_name: mapped_cls = 15
+            elif "bird" in class_name: mapped_cls = 14
             else: mapped_cls = -1
             
             # Target Check & Confidence Check
