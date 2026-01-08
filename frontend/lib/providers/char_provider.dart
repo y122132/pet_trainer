@@ -31,7 +31,7 @@ class CharProvider with ChangeNotifier {
   int get health => _character?.stat?.health ?? 0;
   int get maxHealth => 100; // 최대 체력 (임시)
   int get currentExp => _character?.stat?.exp ?? 0;
-  int get maxExp => 100; // 최대 경험치 (임시)
+  int get maxExp => level * 100; // 레벨 * 100
   int get level => _character?.stat?.level ?? 1;
   double get expPercentage => (currentExp / maxExp).clamp(0.0, 1.0); // 경험치 바(Bar)용 퍼센트
 

@@ -446,14 +446,14 @@ async def process_turn_redis(room_id: str):
              except Exception as e:
                  print(f"DB Update/Reward Error: {e}")
                  
-             await send_to_user(room_id, winner, {
+             await manager.send_to_user(room_id, winner, {
                  "type": "GAME_OVER",
                  "result": "WIN",
                  "winner": winner,
                  "reward": reward_info
              })
              
-             await send_to_user(room_id, loser, {
+             await manager.send_to_user(room_id, loser, {
                  "type": "GAME_OVER",
                  "result": "LOSE",
                  "winner": winner
