@@ -261,7 +261,7 @@ async def update_single_character_image(
 ):
     """단일 캐릭터 이미지를 업데이트합니다."""
     # 1. 캐릭터 소유권 확인
-    char = await char_service.get_character_with_stats(db, char_id)
+    char = await char_service.get_character(db, char_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
     
