@@ -9,14 +9,21 @@ from app.core.pet_behavior_config import PET_BEHAVIORS, DEFAULT_BEHAVIOR, DETECT
 model_pose = None
 model_pet_pose = None 
 model_detect = None
-model_lock = threading.Lock()
+
+# [Optimization] Granular Locks for Scalability
+# 개별 모델 락을 사용하여, 서로 다른 모델을 사용하는 요청들이 병렬로 처리될 수 있게 함
+# 예: A유저(사물탐지 중)가 B유저(사람인식 중)를 차단하지 않음
+load_lock = threading.Lock()
+lock_pose = threading.Lock()
+lock_pet = threading.Lock()
+lock_detect = threading.Lock()
 
 def load_models():
     """
     YOLO AI 모델을 스레드 안전하게 로드합니다.
     """
     global model_pose, model_pet_pose, model_detect
-    with model_lock:
+    with load_lock:
         if model_pose is None:
             print("Loading YOLO models... (AI 모델 로딩 중)")
             try:
@@ -32,23 +39,14 @@ def load_models():
                 raise e # 모델 로드 실패는 치명적임
     return model_pose, model_pet_pose, model_detect
 
-def calculate_distance(p1, p2, aspect_ratio=1.0):
+def calculate_squared_distance(p1, p2, x_scale, y_scale):
     """
-    aspect_ratio (width / height)를 고려하여 정규 좌표계에서의 '시각적 거리'를 계산합니다.
-    p1, p2: [x, y] (0.0 ~ 1.0)
+    aspect_ratio를 고려한 '시각적 거리의 제곱'을 계산합니다.
+    (Optimization: Scale Factor Pre-calculation 적용)
     """
-    dx = p1[0] - p2[0]
-    dy = p1[1] - p2[1]
-    
-    # x축(가로)이 길면(aspect_ratio > 1), x축 변화량에 aspect_ratio를 곱해 
-    # 정사각형 픽셀 기준 거리로 환산하거나, 반대로 y축을 보정할 수 있음.
-    # 여기서는 '화면상 픽셀 거리' 개념으로 통일하기 위해 단순히 비례 보정.
-    if aspect_ratio > 1.0:
-        # 가로가 더 긴 경우 (Landscape)
-        return math.sqrt((dx * aspect_ratio) ** 2 + dy ** 2)
-    else:
-        # 세로가 더 긴 경우 (Portrait)
-        return math.sqrt(dx ** 2 + (dy / aspect_ratio) ** 2)
+    dx = (p1[0] - p2[0]) * x_scale
+    dy = (p1[1] - p2[1]) * y_scale
+    return dx*dx + dy*dy
 
 def process_frame(
     image_bytes: bytes, 
@@ -98,6 +96,13 @@ def process_frame(
     orientation = "landscape" if width > height else "portrait"
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
+    # [Optimization] Distance Scale Pre-calculation
+    # 반복문 내에서 조건문을 없애기 위해 미리 스케일 팩터 계산
+    if aspect_ratio > 1.0:
+        x_scale, y_scale = aspect_ratio, 1.0
+    else:
+        x_scale, y_scale = 1.0, 1.0 / aspect_ratio
+    
     # 4. 설정값
     # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
     INFERENCE_LOW_CONF = 0.40 
@@ -128,17 +133,24 @@ def process_frame(
 
     # 5. 모델 추론
     try:
-        with model_lock:
-            # A. 반려동물 포즈
-            if model_pet_pose:
-                # [Anti-Flickering] 낮은 임계값으로 추론 (후보군 확보)
+        # [Optimization] Granular Locking
+        # 하나의 거대한 Lock 대신, 각 모델별로 Lock을 걸어 병렬성 확보
+        
+        # A. 반려동물 포즈 (Always Run)
+        if model_pet_pose:
+            with lock_pet:
                 results_pet = model_pet_pose(frame_rgb, conf=INFERENCE_LOW_CONF, imgsz=640, verbose=False)
-            # B. 사물 탐지
-            if model_detect:
+        
+        # B. 사물 탐지 (Run only if NOT interaction mode)
+        if model_detect and mode != "interaction":
+            with lock_detect:
                 results_detect = model_detect(frame_rgb, conf=0.25, imgsz=640, verbose=False)
-            # C. 사람 포즈
-            if model_pose:
+        
+        # C. 사람 포즈 (Run only if interaction mode)
+        if model_pose and mode == "interaction":
+            with lock_pose:
                 results_human = model_pose(frame_rgb, conf=0.25, classes=[0], imgsz=640, verbose=False)
+                
     except Exception as e:
         return {"success": False, "message": f"AI 추론 오류: {e}"}
 
@@ -362,7 +374,7 @@ def process_frame(
         return base_response
 
     # 거리 계산
-    min_dist_val = 9999.0
+    min_dist_sq = 9999.0
     
     # 거리 측정 기준점 (반려동물)
     src_points = []
@@ -381,16 +393,16 @@ def process_frame(
             target_cy = (target_box[1] + target_box[3]) / 2
             
             for sp in src_points:
-                # [개선된 거리 계산] aspect_ratio 반영
-                dist = calculate_distance(sp, [target_cx, target_cy], aspect_ratio)
-                if dist < min_dist_val: min_dist_val = dist
+                # [Optimization] Squared Distance (No sqrt)
+                dist_sq = calculate_squared_distance(sp, [target_cx, target_cy], x_scale, y_scale)
+                if dist_sq < min_dist_sq: min_dist_sq = dist_sq
 
     # 거리 임계값 (설정값)
     MIN_DIST_SETTINGS = DETECTION_SETTINGS["min_distance"].get(mode, {"easy": 0.25, "hard": 0.15})
     MIN_DISTANCE = MIN_DIST_SETTINGS.get(difficulty, MIN_DIST_SETTINGS["easy"])
     
-    # 상호작용 판정
-    is_interacting = (min_dist_val < MIN_DISTANCE)
+    # 상호작용 판정 (Compare squares)
+    is_interacting = (min_dist_sq < MIN_DISTANCE ** 2)
     
     if is_interacting:
         # 성공!
