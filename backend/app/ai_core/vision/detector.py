@@ -30,7 +30,7 @@ def load_models():
                 # 1. 사람 포즈 (주인 인식)
                 model_pose = YOLO("yolo11n-pose.pt", verbose=False) 
                 # 2. 반려동물 포즈 (핵심 모델) - pet_pose_best.pt 적용
-                model_pet_pose = YOLO("pet_pose_best.pt", verbose=False)
+                model_pet_pose = YOLO("best.pt", verbose=False)
                 # 3. 사물 탐지 (장난감, 밥그릇 등)
                 model_detect = YOLO("yolo11n.pt", verbose=False)
                 print("YOLO models loaded successfully. (로딩 완료)")
@@ -105,9 +105,9 @@ def process_frame(
     
     # 4. 설정값
     # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
-    INFERENCE_LOW_CONF = 0.40 
-    LOGIC_HIGH_CONF = 0.55 # 첫 발견 기준 (0.55)
-    LOGIC_LOW_CONF = 0.40  # 유지 기준 (Hysteresis)
+    INFERENCE_LOW_CONF = 0.25 
+    LOGIC_HIGH_CONF = 0.30 # 첫 발견 기준 (0.55)
+    LOGIC_LOW_CONF = 0.25  # 유지 기준 (Hysteresis)
     
     # State 조회
     last_pet_exists = False
@@ -139,7 +139,7 @@ def process_frame(
         # A. 반려동물 포즈 (Always Run)
         if model_pet_pose:
             with lock_pet:
-                results_pet = model_pet_pose(frame_rgb, conf=INFERENCE_LOW_CONF, imgsz=640, verbose=False)
+                results_pet = model_pet_pose(frame_rgb, conf=INFERENCE_LOW_CONF, kpt_conf=0.2, imgsz=640, verbose=False)
         
         # B. 사물 탐지 (Run only if NOT interaction mode)
         if model_detect and mode != "interaction":
@@ -214,6 +214,16 @@ def process_frame(
                     found_pet = True
                     pet_info["box"] = current_pet_box
                     
+                    # [Dynamic Config Update] Auto-detect mode (-1)
+                    # If we found a specific pet (e.g. Bird), switch to its specific config
+                    if target_class_id == -1:
+                         real_cls_id = int(mapped_cls)
+                         if real_cls_id in PET_BEHAVIORS:
+                             pet_config = PET_BEHAVIORS[real_cls_id]
+                             # Re-load mode settings
+                             mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+                             target_props = mode_config["targets"]
+
                     # Keypoints
                     pet_info["keypoints"] = []
                     pet_info["paws"] = []
@@ -223,7 +233,7 @@ def process_frame(
                             nx, ny, c = float(kp[0])/width, float(kp[1])/height, float(kp[2])
                             pet_info["keypoints"].append([nx, ny, c])
                             
-                            if c > 0.5:
+                            if c > 0.2:
                                 if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
                                 if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
         
