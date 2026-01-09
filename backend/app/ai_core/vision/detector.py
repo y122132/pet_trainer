@@ -260,8 +260,9 @@ def process_frame(
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
             
-            # Skip conflict classes (Pet, Human, Bear)
-            if cls_id in [0, 15, 16, 77]: continue 
+            # Skip conflict classes (Person 0, Bird 14, Cat 15, Dog 16)
+            # Note: 77(Teddy Bear) is a valid target prop, so DO NOT exclude it.
+            if cls_id in [0, 14, 15, 16]: continue 
             
             if cls_id in target_props and conf >= 0.35: # 물체는 0.35 고정 (변경 없음)
                 x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
