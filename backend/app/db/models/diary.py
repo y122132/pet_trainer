@@ -60,8 +60,15 @@ class Comment(Base): # 추가된 Comment 모델
     
     diary_id: Mapped[int] = mapped_column(ForeignKey("diaries.id"))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    
+    # Self-referencing FK for replies
+    parent_id: Mapped[Optional[int]] = mapped_column(ForeignKey("comments.id"), nullable=True)
 
     # Relationships
     diary: Mapped["Diary"] = relationship("Diary", back_populates="comments")
     user: Mapped["User"] = relationship("User", back_populates="comments")
+
+    # Self-referencing relationships for replies
+    parent: Mapped[Optional["Comment"]] = relationship("Comment", back_populates="children", remote_side=[id])
+    children: Mapped[List["Comment"]] = relationship("Comment", back_populates="parent", cascade="all, delete-orphan")
 

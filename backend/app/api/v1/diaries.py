@@ -37,6 +37,7 @@ class LikeResponse(BaseModel):
 
 class CommentCreate(BaseModel): # 댓글 생성 요청 스키마
     content: str
+    parent_id: Optional[int] = None
 
 class CommentResponse(BaseModel): # 댓글 응답 스키마
     id: int
@@ -46,6 +47,8 @@ class CommentResponse(BaseModel): # 댓글 응답 스키마
     pet_type: Optional[str] = None # 작성자 펫 타입 (아바타용)
     content: str
     created_at: datetime
+    parent_id: Optional[int] = None
+    children: List["CommentResponse"] = []
 
 # --- Helpers ---
 async def _save_upload_file(file: UploadFile, diary_id: int) -> str:
@@ -211,6 +214,7 @@ async def create_comment(
         diary_id=diary_id,
         user_id=current_user_id,
         content=comment_create.content,
+        parent_id=comment_create.parent_id,
         created_at=datetime.utcnow()
     )
     db.add(new_comment)
@@ -228,7 +232,8 @@ async def create_comment(
         nickname=user.nickname or user.username, # 닉네임 없으면 유저이름 사용
         pet_type=pet_type,
         content=new_comment.content,
-        created_at=new_comment.created_at
+        created_at=new_comment.created_at,
+        parent_id=new_comment.parent_id
     )
 
 @router.delete("/{diary_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -270,7 +275,7 @@ async def get_comments_for_diary(
         select(Comment)
         .where(Comment.diary_id == diary_id)
         .order_by(Comment.created_at)
-        .options(selectinload(Comment.user).selectinload(User.character)) # 사용자 정보와 펫 타입도 함께 로드
+        .options(selectinload(Comment.user).selectinload(User.character))
     )
     result = await db.execute(stmt)
     comments = result.scalars().all()
@@ -281,9 +286,9 @@ async def get_comments_for_diary(
             diary_id=c.diary_id,
             user_id=c.user_id,
             nickname=c.user.nickname or c.user.username,
-            pet_type=c.user.character.pet_type if c.user.character else None, # 캐릭터 있으면 펫타입, 없으면 None
+            pet_type=c.user.character.pet_type if c.user.character else None,
             content=c.content,
-            created_at=c.created_at
-        )
-        for c in comments
+            created_at=c.created_at,
+            parent_id=c.parent_id
+        ) for c in comments
     ]

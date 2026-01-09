@@ -19,8 +19,18 @@ class Comment {
   final String nickname;
   final String? petType;
   final int userId;
+  final int? parentId;
+  final List<Comment> replies;
 
-  Comment({required this.id, required this.content, required this.nickname, this.petType, required this.userId});
+  Comment({
+    required this.id,
+    required this.content,
+    required this.nickname,
+    this.petType,
+    required this.userId,
+    this.parentId,
+    this.replies = const [],
+  });
 
   factory Comment.fromJson(Map<String, dynamic> json) {
     return Comment(
@@ -29,6 +39,28 @@ class Comment {
       nickname: json['nickname'] ?? '익명',
       petType: json['pet_type'] ?? 'dog',
       userId: json['user_id'] ?? 0,
+      parentId: json['parent_id'],
+      replies: [], // Replies will be populated in a separate step
+    );
+  }
+
+  Comment copyWith({
+    int? id,
+    String? content,
+    String? nickname,
+    String? petType,
+    int? userId,
+    int? parentId,
+    List<Comment>? replies,
+  }) {
+    return Comment(
+      id: id ?? this.id,
+      content: content ?? this.content,
+      nickname: nickname ?? this.nickname,
+      petType: petType ?? this.petType,
+      userId: userId ?? this.userId,
+      parentId: parentId ?? this.parentId,
+      replies: replies ?? this.replies,
     );
   }
 }
@@ -603,10 +635,15 @@ class _CommentsSheet extends StatefulWidget {
 
 class _CommentsSheetState extends State<_CommentsSheet> {
   final TextEditingController _commentController = TextEditingController();
+  final FocusNode _commentFocusNode = FocusNode();
   List<Comment> _comments = [];
   bool _isLoading = true;
   bool _isPosting = false;
   int? _currentUserId;
+
+  int? _replyToCommentId;
+  String? _replyToNickname;
+
 
   @override
   void initState() {
@@ -632,24 +669,46 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   }
 
   Future<void> _fetchComments() async {
+    if(!mounted) return;
     setState(() => _isLoading = true);
+    
     try {
       final token = await AuthService().getToken();
       final response = await http.get(
         Uri.parse('${AppConfig.baseUrl}/diaries/${widget.diaryId}/comments'),
         headers: {"Authorization": "Bearer $token"},
       );
+
       if (response.statusCode == 200) {
         final responseBody = utf8.decode(response.bodyBytes);
         final List<dynamic> data = jsonDecode(responseBody);
+        final List<Comment> allComments = data.map((item) => Comment.fromJson(item)).toList();
+        
+        // --- Build Nested Structure (Immutable) ---
+        Map<int?, List<Comment>> commentsByParent = {};
+        for (var comment in allComments) {
+          commentsByParent.putIfAbsent(comment.parentId, () => []).add(comment);
+        }
+
+        List<Comment> buildReplies(int? parentId) {
+          final children = commentsByParent[parentId] ?? [];
+          return children.map((child) {
+            return child.copyWith(replies: buildReplies(child.id));
+          }).toList();
+        }
+
+        final List<Comment> nestedComments = buildReplies(null);
+        // --- End of Build ---
+
         if (mounted) {
           setState(() {
-            _comments = data.map((item) => Comment.fromJson(item)).toList();
+            _comments = nestedComments;
           });
         }
       }
     } catch (e) {
       print("Error fetching comments: $e");
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("댓글을 불러오는데 실패했습니다.")));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -657,27 +716,35 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
   Future<void> _postComment() async {
     if (_commentController.text.trim().isEmpty) return;
+    if (!mounted) return;
     setState(() => _isPosting = true);
 
     try {
       final token = await AuthService().getToken();
+      final body = {
+        "content": _commentController.text.trim(),
+        if (_replyToCommentId != null) "parent_id": _replyToCommentId,
+      };
+
       final response = await http.post(
         Uri.parse('${AppConfig.baseUrl}/diaries/${widget.diaryId}/comments'),
         headers: {
           "Authorization": "Bearer $token",
           "Content-Type": "application/json",
         },
-        body: jsonEncode({"content": _commentController.text.trim()}),
+        body: jsonEncode(body),
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (mounted) {
           _commentController.clear();
+           _cancelReply();
           widget.onCommentPosted();
           await _fetchComments();
         }
       } else {
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("댓글 작성 실패")));
+        final error = jsonDecode(response.body);
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("댓글 작성 실패: ${error['detail']}")));
       }
     } catch (e) {
       if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("에러: $e")));
@@ -685,6 +752,25 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       if (mounted) setState(() => _isPosting = false);
     }
   }
+
+  void _startReply(Comment comment) {
+    if (!mounted) return;
+    setState(() {
+      _replyToCommentId = comment.id;
+      _replyToNickname = comment.nickname;
+      _commentFocusNode.requestFocus();
+    });
+  }
+
+  void _cancelReply() {
+    if (!mounted) return;
+    setState(() {
+      _replyToCommentId = null;
+      _replyToNickname = null;
+      _commentFocusNode.unfocus();
+    });
+  }
+
 
   Future<void> _deleteComment(int commentId) async {
     final bool? confirmed = await showDialog(
@@ -711,10 +797,8 @@ class _CommentsSheetState extends State<_CommentsSheet> {
 
       if (response.statusCode == 200 || response.statusCode == 204) {
         if (mounted) {
-          setState(() {
-            _comments.removeWhere((c) => c.id == commentId);
-          });
           widget.onCommentDeleted();
+          await _fetchComments(); // Re-fetch to get the correct state
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("댓글이 삭제되었습니다.")));
           }
@@ -727,11 +811,10 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: MediaQuery.of(context).size.height * 0.75,
+      height: MediaQuery.of(context).size.height * 0.8,
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       decoration: const BoxDecoration(
         color: Color(0xFFFFF9E6),
@@ -740,75 +823,158 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text("댓글", style: GoogleFonts.jua(fontSize: 20, color: const Color(0xFF5D4037))), 
+            padding: const EdgeInsets.symmetric(vertical: 16.0),
+            child: Text("댓글", style: GoogleFonts.jua(fontSize: 20, color: const Color(0xFF5D4037))),
           ),
           const Divider(height: 1),
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF5D4037)))
                 : _comments.isEmpty
-                    ? const Center(child: Text("첫 댓글을 남겨보세요!"))
-                    : ListView.builder(
+                    ? Center(child: Text("첫 댓글을 남겨보세요!", style: GoogleFonts.jua(color: const Color(0xFF795548))))
+                    : RefreshIndicator(
+                      onRefresh: _fetchComments,
+                      child: ListView(
                         padding: const EdgeInsets.all(16),
-                        itemCount: _comments.length,
-                        itemBuilder: (context, index) {
-                          final comment = _comments[index];
-                          final bool isAuthor = comment.userId == widget.diaryAuthorId && comment.userId != 0;
-                          final bool isMyComment = comment.userId == _currentUserId && comment.userId != 0;
-                          
-                          return ListTile(
-                            leading: CuteAvatar(petType: comment.petType ?? 'dog', size: 40),
-                            title: Row(
-                              children: [
-                                Text(comment.nickname, style: GoogleFonts.jua(fontWeight: FontWeight.bold, color: const Color(0xFF4E342E))),
-                                if (isAuthor)
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 6.0),
-                                    child: FaIcon(FontAwesomeIcons.crown, color: Colors.amber[600], size: 14),
-                                  ),
-                              ],
-                            ),
-                            subtitle: Text(comment.content, style: GoogleFonts.jua(color: const Color(0xFF795548))),
-                            trailing: isMyComment
-                                ? IconButton(
-                                    icon: const Icon(Icons.delete_outline, color: Colors.grey, size: 20),
-                                    onPressed: () => _deleteComment(comment.id),
-                                  )
-                                : null,
-                          );
-                        },
+                        children: _buildCommentWidgets(_comments),
                       ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), spreadRadius: -5, blurRadius: 10)],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _commentController,
-                    style: GoogleFonts.jua(),
-                    decoration: InputDecoration(
-                      hintText: "따뜻한 댓글을 남겨주세요...",
-                      hintStyle: GoogleFonts.jua(color: const Color(0xFFBCAAA4)),
-                      border: InputBorder.none,
                     ),
-                    maxLines: 1,
+          ),
+          _buildCommentInput(),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildCommentWidgets(List<Comment> comments, {int depth = 0}) {
+    List<Widget> widgets = [];
+    for (var comment in comments) {
+      widgets.add(_buildCommentTile(comment, depth: depth));
+      if (comment.replies.isNotEmpty) {
+        widgets.addAll(_buildCommentWidgets(comment.replies, depth: depth + 1));
+      }
+    }
+    return widgets;
+  }
+
+  Widget _buildCommentTile(Comment comment, {int depth = 0}) {
+    final bool isAuthor = comment.userId == widget.diaryAuthorId && comment.userId != 0;
+    final bool isMyComment = comment.userId == _currentUserId && comment.userId != 0;
+    final double indent = 20.0 * depth;
+
+    return Padding(
+      padding: EdgeInsets.only(left: indent, top: 8, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CuteAvatar(petType: comment.petType ?? 'dog', size: 36),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(comment.nickname, style: GoogleFonts.jua(fontWeight: FontWeight.bold, fontSize: 15, color: const Color(0xFF4E342E))),
+                        if (isAuthor)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 6.0),
+                            child: FaIcon(FontAwesomeIcons.crown, color: Colors.amber[600], size: 14),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(comment.content, style: GoogleFonts.jua(color: const Color(0xFF795548), fontSize: 14)),
+                  ],
+                ),
+              ),
+              if (isMyComment)
+                SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.delete_outline, color: Colors.grey, size: 18),
+                    onPressed: () => _deleteComment(comment.id),
                   ),
                 ),
-                IconButton(
-                  icon: _isPosting 
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) 
-                      : const Icon(Icons.send, color: Color(0xFF5D4037)),
-                  onPressed: _isPosting ? null : _postComment,
-                ),
-              ],
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 48, top: 4),
+            child: InkWell(
+              onTap: () => _startReply(comment),
+              child: Text(
+                "답글 달기",
+                style: GoogleFonts.jua(fontSize: 12, color: Colors.grey[600]),
+              ),
             ),
-          )
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommentInput() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), spreadRadius: -5, blurRadius: 10)],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_replyToCommentId != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8.0, left: 4),
+              child: Row(
+                children: [
+                  Text(
+                    "'${_replyToNickname ?? ''}'님에게 답글 남기는 중...",
+                    style: GoogleFonts.jua(color: Colors.grey[600], fontSize: 12),
+                  ),
+                  const Spacer(),
+                  SizedBox(
+                    height: 24,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(Icons.close, size: 16, color: Colors.grey),
+                      onPressed: _cancelReply,
+                    ),
+                  )
+                ],
+              ),
+            ),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _commentController,
+                  focusNode: _commentFocusNode,
+                  style: GoogleFonts.jua(),
+                  decoration: InputDecoration(
+                    hintText: "따뜻한 댓글을 남겨주세요...",
+                    hintStyle: GoogleFonts.jua(color: const Color(0xFFBCAAA4)),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8)
+                  ),
+                  maxLines: 1,
+                  onSubmitted: (_) => _postComment(),
+                ),
+              ),
+              IconButton(
+                icon: _isPosting
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF5D4037)))
+                    : const Icon(Icons.send, color: Color(0xFF5D4037)),
+                onPressed: _isPosting ? null : _postComment,
+              ),
+            ],
+          ),
         ],
       ),
     );
