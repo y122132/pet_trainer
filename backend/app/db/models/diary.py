@@ -30,10 +30,15 @@ class Diary(Base):
     # 관계
     user: Mapped["User"] = relationship("User", back_populates="diaries")
     likes: Mapped[List["DiaryLike"]] = relationship("DiaryLike", back_populates="diary", cascade="all, delete-orphan")
+    comments: Mapped[List["Comment"]] = relationship("Comment", back_populates="diary", cascade="all, delete-orphan")
 
     @property
     def like_count(self):
         return len(self.likes)
+
+    @property
+    def comments_count(self): # 추가된 속성
+        return len(self.comments)
 
 class DiaryLike(Base):
     __tablename__ = "diary_likes"
@@ -45,3 +50,25 @@ class DiaryLike(Base):
 
     diary: Mapped["Diary"] = relationship("Diary", back_populates="likes")
     user: Mapped["User"] = relationship("User", back_populates="diary_likes")
+
+class Comment(Base): # 추가된 Comment 모델
+    __tablename__ = "comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    diary_id: Mapped[int] = mapped_column(ForeignKey("diaries.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    
+    # Self-referencing FK for replies
+    parent_id: Mapped[Optional[int]] = mapped_column(ForeignKey("comments.id"), nullable=True)
+
+    # Relationships
+    diary: Mapped["Diary"] = relationship("Diary", back_populates="comments")
+    user: Mapped["User"] = relationship("User", back_populates="comments")
+
+    # Self-referencing relationships for replies
+    parent: Mapped[Optional["Comment"]] = relationship("Comment", back_populates="children", remote_side=[id])
+    children: Mapped[List["Comment"]] = relationship("Comment", back_populates="parent", cascade="all, delete-orphan")
+
