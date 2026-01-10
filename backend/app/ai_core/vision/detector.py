@@ -154,7 +154,7 @@ def process_frame(
         # A. 반려동물 포즈 (Always Run)
         if model_pet_pose:
             with lock_pet:
-                results_pet = model_pet_pose(frame_rgb, conf=INFERENCE_LOW_CONF, kpt_conf=0.2, imgsz=640, verbose=False)
+                results_pet = model_pet_pose(frame_rgb, conf=INFERENCE_LOW_CONF, imgsz=640, verbose=False)
         
         # B. 사물 탐지 (Run only if NOT interaction mode)
         if model_detect and mode != "interaction":
