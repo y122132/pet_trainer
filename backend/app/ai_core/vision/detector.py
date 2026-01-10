@@ -103,6 +103,7 @@ def process_frame(
         if frame is None:
             return {"success": False, "message": "이미지 디코딩 실패", "frame_id": frame_id}
     except Exception as e:
+        print(f"[Detector Error] Decoding/Loading failed: {e}")
         return {"success": False, "message": f"처리 에러 (Decoding/Loading): {e}", "frame_id": frame_id}
 
     height, width, _ = frame.shape
@@ -166,7 +167,10 @@ def process_frame(
                 results_human = model_pose(frame_rgb, conf=0.25, classes=[0], imgsz=640, verbose=False)
                 
     except Exception as e:
-        return {"success": False, "message": f"AI 추론 오류: {e}"}
+        print(f"[Detector Error] Inference failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "message": f"AI 추론 오류: {e}", "frame_id": frame_id}
 
     # 6. 결과 파싱 변수
     detected_objects = []
