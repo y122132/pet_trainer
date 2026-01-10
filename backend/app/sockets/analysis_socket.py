@@ -87,8 +87,8 @@ async def analysis_endpoint(
                 async with AsyncSessionLocal() as db:
                     char_stats = {"strength": 0, "happiness": 0} # Default
                     
-                    # [Fix] user_id로 캐릭터 조회 후 char_id 사용
-                    # get_character_with_stats는 char_id를 받도록 설계되어 있음. 
+                     # [Fix] user_id로 캐릭터 조회 후 char_id 사용
+                    # get_character는 char_id를 받도록 설계되어 있음. 
                     
                     # 따라서 먼저 user_id에 해당하는 캐릭터를 찾아야 함.
                     from sqlalchemy import select
@@ -100,7 +100,7 @@ async def analysis_endpoint(
                     
                     if character_obj:
                          # 캐릭터가 있으면 스탯 로딩
-                         character = await char_service.get_character_with_stats(db, character_obj.id)
+                         character = await char_service.get_character(db, character_obj.id)
                          if character and character.stat:
                              char_stats = {
                                 "strength": character.stat.strength,
