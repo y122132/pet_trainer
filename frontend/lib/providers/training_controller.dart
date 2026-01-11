@@ -6,7 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:pet_trainer_frontend/services/socket_client.dart';
 import 'package:pet_trainer_frontend/utils/camera_utils.dart';
+import 'package:pet_trainer_frontend/utils/camera_utils.dart';
 import 'package:pet_trainer_frontend/providers/char_provider.dart';
+import 'package:pet_trainer_frontend/services/edge_detector.dart'; // [Edge AI]
+import 'package:pet_trainer_frontend/config/global_settings.dart'; // [Edge AI]
+
 
 // Training Status Enum
 enum TrainingStatus {
@@ -43,6 +47,10 @@ class TrainingController extends ChangeNotifier {
   // Stay Progress
   double stayProgress = 0.0;
   String progressText = "";
+  
+  // [Edge AI]
+  String _currentMode = 'playing';
+
 
   // Flow Control
   bool _canSendFrame = true;
@@ -69,13 +77,25 @@ class TrainingController extends ChangeNotifier {
   void startTraining(String petType, String difficulty, String mode) {
     if (isAnalyzing) return;
     
+    _currentMode = mode; // [Edge AI] Store mode
     isAnalyzing = true;
+
     _canSendFrame = true;
     errorMessage = null;
     _currentFrameId = 0; // Reset ID
     notifyListeners();
 
+    notifyListeners();
+
+    // [Edge AI] Initialize Detector if enabled
+    if (GlobalSettings.useEdgeAI) {
+      EdgeDetector().initialize().then((_) {
+        print("EdgeDetector initialized");
+      });
+    }
+
     _socketClient.connect(petType, difficulty, mode);
+
     _socketClient.stream.listen(_handleMessage, 
       onError: (e) {
         print("Socket Error: $e");
@@ -144,18 +164,34 @@ class TrainingController extends ChangeNotifier {
         }).toList(),
       };
 
-      // Compute in Isolate (Resize to 640px, JPEG 85)
-      final jpegBytes = await compute(resizeAndCompressImage, rawData);
-
       if (isAnalyzing && _canSendFrame) {
          _frameStartTime = DateTime.now().millisecondsSinceEpoch;
          _lastFrameSentTimestamp = _frameStartTime;
          _canSendFrame = false; // Lock
          _pendingFrameId = thisFrameId; // [NEW] Track pending ID
          
-         _socketClient.sendMessage(jpegBytes);
+         // [Edge AI] Branching
+         if (GlobalSettings.useEdgeAI && EdgeDetector().isLoaded) {
+            // 1. Edge Inference
+            // Pass rotationAngle to handle orientation defined in processFrame
+            final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
+            
+            // Inject Frame ID to match Server format logic
+            edgeResult['frame_id'] = thisFrameId; 
+
+            
+            // Send JSON Result
+            _socketClient.sendMessage(jsonEncode(edgeResult));
+            
+         } else {
+            // 2. Server Inference (Legacy)
+            final jpegBytes = await compute(resizeAndCompressImage, rawData);
+            _socketClient.sendMessage(jpegBytes);
+         }
+
       }
     } catch (e) {
+
       print("Frame Process Error: $e");
       _canSendFrame = true; // Recover Lock
     } finally {

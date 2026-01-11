@@ -8,9 +8,12 @@ import 'config/theme.dart';
 import 'providers/char_provider.dart';
 import 'providers/chat_provider.dart';
 import 'screens/main_title_screen.dart';
+import 'config/global_settings.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await GlobalSettings.load();
+
   
   runApp(
     OverlaySupport(

@@ -161,7 +161,33 @@ async def analysis_endpoint(
             # Idle 처리를 위해 asyncio.wait_for를 쓸 수도 있음.
             # [Fix] 타임아웃 방식이 아닌, 프레임 수신 여부와 관계없이 시간 체크
             try:
-                image_bytes = await websocket.receive_bytes()
+                # [Modified] Support both Bytes (Image) and Text (JSON Result)
+                # `receive()` returns a dict: {'type': 'websocket.receive', 'bytes': ..., 'text': ...}
+                message = await websocket.receive()
+                
+                if 'bytes' in message and message['bytes']:
+                    image_bytes = message['bytes']
+                    # [Server-side Logic]
+                    
+                elif 'text' in message and message['text']:
+                    # [Edge AI Logic]
+                    # Client sent pre-processed result (JSON)
+                    import json
+                    edge_result = json.loads(message['text'])
+                    
+                    # Skip Detector, inject directly into Result
+                    # Need to simulate 'detector.process_frame' return structure
+                    result = edge_result
+                    # Ensure minimal keys exist
+                    if "success" not in result: result["success"] = False
+                    
+                    # Pass through to FSM Logic below (Skip 'run_in_threadpool(detector...)')
+                    image_bytes = None # Skip decoding
+                    
+                else:
+                    # Ping/Pong or Empty
+                    continue
+                    
             except Exception:
                 break
             
@@ -178,30 +204,35 @@ async def analysis_endpoint(
                  # 메시지를 보냈으므로 다시 20초 카운트 (재촉 주기)
                  last_interaction_time = time.time()
             
-
-            
             current_time = time.time()
             
-            # [NEW] Frame ID Extraction (Last 4 bytes)
-            frame_id = -1
-            if len(image_bytes) > 4:
-                # Big Endian Integer parsing
-                frame_id = int.from_bytes(image_bytes[-4:], byteorder='big')
-                # Remove ID from image data
-                image_bytes = image_bytes[:-4]
+            # [Branching] Server-side Inference vs Edge Result
+            if image_bytes is not None:
+                # [Server-side Inference]
+                
+                # [NEW] Frame ID Extraction (Last 4 bytes)
+                frame_id = -1
+                if len(image_bytes) > 4:
+                    # Big Endian Integer parsing
+                    frame_id = int.from_bytes(image_bytes[-4:], byteorder='big')
+                    # Remove ID from image data
+                    image_bytes = image_bytes[:-4]
 
-            # 비전 처리 (CPU/GPU)
-            result = await run_in_threadpool(
-                detector.process_frame, 
-                image_bytes, 
-                mode, 
-                target_class_id, 
-                difficulty,
-                frame_index=frame_count,
-                process_interval=PROCESS_INTERVAL,
-                frame_id=frame_id,  # [NEW] Pass ID
-                vision_state=vision_state # [NEW] Inject State
-            )
+                # 비전 처리 (CPU/GPU)
+                result = await run_in_threadpool(
+                    detector.process_frame, 
+                    image_bytes, 
+                    mode, 
+                    target_class_id, 
+                    difficulty,
+                    frame_index=frame_count,
+                    process_interval=PROCESS_INTERVAL,
+                    frame_id=frame_id,  # [NEW] Pass ID
+                    vision_state=vision_state # [NEW] Inject State
+                )
+            
+            # [Common] Post-Inference FSM Logic
+
 
             if result.get("skipped", False):
                 continue
