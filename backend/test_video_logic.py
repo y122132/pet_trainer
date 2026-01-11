@@ -39,7 +39,7 @@ def draw_skeleton(frame, keypoints, connections, color=(0, 255, 0)):
     # Draw points
     for kp in keypoints:
         conf = kp[2] if len(kp) > 2 else 1.0
-        if conf > 0.15: # [Tuning] Visualization threshold (Matched with detector.py)
+        if conf > 0.25: # [Tuning] Raised to 0.30 to match detector.py
             x, y = int(kp[0] * w), int(kp[1] * h)
             cv2.circle(frame, (x, y), 3, color, -1)
 
