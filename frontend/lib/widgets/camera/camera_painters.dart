@@ -322,7 +322,7 @@ class PetPosePainter extends CustomPainter {
          double normY = (kp[1] as num).toDouble();
          double conf = (kp.length > 2) ? (kp[2] as num).toDouble() : 1.0;
          
-         if (conf > 0.20) { // [Tuning] Lowered from 0.35 to 0.20 to match server improvements
+         if (conf > 0.15) { // [Tuning] Lowered to 0.15 to match server logic (Sync)
              double finalX;
              if (isFrontCamera) {
                   finalX = (1.0 - normX) * renderW + dx;
