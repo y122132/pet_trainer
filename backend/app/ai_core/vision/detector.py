@@ -63,7 +63,7 @@ def calculate_squared_distance(p1, p2, x_scale, y_scale):
     return dx*dx + dy*dy
 
 def process_frame(
-    image_bytes: bytes, 
+    image_bytes,  # [Modified] bytes or np.ndarray 
     mode: str = "playing", 
     target_class_id: int = 16, 
     difficulty: str = "easy",
@@ -98,8 +98,12 @@ def process_frame(
         # 모델 로드 (가장 먼저 수행하여 실패 시 즉시 중단)
         model_pose, model_pet_pose, model_detect = load_models()
 
-        np_data = np.frombuffer(image_bytes, np.uint8)
-        frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+        # [Modified] Support Raw Input (No Decoding needed for local test)
+        if isinstance(image_bytes, bytes):
+            np_data = np.frombuffer(image_bytes, np.uint8)
+            frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+        else:
+            frame = image_bytes
         if frame is None:
             return {"success": False, "message": "이미지 디코딩 실패", "frame_id": frame_id}
     except Exception as e:
@@ -118,11 +122,47 @@ def process_frame(
     else:
         x_scale, y_scale = 1.0, 1.0 / aspect_ratio
     
+    # [Optimization] Temporal Aggregation Function
+    def apply_temporal_smoothing(current_box, current_cls, vision_state):
+        if not vision_state: return current_box, current_cls
+        
+        # 1. Initialize History Deques
+        if "history_boxes" not in vision_state: vision_state["history_boxes"] = []
+        if "history_classes" not in vision_state: vision_state["history_classes"] = []
+        if "ema_box" not in vision_state: vision_state["ema_box"] = None
+        
+        # 2. Class Voting (Consensus)
+        history_classes = vision_state["history_classes"]
+        history_classes.append(current_cls)
+        if len(history_classes) > 5: history_classes.pop(0)
+        
+        # Most frequent class
+        from collections import Counter
+        most_common = Counter(history_classes).most_common(1)
+        consensus_cls = most_common[0][0] if most_common else current_cls
+        
+        # 3. EMA Smoothing
+        x1, y1, x2, y2, conf, _ = current_box
+        current_coords = np.array([x1, y1, x2, y2])
+        
+        ema_box = vision_state.get("ema_box")
+        if ema_box is None:
+            ema_box = current_coords
+        else:
+            alpha = 0.6 # Smoothing factor (0.6 = new 60%, old 40%)
+            ema_box = alpha * current_coords + (1 - alpha) * ema_box
+            
+        vision_state["ema_box"] = ema_box
+        
+        # Return smoothed detection
+        smoothed_box = [ema_box[0], ema_box[1], ema_box[2], ema_box[3], conf, consensus_cls]
+        return smoothed_box, consensus_cls
+
     # 4. 설정값
     # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
-    INFERENCE_LOW_CONF = 0.25 
-    LOGIC_HIGH_CONF = 0.30 # 첫 발견 기준 (0.55)
-    LOGIC_LOW_CONF = 0.25  # 유지 기준 (Hysteresis)
+    INFERENCE_LOW_CONF = 0.20 # [Tuning] Balanced for Video (Noise reduction)
+    LOGIC_HIGH_CONF = 0.30 # [Tuning] High confidence for initial logic
+    LOGIC_LOW_CONF = 0.20  # [Tuning] Hysteresis lower bound
     
     # State 조회
     last_pet_exists = False
@@ -152,19 +192,21 @@ def process_frame(
         # 하나의 거대한 Lock 대신, 각 모델별로 Lock을 걸어 병렬성 확보
         
         # A. 반려동물 포즈 (Always Run)
+        # A. 반려동물 포즈 (Always Run)
         if model_pet_pose:
             with lock_pet:
-                results_pet = model_pet_pose(frame_rgb, conf=INFERENCE_LOW_CONF, imgsz=640, verbose=False)
+                # [Fix] Use 'frame' (BGR) instead of 'frame_rgb' because Ultralytics assumes BGR for numpy inputs
+                results_pet = model_pet_pose(frame, conf=INFERENCE_LOW_CONF, imgsz=1280, verbose=False)
         
         # B. 사물 탐지 (Run only if NOT interaction mode)
         if model_detect and mode != "interaction":
             with lock_detect:
-                results_detect = model_detect(frame_rgb, conf=0.25, imgsz=640, verbose=False)
+                results_detect = model_detect(frame, conf=0.25, imgsz=640, verbose=False)
         
         # C. 사람 포즈 (Run only if interaction mode)
         if model_pose and mode == "interaction":
             with lock_pose:
-                results_human = model_pose(frame_rgb, conf=0.25, classes=[0], imgsz=640, verbose=False)
+                results_human = model_pose(frame, conf=0.25, classes=[0], imgsz=640, verbose=False)
                 
     except Exception as e:
         print(f"[Detector Error] Inference failed: {e}")
@@ -229,9 +271,21 @@ def process_frame(
                 
                 if is_target:
                     best_conf = conf
-                    found_pet = True
-                    pet_info["box"] = current_pet_box
+                        
+                    # [NEW] Temporal Smoothing
+                    if vision_state:
+                         smoothed_box, smoothed_cls = apply_temporal_smoothing(current_pet_box, mapped_cls, vision_state)
+                         pet_info["box"] = smoothed_box
+                         mapped_cls = smoothed_cls # Update class for logic
+                         # Re-add smoothed box to detected_objects for visualization (replacing the raw one is hard, so we just append. 
+                         # Actually logic below adds it. But detected_objects has raw. 
+                         # Ideally we want visualization to show the smoothed output for the target.
+                         # Simple hack: detected_objects.append(smoothed_box) allows visualizing both or just smoothed if we filter.
+                         # For now, let's just use it for logic.
                     
+                    found_pet = True
+                    if "box" not in pet_info or len(pet_info["box"]) == 0: pet_info["box"] = current_pet_box # Fallback
+
                     # [Dynamic Config Update] Auto-detect mode (-1)
                     # If we found a specific pet (e.g. Bird), switch to its specific config
                     if target_class_id == -1:
@@ -245,13 +299,14 @@ def process_frame(
                     # Keypoints
                     pet_info["keypoints"] = []
                     pet_info["paws"] = []
+                    
                     if results_pet[0].keypoints is not None and len(results_pet[0].keypoints.data) > i:
                         kps = results_pet[0].keypoints.data[i].cpu().numpy()
                         for k_idx, kp in enumerate(kps):
                             nx, ny, c = float(kp[0])/width, float(kp[1])/height, float(kp[2])
                             pet_info["keypoints"].append([nx, ny, c])
                             
-                            if c > 0.2:
+                            if c > 0.15: # [Tuning] Keypoint visibility threshold
                                 if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
                                 if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
         
