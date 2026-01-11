@@ -26,11 +26,11 @@ Uint8List resizeAndCompressImage(Map<String, dynamic> data) {
   final double aspectRatio = width / height;
 
   if (width > height) {
-    targetW = 640;
-    targetH = (640 / aspectRatio).round();
+    targetW = 1280;
+    targetH = (1280 / aspectRatio).round();
   } else {
-    targetH = 640;
-    targetW = (640 * aspectRatio).round();
+    targetH = 1280;
+    targetW = (1280 * aspectRatio).round();
   }
   
   // Create Resized Image Buffer directly
