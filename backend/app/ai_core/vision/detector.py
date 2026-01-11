@@ -145,9 +145,9 @@ def process_frame(
 
     # 4. 설정값
     # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
-    INFERENCE_LOW_CONF = 0.25 
-    LOGIC_HIGH_CONF = 0.25 # [Fix] Lowered from 0.30 to 0.25 for better video start
-    LOGIC_LOW_CONF = 0.25  # 유지 기준 (Hysteresis)
+    INFERENCE_LOW_CONF = 0.20 # [Tuning] Balanced for Video (Noise reduction)
+    LOGIC_HIGH_CONF = 0.30 # [Tuning] High confidence for initial logic
+    LOGIC_LOW_CONF = 0.20  # [Tuning] Hysteresis lower bound
     
     # State 조회
     last_pet_exists = False
@@ -177,19 +177,21 @@ def process_frame(
         # 하나의 거대한 Lock 대신, 각 모델별로 Lock을 걸어 병렬성 확보
         
         # A. 반려동물 포즈 (Always Run)
+        # A. 반려동물 포즈 (Always Run)
         if model_pet_pose:
             with lock_pet:
-                results_pet = model_pet_pose(frame_rgb, conf=INFERENCE_LOW_CONF, imgsz=1280, verbose=False)
+                # [Fix] Use 'frame' (BGR) instead of 'frame_rgb' because Ultralytics assumes BGR for numpy inputs
+                results_pet = model_pet_pose(frame, conf=INFERENCE_LOW_CONF, imgsz=1280, verbose=False)
         
         # B. 사물 탐지 (Run only if NOT interaction mode)
         if model_detect and mode != "interaction":
             with lock_detect:
-                results_detect = model_detect(frame_rgb, conf=0.25, imgsz=640, verbose=False)
+                results_detect = model_detect(frame, conf=0.25, imgsz=640, verbose=False)
         
         # C. 사람 포즈 (Run only if interaction mode)
         if model_pose and mode == "interaction":
             with lock_pose:
-                results_human = model_pose(frame_rgb, conf=0.25, classes=[0], imgsz=640, verbose=False)
+                results_human = model_pose(frame, conf=0.25, classes=[0], imgsz=640, verbose=False)
                 
     except Exception as e:
         return {"success": False, "message": f"AI 추론 오류: {e}"}
@@ -249,47 +251,46 @@ def process_frame(
                 elif mapped_cls == target_class_id:
                     if conf > best_conf: is_target = True
                 
-                    if is_target:
-                        best_conf = conf
+                if is_target:
+                    best_conf = conf
                         
-                        # [NEW] Temporal Smoothing
-                        if vision_state:
-                             smoothed_box, smoothed_cls = apply_temporal_smoothing(current_pet_box, mapped_cls, vision_state)
-                             pet_info["box"] = smoothed_box
-                             mapped_cls = smoothed_cls # Update class for logic
-                             # Re-add smoothed box to detected_objects for visualization (replacing the raw one is hard, so we just append. 
-                             # Actually logic below adds it. But detected_objects has raw. 
-                             # Let's just update detected_objects if it was the target.
-                             # But detected_objects is for all objects. 
-                             # Ideally we want visualization to show the smoothed output for the target.
-                             # Simple hack: detected_objects.append(smoothed_box) allows visualizing both or just smoothed if we filter.
-                             # For now, let's just use it for logic.
-                        
-                        found_pet = True
-                        if "box" not in pet_info or len(pet_info["box"]) == 0: pet_info["box"] = current_pet_box # Fallback
+                    # [NEW] Temporal Smoothing
+                    if vision_state:
+                         smoothed_box, smoothed_cls = apply_temporal_smoothing(current_pet_box, mapped_cls, vision_state)
+                         pet_info["box"] = smoothed_box
+                         mapped_cls = smoothed_cls # Update class for logic
+                         # Re-add smoothed box to detected_objects for visualization (replacing the raw one is hard, so we just append. 
+                         # Actually logic below adds it. But detected_objects has raw. 
+                         # Ideally we want visualization to show the smoothed output for the target.
+                         # Simple hack: detected_objects.append(smoothed_box) allows visualizing both or just smoothed if we filter.
+                         # For now, let's just use it for logic.
+                    
+                    found_pet = True
+                    if "box" not in pet_info or len(pet_info["box"]) == 0: pet_info["box"] = current_pet_box # Fallback
 
-                        # [Dynamic Config Update] Auto-detect mode (-1)
-                        # If we found a specific pet (e.g. Bird), switch to its specific config
-                        if target_class_id == -1:
-                             real_cls_id = int(mapped_cls)
-                             if real_cls_id in PET_BEHAVIORS:
-                                 pet_config = PET_BEHAVIORS[real_cls_id]
-                                 # Re-load mode settings
-                                 mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
-                                 target_props = mode_config["targets"]
+                    # [Dynamic Config Update] Auto-detect mode (-1)
+                    # If we found a specific pet (e.g. Bird), switch to its specific config
+                    if target_class_id == -1:
+                         real_cls_id = int(mapped_cls)
+                         if real_cls_id in PET_BEHAVIORS:
+                             pet_config = PET_BEHAVIORS[real_cls_id]
+                             # Re-load mode settings
+                             mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+                             target_props = mode_config["targets"]
 
-                        # Keypoints
-                        pet_info["keypoints"] = []
-                        pet_info["paws"] = []
-                        if results_pet[0].keypoints is not None and len(results_pet[0].keypoints.data) > i:
-                            kps = results_pet[0].keypoints.data[i].cpu().numpy()
-                            for k_idx, kp in enumerate(kps):
-                                nx, ny, c = float(kp[0])/width, float(kp[1])/height, float(kp[2])
-                                pet_info["keypoints"].append([nx, ny, c])
-                                
-                                if c > 0.1: # [Fix] Lowered from 0.2 to 0.1
-                                    if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
-                                    if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
+                    # Keypoints
+                    pet_info["keypoints"] = []
+                    pet_info["paws"] = []
+                    
+                    if results_pet[0].keypoints is not None and len(results_pet[0].keypoints.data) > i:
+                        kps = results_pet[0].keypoints.data[i].cpu().numpy()
+                        for k_idx, kp in enumerate(kps):
+                            nx, ny, c = float(kp[0])/width, float(kp[1])/height, float(kp[2])
+                            pet_info["keypoints"].append([nx, ny, c])
+                            
+                            if c > 0.15: # [Tuning] Keypoint visibility threshold
+                                if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
+                                if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
         
         # [Anti-Flickering] Persistence Logic (단기 기억)
         if found_pet:

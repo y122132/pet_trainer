@@ -31,7 +31,7 @@ def draw_skeleton(frame, keypoints, connections, color=(0, 255, 0)):
              conf1 = pt1[2] if len(pt1) > 2 else 1.0
              conf2 = pt2[2] if len(pt2) > 2 else 1.0
              
-             if conf1 > 0.35 and conf2 > 0.35:
+             if conf1 > 0.01 and conf2 > 0.01: # [Debug] Lower to 0.01
                  x1, y1 = int(pt1[0] * w), int(pt1[1] * h)
                  x2, y2 = int(pt2[0] * w), int(pt2[1] * h)
                  cv2.line(frame, (x1, y1), (x2, y2), color, 2)
@@ -39,9 +39,10 @@ def draw_skeleton(frame, keypoints, connections, color=(0, 255, 0)):
     # Draw points
     for kp in keypoints:
         conf = kp[2] if len(kp) > 2 else 1.0
-        if conf > 0.35:
+        if conf > 0.15: # [Tuning] Visualization threshold (Matched with detector.py)
             x, y = int(kp[0] * w), int(kp[1] * h)
             cv2.circle(frame, (x, y), 3, color, -1)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Test Pet Trainer AI Detector")
@@ -149,13 +150,9 @@ def main():
         
         t0 = time.time()
         
-        # Encode
-        _, buffer = cv2.imencode('.jpg', frame)
-        image_bytes = buffer.tobytes()
-        
-        # Process
+        # Process (Directly pass frame as numpy array, removing JPEG compression artifacts)
         result = process_frame(
-            image_bytes, 
+            frame, 
             mode=args.mode, 
             target_class_id=-1, # Auto-detect ANY pet
             process_interval=1, 
@@ -223,6 +220,16 @@ def main():
 
         # 2. Skeletons
         if 'pet_keypoints' in result:
+            kps = result['pet_keypoints']
+            if kps:
+                # [Debug] Print first keypoint confidence stats (ALWAYS PRINT)
+                confs = [k[2] for k in kps if len(k) > 2]
+                avg_conf = sum(confs)/len(confs) if confs else 0
+                print(f"Frame {frame_idx}: Found {len(kps)} KPs. Avg Conf: {avg_conf:.4f}. Max: {max(confs) if confs else 0:.4f}")
+            else:
+                 if result.get('bbox') and any(b[5] in [14, 15, 16] for b in result['bbox']):
+                     print(f"Frame {frame_idx}: Box Found but NO Keypoints!") # Debug clue
+            
             draw_skeleton(frame, result['pet_keypoints'], pet_connections, (0, 165, 255))
         if 'human_keypoints' in result:
             draw_skeleton(frame, result['human_keypoints'], human_connections, (0, 255, 0))
