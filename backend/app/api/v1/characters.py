@@ -44,7 +44,7 @@ class StatUpdateSchema(BaseModel):
 @router.get("/{char_id}")
 async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
     """특정 캐릭터의 상세 정보와 스탯을 조회합니다."""
-    char = await char_service.get_character_with_stats(db, char_id)
+    char = await char_service.get_character(db, char_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
     
@@ -107,7 +107,7 @@ async def update_stats(
 @router.post("/{char_id}/level-up")
 async def manual_level_up(char_id: int, db: AsyncSession = Depends(get_db)):
     """테스트용: 강제로 1레벨을 올립니다."""
-    char = await char_service.get_character_with_stats(db, char_id)
+    char = await char_service.get_character(db, char_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
     
@@ -261,7 +261,7 @@ async def update_single_character_image(
 ):
     """단일 캐릭터 이미지를 업데이트합니다."""
     # 1. 캐릭터 소유권 확인
-    char = await char_service.get_character_with_stats(db, char_id)
+    char = await char_service.get_character(db, char_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
     

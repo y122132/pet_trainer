@@ -23,19 +23,33 @@ def load_models():
     YOLO AI 모델을 스레드 안전하게 로드합니다.
     """
     global model_pose, model_pet_pose, model_detect
+    
+    # [Optimization] Double-Checked Locking
+    # 이미 로드되었다면 락 획득 시도 없이 즉시 반환 (성능 향상)
+    if model_pose and model_pet_pose and model_detect:
+        return model_pose, model_pet_pose, model_detect
+
     with load_lock:
-        if model_pose is None:
+        # 락 진입 후 다시 체크 (동시 진입 방지)
+        if model_pose is None or model_pet_pose is None or model_detect is None:
             print("Loading YOLO models... (AI 모델 로딩 중)")
             try:
                 # 1. 사람 포즈 (주인 인식)
-                model_pose = YOLO("yolo11n-pose.pt", verbose=False) 
+                if model_pose is None:
+                    model_pose = YOLO("yolo11n-pose.pt", verbose=False) 
                 # 2. 반려동물 포즈 (핵심 모델) - pet_pose_best.pt 적용
-                model_pet_pose = YOLO("test_best.pt", verbose=False)
+                if model_pet_pose is None:
+                    model_pet_pose = YOLO("best.pt", verbose=False)
                 # 3. 사물 탐지 (장난감, 밥그릇 등)
-                model_detect = YOLO("yolo11n.pt", verbose=False)
+                if model_detect is None:
+                    model_detect = YOLO("yolo11n.pt", verbose=False)
                 print("YOLO models loaded successfully. (로딩 완료)")
             except Exception as e:
                 print(f"CRITICAL ERROR: Failed to load models: {e}")
+                # 로딩 실패 시 부분적으로 로드된 모델도 초기화하여 재시도 유도
+                model_pose = None
+                model_pet_pose = None
+                model_detect = None
                 raise e # 모델 로드 실패는 치명적임
     return model_pose, model_pet_pose, model_detect
 
@@ -93,6 +107,7 @@ def process_frame(
         if frame is None:
             return {"success": False, "message": "이미지 디코딩 실패", "frame_id": frame_id}
     except Exception as e:
+        print(f"[Detector Error] Decoding/Loading failed: {e}")
         return {"success": False, "message": f"처리 에러 (Decoding/Loading): {e}", "frame_id": frame_id}
 
     height, width, _ = frame.shape
@@ -194,7 +209,10 @@ def process_frame(
                 results_human = model_pose(frame, conf=0.25, classes=[0], imgsz=640, verbose=False)
                 
     except Exception as e:
-        return {"success": False, "message": f"AI 추론 오류: {e}"}
+        print(f"[Detector Error] Inference failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "message": f"AI 추론 오류: {e}", "frame_id": frame_id}
 
     # 6. 결과 파싱 변수
     detected_objects = []

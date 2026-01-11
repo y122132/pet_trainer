@@ -1,3 +1,4 @@
+// frontend/lib/services/battle_socket_service.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -102,5 +103,12 @@ class BattleSocketService {
     _reconnectTimer?.cancel();
     _cleanUpSocket();
     _messageController.close();
+  }
+  void disconnect() {
+    _reconnectTimer?.cancel(); // 재연결 타이머가 있다면 중지
+    _channel?.sink.close();    // 소켓 연결 닫기
+    _channel = null;
+    _isConnected = false;
+    debugPrint("🔌 [BattleSocket] 연결이 명시적으로 종료되었습니다.");
   }
 }
