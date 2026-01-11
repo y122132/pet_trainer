@@ -113,7 +113,6 @@ def process_frame(
     height, width, _ = frame.shape
     aspect_ratio = width / height if height > 0 else 1.0
     orientation = "landscape" if width > height else "portrait"
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
     # [Optimization] Distance Scale Pre-calculation
     # 반복문 내에서 조건문을 없애기 위해 미리 스케일 팩터 계산
