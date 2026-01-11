@@ -159,9 +159,9 @@ def process_frame(
 
     # 4. 설정값
     # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
-    INFERENCE_LOW_CONF = 0.20 # [Tuning] Balanced for Video (Noise reduction)
-    LOGIC_HIGH_CONF = 0.30 # [Tuning] High confidence for initial logic
-    LOGIC_LOW_CONF = 0.20  # [Tuning] Hysteresis lower bound
+    INFERENCE_LOW_CONF = 0.30 # [Tuning] Stricter noise filtering
+    LOGIC_HIGH_CONF = 0.30 # [Tuning] Strict initial check
+    LOGIC_LOW_CONF = 0.25  # [Tuning] Maintenance threshold
     
     # State 조회
     last_pet_exists = False
@@ -190,7 +190,6 @@ def process_frame(
         # [Optimization] Granular Locking
         # 하나의 거대한 Lock 대신, 각 모델별로 Lock을 걸어 병렬성 확보
         
-        # A. 반려동물 포즈 (Always Run)
         # A. 반려동물 포즈 (Always Run)
         if model_pet_pose:
             with lock_pet:
@@ -305,7 +304,7 @@ def process_frame(
                             nx, ny, c = float(kp[0])/width, float(kp[1])/height, float(kp[2])
                             pet_info["keypoints"].append([nx, ny, c])
                             
-                            if c > 0.15: # [Tuning] Keypoint visibility threshold
+                            if c > 0.30: # [Tuning] Raised to 0.30 as requested
                                 if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
                                 if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
         
