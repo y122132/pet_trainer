@@ -53,7 +53,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     super.initState();
     _cameraController = CameraController(
       widget.cameras.first,
-      ResolutionPreset.medium, // High -> Medium for performance
+      ResolutionPreset.high, // High (720p) -> Best for 1280px inference
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
