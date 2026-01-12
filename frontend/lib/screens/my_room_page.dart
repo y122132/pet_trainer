@@ -88,7 +88,7 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                   leading: const Icon(Icons.logout, color: Colors.redAccent),
                   title: Text("로그아웃", style: GoogleFonts.jua(color: Colors.redAccent, fontSize: 18)),
                   onTap: () => _handleLogout(context),
-                  onTap: () => _handleLogout(context),
+
                 ),
                 StatefulBuilder(
                   builder: (BuildContext context, StateSetter setModalState) {
