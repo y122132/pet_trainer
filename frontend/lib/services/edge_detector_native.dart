@@ -30,13 +30,18 @@ class EdgeDetector {
   bool get isLoaded => _sendPort != null;
 
   Future<void> initialize() async {
-    // 1. If Isolate exists, check Health (Self-Healing)
+    // 1. Check if already initialized or stale
     if (_isolate != null && _sendPort != null) {
+       // [Fix] Instead of killing, we reuse if healthy.
        bool isHealthy = await _checkHealth();
-       if (isHealthy) return; // All good
+       if (isHealthy) {
+          return; 
+       }
        
-       print("Edge AI Isolate Unhealthy! Restarting...");
-       // Kill and Restart
+       print("Edge AI Isolate Unhealthy/Stale! Restarting...");
+       _kill();
+    } else {
+       // Ensure clean state if partial init
        _kill();
     }
 
@@ -88,7 +93,20 @@ class EdgeDetector {
     _sendPort = null;
     _receivePort?.close();
     _receivePort = null;
+    
+    // [Fix] Cancel all pending requests to prevent deadlocks
+    for (var completer in _requests.values) {
+       if (!completer.isCompleted) {
+          completer.completeError("Isolate Killed");
+       }
+    }
     _requests.clear();
+    
+    // Reset completers
+    if (_initCompleter != null && !_initCompleter!.isCompleted) {
+       _initCompleter!.completeError("Isolate Killed during Init");
+       _initCompleter = null;
+    }
   }
   
   // Manual Close
@@ -186,7 +204,10 @@ void _isolateEntry(_IsolateInitData initData) async {
       final result = <String, dynamic>{
         'req_id': id,
         'success': false,
+        'success': false,
         'bbox': [], // Final merged list
+        'pet_keypoints': [], // [NEW]
+        'human_keypoints': [], // [NEW]
         'conf_score': 0.0
       };
       
@@ -197,6 +218,8 @@ void _isolateEntry(_IsolateInitData initData) async {
 
       try {
         final List<List<dynamic>> allDetections = [];
+        final List<List<double>> petKeypointsList = [];
+        final List<List<double>> humanKeypointsList = [];
         double maxConf = 0.0;
 
         // --- Model A: Pet Pose (Always Run, 1280px) ---
@@ -217,10 +240,10 @@ void _isolateEntry(_IsolateInitData initData) async {
           final rawOutput = outputMap[0] as List;
           final batch0 = rawOutput[0] as List;
 
-          final detections = nonMaxSuppression(
             batch0, 
             3, // Pet Classes: Dog(0->16), Cat(1->15), Bird(2->14)
-            0.30, 0.45
+            0.30, 0.45,
+            keypointNum: 17 // [NEW] Pet Pose
           );
           
           for (var det in detections) {
@@ -234,6 +257,23 @@ void _isolateEntry(_IsolateInitData initData) async {
                det.score,
                mappedCls.toDouble()
              ]);
+             
+             // [NEW] Process Keypoints
+             if (det.keypoints != null) {
+                final List<double> normalizedKpts = [];
+                for (int k = 0; k < 17; k++) {
+                   // x, y, conf
+                   double kx = det.keypoints![k*3];
+                   double ky = det.keypoints![k*3+1];
+                   double kc = det.keypoints![k*3+2];
+                   
+                   normalizedKpts.add(kx / targetSize);
+                   normalizedKpts.add(ky / targetSize);
+                   normalizedKpts.add(kc);
+                }
+                petKeypointsList.add(normalizedKpts);
+             }
+             
              if (det.score > maxConf) maxConf = det.score;
           }
         } catch (e) {
@@ -296,7 +336,8 @@ void _isolateEntry(_IsolateInitData initData) async {
             final detections = nonMaxSuppression(
                batch0,
                1, // Person Class
-               0.30, 0.45
+               0.30, 0.45,
+               keypointNum: 17 // [NEW] Human Pose
             );
             
             for (var det in detections) {
@@ -306,6 +347,21 @@ void _isolateEntry(_IsolateInitData initData) async {
                  det.score,
                  0.0 // Person
                ]);
+               
+               // [NEW] Process Keypoints
+               if (det.keypoints != null) {
+                  final List<double> normalizedKpts = [];
+                  for (int k = 0; k < 17; k++) {
+                     double kx = det.keypoints![k*3];
+                     double ky = det.keypoints![k*3+1];
+                     double kc = det.keypoints![k*3+2];
+                     
+                     normalizedKpts.add(kx / targetSize);
+                     normalizedKpts.add(ky / targetSize);
+                     normalizedKpts.add(kc);
+                  }
+                  humanKeypointsList.add(normalizedKpts);
+               }
             }
           } catch (e) {
             print("Model C (Human) Failed: $e");
@@ -316,6 +372,8 @@ void _isolateEntry(_IsolateInitData initData) async {
         if (allDetections.isNotEmpty) {
            result['success'] = true;
            result['bbox'] = allDetections;
+           result['pet_keypoints'] = petKeypointsList;
+           result['human_keypoints'] = humanKeypointsList;
            result['conf_score'] = maxConf;
            
            // TODO: Implement Logic (Distance/Interaction) Here

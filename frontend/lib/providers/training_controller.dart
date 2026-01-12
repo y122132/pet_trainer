@@ -74,7 +74,7 @@ class TrainingController extends ChangeNotifier {
     _charProvider = provider;
   }
 
-  void startTraining(String petType, String difficulty, String mode) {
+  Future<void> startTraining(String petType, String difficulty, String mode) async {
     if (isAnalyzing) return;
     
     _currentMode = mode; // [Edge AI] Store mode
@@ -85,16 +85,21 @@ class TrainingController extends ChangeNotifier {
     _currentFrameId = 0; // Reset ID
     notifyListeners();
 
-    notifyListeners();
-
     // [Edge AI] Initialize Detector if enabled
     if (GlobalSettings.useEdgeAI) {
-      EdgeDetector().initialize().then((_) {
+      try {
+        await EdgeDetector().initialize();
         print("EdgeDetector initialized");
-      });
+      } catch (e) {
+        print("EdgeDetector init failed: $e");
+        errorMessage = "AI Init Failed: $e";
+        isAnalyzing = false; // [Fix] Reset state
+        notifyListeners();
+        return;
+      }
     }
 
-    _socketClient.connect(petType, difficulty, mode);
+    await _socketClient.connect(petType, difficulty, mode);
 
     _socketClient.stream.listen(_handleMessage, 
       onError: (e) {

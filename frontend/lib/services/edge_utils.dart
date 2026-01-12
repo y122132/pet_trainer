@@ -6,8 +6,9 @@ class DetectionResult {
   final List<double> box; // [x1, y1, x2, y2] (Normalized 0.0 - 1.0)
   final double score;
   final int classIndex;
+  final List<double>? keypoints; // [x1, y1, c1, x2, y2, c2, ...] Normalized
   
-  DetectionResult(this.box, this.score, this.classIndex);
+  DetectionResult(this.box, this.score, this.classIndex, {this.keypoints});
 }
 
 // --- Math & NMS Utils ---
@@ -37,7 +38,7 @@ List<DetectionResult> nonMaxSuppression(
   int numClasses, 
   double confThreshold, 
   double iouThreshold,
-  {bool isModelV8 = true} 
+  {bool isModelV8 = true, int keypointNum = 0} 
 ) {
   // Parsing YOLOv8 Output: [1, 4 + cls, 8400]
   // We assume 'output' is the [0]th element: [4+cls][8400] nested list or flat array appropriately handled.
@@ -91,7 +92,37 @@ List<DetectionResult> nonMaxSuppression(
     x2 = x2.clamp(0.0, 1.0);
     y2 = y2.clamp(0.0, 1.0);
     
-    detections.add(DetectionResult([x1, y1, x2, y2], maxScore, maxClassIndex));
+    // 4. Extract Keypoints (if any)
+    List<double>? kpts;
+    if (keypointNum > 0) {
+      kpts = [];
+      // Keypoints start after classes. 
+      // Index = 4 + numClasses + (k * 3)
+      // k*3 because x, y, conf
+      int kptStartIdx = 4 + numClasses;
+      
+      for (int k = 0; k < keypointNum; k++) {
+         double kx = output[kptStartIdx + k * 3][i];
+         double ky = output[kptStartIdx + k * 3 + 1][i];
+         double kc = output[kptStartIdx + k * 3 + 2][i];
+         
+         // Normalize Keypoint Coordinates (Assuming they are absolute in model output? No, YOLOv8 output is usually relative to input size like box cx, cy?)
+         // Actually YOLOv8 export usually outputs absolute coords relative to image size.
+         // Since box cx/cy were divided by input size? No, in standard export they are not normalized.
+         // Wait, let's check box logic above:
+         // double cx = output[0][i]; ...
+         // The caller divides by targetSize later in `For loop` in `edge_detector_native.dart`: 
+         // `det.box[0] / targetSize`
+         // So `edge_utils` returns raw model output coordinates.
+         // We should do the same for keypoints here. Caller will normalize.
+         
+         kpts.add(kx);
+         kpts.add(ky);
+         kpts.add(kc);
+      }
+    }
+    
+    detections.add(DetectionResult([x1, y1, x2, y2], maxScore, maxClassIndex, keypoints: kpts));
   }
   
   // 4. Sort by score (descending)

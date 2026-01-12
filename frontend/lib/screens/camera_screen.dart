@@ -98,19 +98,24 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     super.dispose();
   }
 
-  void _toggleTraining() {
+  Future<void> _toggleTraining() async {
     final ctrl = Provider.of<TrainingController>(context, listen: false);
     final charProvider = Provider.of<CharProvider>(context, listen: false);
     
     if (ctrl.isAnalyzing) {
       ctrl.stopTraining();
-      _cameraController.stopImageStream();
+      await _cameraController.stopImageStream();
       charProvider.updateStatusMessage("분석 중지됨.");
     } else {
-      ctrl.startTraining(charProvider.currentPetType, widget.difficulty, widget.mode);
-      _cameraController.startImageStream((image) {
-          ctrl.processFrame(image, _cameraController.description.sensorOrientation, _currentOrientation);
-      });
+      // [Fix] Await initialization so EdgeDetector is ready before frames flow
+      await ctrl.startTraining(charProvider.currentPetType, widget.difficulty, widget.mode);
+      
+      // Only start stream if training started successfully
+      if (ctrl.isAnalyzing) {
+          await _cameraController.startImageStream((image) {
+              ctrl.processFrame(image, _cameraController.description.sensorOrientation, _currentOrientation);
+          });
+      }
     }
   }
 
