@@ -336,6 +336,13 @@ class TrainingController extends ChangeNotifier {
   @override
   void dispose() {
     _socketClient.disconnect();
+    
+    // [Fix] Ensure Edge AI Isolate is killed when leaving the screen
+    // This prevents zombie isolates and ensures fresh init on re-entry
+    if (GlobalSettings.useEdgeAI) {
+      EdgeDetector().close();
+    }
+    
     super.dispose();
   }
 }
