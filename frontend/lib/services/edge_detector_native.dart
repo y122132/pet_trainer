@@ -204,7 +204,6 @@ void _isolateEntry(_IsolateInitData initData) async {
       final result = <String, dynamic>{
         'req_id': id,
         'success': false,
-        'success': false,
         'bbox': [], // Final merged list
         'pet_keypoints': [], // [NEW]
         'human_keypoints': [], // [NEW]
@@ -240,6 +239,7 @@ void _isolateEntry(_IsolateInitData initData) async {
           final rawOutput = outputMap[0] as List;
           final batch0 = rawOutput[0] as List;
 
+          final detections = nonMaxSuppression(
             batch0, 
             3, // Pet Classes: Dog(0->16), Cat(1->15), Bird(2->14)
             0.30, 0.45,
@@ -375,20 +375,6 @@ void _isolateEntry(_IsolateInitData initData) async {
            result['pet_keypoints'] = petKeypointsList;
            result['human_keypoints'] = humanKeypointsList;
            result['conf_score'] = maxConf;
-           
-           // TODO: Implement Logic (Distance/Interaction) Here
-           // For now, we just pass detections to Server (via socket)
-           // But since Server is Bypassed, logic MUST be here.
-           // However, implementing full logic is Step 3-2.
-           // We will currently just return BBox so UI works, 
-           // but Game Logic (FSM) will likely FAIL or IDLE because result['success'] might be misused?
-           // Wait, Server side 'detector.py' logic does FSM.
-           // Edge Mode sends 'result' JSON. Server uses 'result' for FSM.
-           // BUT Server FSM relies on 'vision_state' and detection history inside Server memory.
-           // So if we just send BBox, Server FSM logic in 'analysis_socket.py' checks 'is_success_vision'.
-           // Ideally we need to run 'logic' here to determine 'is_success_vision' accurately (e.g. distance check).
-           // Currently we set 'success' = true if ANY detection found. This is temporary.
-           // We need Step 3 logic porting soon.
         }
 
       } catch (e) {
