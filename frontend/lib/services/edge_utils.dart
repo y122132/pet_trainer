@@ -86,11 +86,12 @@ List<DetectionResult> nonMaxSuppression(
     double x2 = cx + w / 2;
     double y2 = cy + h / 2;
     
-    // Clip to 0-1
-    x1 = x1.clamp(0.0, 1.0);
-    y1 = y1.clamp(0.0, 1.0);
-    x2 = x2.clamp(0.0, 1.0);
-    y2 = y2.clamp(0.0, 1.0);
+    // [Fix] Do NOT clamp to 0.0-1.0 here because model outputs PIXEL coordinates (e.g. 0-640).
+    // Caller (edge_detector_native) handles normalization by dividing by targetSize.
+    // x1 = x1.clamp(0.0, 1.0);
+    // y1 = y1.clamp(0.0, 1.0);
+    // x2 = x2.clamp(0.0, 1.0);
+    // y2 = y2.clamp(0.0, 1.0);
     
     // 4. Extract Keypoints (if any)
     List<double>? kpts;

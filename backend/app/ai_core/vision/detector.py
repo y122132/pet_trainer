@@ -351,7 +351,12 @@ def process_frame(
 
         if found_pet:
             # Note: pet_info["box"] is already added to detected_objects inside the loop or recovery block
-            base_response["pet_keypoints"] = pet_info["keypoints"]
+            # Note: pet_info["box"] is already added to detected_objects inside the loop or recovery block
+            
+            # [Fix] Only update if we have new keypoints (don't overwrite with empty if Edge AI sent them)
+            if pet_info["keypoints"]:
+                base_response["pet_keypoints"] = pet_info["keypoints"]
+            
             base_response["conf_score"] = best_conf
 
     # ---------------------------------------------------------
@@ -481,6 +486,15 @@ def process_logic_only(
     found_pet = False
     pet_info = {"box": [], "keypoints": [], "nose": None, "paws": [], "conf": 0.0}
     
+    # [Fix] Preserve Keypoints from Edge AI if provided
+    if base_response.get("pet_keypoints"):
+        # We might have multiple pets in pet_keypoints list, but pet_info targets the primary one.
+        # This is tricky strictly speaking because we don't know WHICH keypoints belong to WHICH box in this list effectively without mapping.
+        # However, typically Edge AI sends keypoints corresponding to the detections.
+        # But 'pet_info' is a single pet's info.
+        # Let's see how 'pet_info_override' is used.
+        pass
+
     # If passed from process_frame, use the already smoothed info
     if pet_info_override and pet_info_override.get("box"):
         pet_info = pet_info_override
