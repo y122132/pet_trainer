@@ -176,28 +176,43 @@ class TrainingController extends ChangeNotifier {
          _pendingFrameId = thisFrameId; // [NEW] Track pending ID
          
          // [Edge AI] Branching
-         if (GlobalSettings.useEdgeAI && EdgeDetector().isLoaded) {
-            // 1. Edge Inference
-            // Pass rotationAngle to handle orientation defined in processFrame
-            final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
-            
-            // [Fix] Inject Frame ID and Dimensions for Server Logic Compatibility
-            edgeResult['frame_id'] = thisFrameId;
-            
-            // Handle Orientation for Logic Aspect Ratio
-            // CameraImage is usually Landscape (sensor). If UI is Portrait, we swap.
-            int logicW = image.width;
-            int logicH = image.height;
-            if (rotationAngle == 90 || rotationAngle == 270) {
-               logicW = image.height;
-               logicH = image.width;
+         if (GlobalSettings.useEdgeAI) {
+            // [Fix] Lazy Init / Re-init Check
+            if (!EdgeDetector().isLoaded) {
+                // Try to init on the fly (might cause lag for 1 frame but better than failure)
+                print("EdgeAI enabled but not loaded. Initializing...");
+                await EdgeDetector().initialize();
             }
-            edgeResult['width'] = logicW;
-            edgeResult['height'] = logicH; 
-
             
-            // Send JSON Result
-            _socketClient.sendMessage(jsonEncode(edgeResult));
+            if (EdgeDetector().isLoaded) {
+                // 1. Edge Inference
+                // Pass rotationAngle to handle orientation defined in processFrame
+                final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
+                
+                // [Fix] Inject Frame ID and Dimensions for Server Logic Compatibility
+                edgeResult['frame_id'] = thisFrameId;
+                
+                // Handle Orientation for Logic Aspect Ratio
+                // CameraImage is usually Landscape (sensor). If UI is Portrait, we swap.
+                int logicW = image.width;
+                int logicH = image.height;
+                if (rotationAngle == 90 || rotationAngle == 270) {
+                   logicW = image.height;
+                   logicH = image.width;
+                }
+                edgeResult['width'] = logicW;
+                edgeResult['height'] = logicH; 
+                
+                // [DEBUG] Check Debug Info
+                if (edgeResult.containsKey('debug_info')) {
+                    // print("Debug Info: ${edgeResult['debug_info']}");
+                }
+    
+                // Send JSON Result
+                _socketClient.sendMessage(jsonEncode(edgeResult));
+            } else {
+                 print("EdgeAI Init Failed completely.");
+            }
             
          } else {
             // 2. Server Inference (Legacy)

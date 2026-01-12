@@ -147,7 +147,13 @@ class EdgeDetector {
     });
 
     return completer.future;
-
+  }
+  
+  // [Fix] Add explicit re-init trigger for hot-restart scenarios
+  Future<void> ensureInitialized() async {
+     if (!isLoaded) {
+        await initialize();
+     }
   }
 }
 
@@ -207,7 +213,8 @@ void _isolateEntry(_IsolateInitData initData) async {
         'bbox': [], // Final merged list
         'pet_keypoints': [], // [NEW]
         'human_keypoints': [], // [NEW]
-        'conf_score': 0.0
+        'conf_score': 0.0,
+        'debug_info': {} // [NEW]
       };
       
       if (interpreterPet == null) {
@@ -245,6 +252,8 @@ void _isolateEntry(_IsolateInitData initData) async {
             0.30, 0.45,
             keypointNum: 17 // [NEW] Pet Pose
           );
+          
+          result['debug_info']['pet_count'] = detections.length; // [DEBUG]
           
           for (var det in detections) {
              int mappedCls = 16; // Default Dog
@@ -303,6 +312,8 @@ void _isolateEntry(_IsolateInitData initData) async {
                0.25, 0.45 
             );
             
+            result['debug_info']['obj_count'] = detections.length; // [DEBUG]
+            
             for (var det in detections) {
                // Use original COCO class index
                allDetections.add([
@@ -339,6 +350,8 @@ void _isolateEntry(_IsolateInitData initData) async {
                0.30, 0.45,
                keypointNum: 17 // [NEW] Human Pose
             );
+            
+            result['debug_info']['human_count'] = detections.length; // [DEBUG]
             
             for (var det in detections) {
                // Person class is 0. Map to 0.
@@ -414,12 +427,24 @@ Object _prepareInputTensor(Float32List floatInput, Tensor inputTensor) {
     // Safety for 0 scale
     if (scale == 0.0) scale = 1.0; 
     
+    // [Fix] Smart Input Scaling
+    // TFLite Quantization often expects the "Real" value domain to match the training domain.
+    // Case A: Model trained on [0, 255] images. Scale ~ 1.0 (Real domain 0-255).
+    //         We provide [0, 1]. Result is black image. -> Need to multiply by 255.
+    // Case B: Model trained on [0, 1] normalized. Scale ~ 0.0039 (Real domain 0-1).
+    //         We provide [0, 1]. All good.
+    // Heuristic: If scale > 0.1, it expects [0, 255].
+    bool needRescale = scale > 0.1;
+    
     final size = floatInput.length;
     final uint8 = Uint8List(size);
     for (int i = 0; i < size; i++) {
+       double val = floatInput[i];
+       if (needRescale) val *= 255.0;
+       
        // float = (q - zp) * scale
        // q = float / scale + zp
-       uint8[i] = (floatInput[i] / scale + zeroPoint).round().clamp(0, 255);
+       uint8[i] = (val / scale + zeroPoint).round().clamp(0, 255);
     }
     return uint8.reshape(inputTensor.shape);
   }
