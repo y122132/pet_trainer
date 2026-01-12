@@ -22,6 +22,7 @@ class EdgeDetector {
   
   // Requests map to match responses
   final Map<int, Completer<Map<String, dynamic>>> _requests = {};
+  int _requestIdCounter = 0;
   
   // [NEW] Ping Completer
   Completer<bool>? _pingCompleter;
@@ -129,13 +130,6 @@ class EdgeDetector {
 
     return completer.future;
 
-  }
-
-  void close() {
-    _sendPort?.send({'cmd': Cmd.close});
-    _isolate?.kill();
-    _isolate = null;
-    _sendPort = null;
   }
 }
 
