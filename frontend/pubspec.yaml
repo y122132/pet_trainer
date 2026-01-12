@@ -20,7 +20,7 @@ dependencies:
   camera: ^0.10.5
   web_socket_channel: ^2.4.0
   fl_chart: ^0.66.0
-  tflite_flutter: ^0.10.4 # Edge AI Inference
+  tflite_flutter: ^0.11.0 # Edge AI Inference (Dart 3 Support)
 
 
   cupertino_icons: ^1.0.2
