@@ -203,7 +203,12 @@ class BattleProvider extends ChangeNotifier {
         );
       }
     });
-    _state = _state.copyWith(statusMessage: "전투 시작!", isMyTurn: true);
+    _state = _state.copyWith(
+      oppId: data['opponent_id'],
+      oppName: data['opponent_name'],
+      statusMessage: "전투 시작!",
+      isMyTurn: true
+      );
     notifyListeners();
   }
 

@@ -341,23 +341,21 @@ class CharProvider with ChangeNotifier {
   //  강제 레벨업 요청 (테스트용)
   Future<void> manualLevelUp() async {
     if (_character == null) return;
+
     try {
       final token = await AuthService().getToken();
       final response = await http.post(
         Uri.parse('${AppConfig.charactersUrl}/${_character!.id}/level-up'),
         headers: {
-          "Authorization": "Bearer $token",
-          "Content-Type": "application/json",
+          "Authorization": "Bearer $token"
         },
       );
 
       if (response.statusCode == 200) {
-        print("[Provider] Manual Level-up Success");
-        await fetchCharacter(_character!.id);
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        _character = Character.fromJson(data);
         _statusMessage = "레벨업 성공! 🎉";
         notifyListeners();
-      } else {
-        print("manualLevelUp failed: ${response.statusCode}");
       }
     } catch (e) {
       print("manualLevelUp error: $e");

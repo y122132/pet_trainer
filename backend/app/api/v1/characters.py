@@ -59,6 +59,7 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
         "status": char.status,
         "pet_type": char.pet_type, 
         "learned_skills": char.learned_skills,
+        "equipped_skills": char.equipped_skills,
         "front_url": char.front_url,
         "back_url": char.back_url,
         "side_url": char.side_url,
@@ -110,19 +111,39 @@ async def update_stats(
 
 @router.post("/{char_id}/level-up")
 async def manual_level_up(char_id: int, db: AsyncSession = Depends(get_db)):
-    """테스트용: 강제로 1레벨을 올리고 스킬 해금을 체크합니다."""
     char = await char_service.get_character(db, char_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
     
-    exp_needed = char.stat.level * 100
-    result = await char_service._give_exp_and_levelup(db, char, exp_needed)
+    await db.refresh(char)
     
+    exp_needed = char.stat.level * 100
+    await char_service._give_exp_and_levelup(db, char, exp_needed)
+    
+    await db.flush()
     await char_service.check_and_unlock_skills(db, char, char.stat.level)
     
     await db.commit()
-    
-    return {"message": "Level up and skill unlock check success", "new_level": char.stat.level}
+    await db.refresh(char)
+    return {
+        "id": char.id,
+        "name": char.name,
+        "pet_type": char.pet_type,
+        "learned_skills": char.learned_skills,
+        "equipped_skills": char.equipped_skills,
+        "stats": {
+            "level": char.stat.level,
+            "exp": char.stat.exp,
+            "strength": char.stat.strength,
+            "intelligence": char.stat.intelligence, 
+            "agility": char.stat.agility, 
+            "defense": char.stat.defense,
+            "luck": char.stat.luck,
+            "happiness": char.stat.happiness,
+            "health": char.stat.health,
+            "unused_points": char.stat.unused_points
+        }
+    }
 
 @router.post("/compose")
 async def create_character_with_images(
@@ -265,7 +286,7 @@ async def update_single_character_image(
 ):
     """단일 캐릭터 이미지를 업데이트합니다."""
     # 1. 캐릭터 소유권 확인
-    char = await char_service.get_character_with_stats(db, char_id)
+    char = await char_service.get_character(db, char_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
     
@@ -319,9 +340,11 @@ async def equip_skills(
     db: AsyncSession = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id)
 ):
+    print(f"[DEBUG] 스킬 장착 시도 - 유저 ID: {current_user_id}")
     char_res = await db.execute(select(Character).where(Character.user_id == current_user_id))
     char = char_res.scalar_one_or_none()
     if not char:
+        print(f"[ERROR] 유저 {current_user_id}에게 할당된 캐릭터가 DB에 없습니다.")
         raise HTTPException(status_code=404, detail="캐릭터를 찾을 수 없습니다.")
 
     # 1. 검증: 최대 4개 제한
