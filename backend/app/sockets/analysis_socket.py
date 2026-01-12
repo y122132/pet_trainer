@@ -176,8 +176,15 @@ async def analysis_endpoint(
                     import json
                     edge_result = json.loads(message['text'])
                     
+                    # [Fix] Construct base_response with dimensions for Logic Aspect Ratio safety
+                    # Default to 640 if missing (but Frontend sends it now)
+                    base_resp_input = {
+                        "width": edge_result.get("width", 640),
+                        "height": edge_result.get("height", 640),
+                        "bbox": edge_result.get('bbox', [])
+                    }
+
                     # [Fix] Invoke Logic Layer (Server-side Logic Reuse)
-                    # Instead of bypassing everything, we now feed the BBoxes into the Logic Engine
                     result = await run_in_threadpool(
                         detector.process_logic_only,
                         detected_objects=edge_result.get('bbox', []),
@@ -185,11 +192,16 @@ async def analysis_endpoint(
                         target_class_id=target_class_id,
                         difficulty=difficulty,
                         vision_state=vision_state,
-                        # Pass override if specific fields are needed, but bbox list is main input
+                        base_response=base_resp_input # [NEW] Pass dimensions
                     )
                     
                     # Ensure minimal keys exist (Should be handled by process_logic_only, but safe check)
                     if "success" not in result: result["success"] = False
+                    
+                    # [Fix] Propagate Frame ID for Latency Calculation
+                    # Frontend expects 'frame_id' to match the request to calculate latency
+                    if 'frame_id' in edge_result:
+                        result['frame_id'] = edge_result['frame_id']
                     
                     # Pass through to FSM Logic below (Skip 'run_in_threadpool(detector...)')
                     image_bytes = None # Skip decoding

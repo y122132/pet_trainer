@@ -176,8 +176,19 @@ class TrainingController extends ChangeNotifier {
             // Pass rotationAngle to handle orientation defined in processFrame
             final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
             
-            // Inject Frame ID to match Server format logic
-            edgeResult['frame_id'] = thisFrameId; 
+            // [Fix] Inject Frame ID and Dimensions for Server Logic Compatibility
+            edgeResult['frame_id'] = thisFrameId;
+            
+            // Handle Orientation for Logic Aspect Ratio
+            // CameraImage is usually Landscape (sensor). If UI is Portrait, we swap.
+            int logicW = image.width;
+            int logicH = image.height;
+            if (rotationAngle == 90 || rotationAngle == 270) {
+               logicW = image.height;
+               logicH = image.width;
+            }
+            edgeResult['width'] = logicW;
+            edgeResult['height'] = logicH; 
 
             
             // Send JSON Result
