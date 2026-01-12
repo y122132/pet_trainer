@@ -164,10 +164,12 @@ void _isolateEntry(_IsolateInitData initData) async {
         double maxConf = 0.0;
 
         // --- Model A: Pet Pose (Always Run, 1280px) ---
-        {
+        try {
           const targetSize = 1280;
           final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
-          final input = floatInput.reshape([1, targetSize, targetSize, 3]);
+          
+          final inputTensor = interpreterPet!.getInputTensor(0);
+          final input = _prepareInputTensor(floatInput, inputTensor);
           
           final outputTensor = interpreterPet!.getOutputTensor(0);
           final shape = outputTensor.shape; 
@@ -185,84 +187,95 @@ void _isolateEntry(_IsolateInitData initData) async {
             0.30, 0.45
           );
           
-          // Map Classes & Add
           for (var det in detections) {
              int mappedCls = 16; // Default Dog
              if (det.classIndex == 1) mappedCls = 15; // Cat
              if (det.classIndex == 2) mappedCls = 14; // Bird
              
+             // [Fix] Normalize Coordinates (0.0 ~ 1.0)
              allDetections.add([
-               det.box[0], det.box[1], det.box[2], det.box[3],
+               det.box[0] / targetSize, det.box[1] / targetSize, det.box[2] / targetSize, det.box[3] / targetSize,
                det.score,
                mappedCls.toDouble()
              ]);
              if (det.score > maxConf) maxConf = det.score;
           }
+        } catch (e) {
+             print("Model A (Pet) Failed: $e");
         }
 
         // --- Model B: Object Detection (Run if NOT interaction, 640px) ---
         if (mode != 'interaction' && interpreterObj != null) {
-          const targetSize = 640;
-          final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
-          final input = floatInput.reshape([1, targetSize, targetSize, 3]);
-          
-          final outputTensor = interpreterObj!.getOutputTensor(0);
-          final shape = outputTensor.shape;
-          final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-          final outputMap = {0: outputBuffer.reshape(shape)};
-          
-          interpreterObj!.runForMultipleInputs([input], outputMap);
-          
-          final rawOutput = outputMap[0] as List;
-          final batch0 = rawOutput[0] as List;
-
-          final detections = nonMaxSuppression(
-             batch0,
-             80, // COCO Classes
-             0.25, 0.45 
-          );
-          
-          for (var det in detections) {
-             // Use original COCO class index
-             allDetections.add([
-               det.box[0], det.box[1], det.box[2], det.box[3],
-               det.score,
-               det.classIndex.toDouble()
-             ]);
+          try {
+            const targetSize = 640;
+            final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
+            final input = floatInput.reshape([1, targetSize, targetSize, 3]);
+            
+            final outputTensor = interpreterObj!.getOutputTensor(0);
+            final shape = outputTensor.shape;
+            final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
+            final outputMap = {0: outputBuffer.reshape(shape)};
+            
+            interpreterObj!.runForMultipleInputs([input], outputMap);
+            
+            final rawOutput = outputMap[0] as List;
+            final batch0 = rawOutput[0] as List;
+  
+            final detections = nonMaxSuppression(
+               batch0,
+               80, // COCO Classes
+               0.25, 0.45 
+            );
+            
+            for (var det in detections) {
+               // Use original COCO class index
+               allDetections.add([
+                 det.box[0] / targetSize, det.box[1] / targetSize, det.box[2] / targetSize, det.box[3] / targetSize,
+                 det.score,
+                 det.classIndex.toDouble()
+               ]);
+            }
+          } catch (e) {
+            print("Model B (Obj) Failed: $e");
           }
         }
 
         // --- Model C: Human Pose (Run if interaction, 640px) ---
         if (mode == 'interaction' && interpreterHuman != null) {
-          const targetSize = 640;
-          final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
-          final input = floatInput.reshape([1, targetSize, targetSize, 3]);
-          
-          final outputTensor = interpreterHuman!.getOutputTensor(0);
-          final shape = outputTensor.shape;
-          final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-          final outputMap = {0: outputBuffer.reshape(shape)};
-          
-          interpreterHuman!.runForMultipleInputs([input], outputMap);
-          
-          final rawOutput = outputMap[0] as List;
-          final batch0 = rawOutput[0] as List;
-
-          final detections = nonMaxSuppression(
-             batch0,
-             1, // Person Class
-             0.30, 0.45
-          );
-          
-          for (var det in detections) {
-             // Person class is 0. Map to 0.
-             allDetections.add([
-               det.box[0], det.box[1], det.box[2], det.box[3],
-               det.score,
-               0.0 // Person
-             ]);
+          try {
+            const targetSize = 640;
+            final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
+            final input = floatInput.reshape([1, targetSize, targetSize, 3]);
+            
+            final outputTensor = interpreterHuman!.getOutputTensor(0);
+            final shape = outputTensor.shape;
+            final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
+            final outputMap = {0: outputBuffer.reshape(shape)};
+            
+            interpreterHuman!.runForMultipleInputs([input], outputMap);
+            
+            final rawOutput = outputMap[0] as List;
+            final batch0 = rawOutput[0] as List;
+  
+            final detections = nonMaxSuppression(
+               batch0,
+               1, // Person Class
+               0.30, 0.45
+            );
+            
+            for (var det in detections) {
+               // Person class is 0. Map to 0.
+               allDetections.add([
+                 det.box[0] / targetSize, det.box[1] / targetSize, det.box[2] / targetSize, det.box[3] / targetSize,
+                 det.score,
+                 0.0 // Person
+               ]);
+            }
+          } catch (e) {
+            print("Model C (Human) Failed: $e");
           }
         }
+
         
         if (allDetections.isNotEmpty) {
            result['success'] = true;
@@ -297,5 +310,53 @@ void _isolateEntry(_IsolateInitData initData) async {
       Isolate.exit();
     }
   });
+}
+
+// --- Helper Code ---
+
+/// Quantize Logic for Int8/UInt8 Inputs
+Object _prepareInputTensor(Float32List floatInput, Tensor inputTensor) {
+  // If input is Float32, just reshape
+  if (inputTensor.type == TfLiteType.kTfLiteFloat32 || 
+      inputTensor.type == TfLiteType.kTfLiteNoType) {
+    return floatInput.reshape(inputTensor.shape);
+  }
+  
+  // If input is Uint8 (Image Quantized)
+  if (inputTensor.type == TfLiteType.kTfLiteUInt8) {
+    final params = inputTensor.params;
+    double scale = params.scale;
+    int zeroPoint = params.zeroPoint;
+    
+    // Safety for 0 scale
+    if (scale == 0.0) scale = 1.0; 
+    
+    final size = floatInput.length;
+    final uint8 = Uint8List(size);
+    for (int i = 0; i < size; i++) {
+       // float = (q - zp) * scale
+       // q = float / scale + zp
+       uint8[i] = (floatInput[i] / scale + zeroPoint).round().clamp(0, 255);
+    }
+    return uint8.reshape(inputTensor.shape);
+  }
+  
+  // If input is Int8
+  if (inputTensor.type == TfLiteType.kTfLiteInt8) {
+    final params = inputTensor.params;
+    double scale = params.scale;
+    int zeroPoint = params.zeroPoint;
+    if (scale == 0.0) scale = 1.0;
+    
+    final size = floatInput.length;
+    final int8 = Int8List(size);
+    for (int i = 0; i < size; i++) {
+       int8[i] = (floatInput[i] / scale + zeroPoint).round().clamp(-128, 127);
+    }
+    return int8.reshape(inputTensor.shape);
+  }
+  
+  // Default fallback
+  return floatInput.reshape(inputTensor.shape);
 }
 

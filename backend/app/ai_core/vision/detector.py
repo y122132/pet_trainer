@@ -62,6 +62,42 @@ def calculate_squared_distance(p1, p2, x_scale, y_scale):
     dy = (p1[1] - p2[1]) * y_scale
     return dx*dx + dy*dy
 
+# [Optimization] Temporal Aggregation Function
+def apply_temporal_smoothing(current_box, current_cls, vision_state):
+    if not vision_state: return current_box, current_cls
+    
+    # 1. Initialize History Deques
+    if "history_boxes" not in vision_state: vision_state["history_boxes"] = []
+    if "history_classes" not in vision_state: vision_state["history_classes"] = []
+    if "ema_box" not in vision_state: vision_state["ema_box"] = None
+    
+    # 2. Class Voting (Consensus)
+    history_classes = vision_state["history_classes"]
+    history_classes.append(current_cls)
+    if len(history_classes) > 5: history_classes.pop(0)
+    
+    # Most frequent class
+    from collections import Counter
+    most_common = Counter(history_classes).most_common(1)
+    consensus_cls = most_common[0][0] if most_common else current_cls
+    
+    # 3. EMA Smoothing
+    x1, y1, x2, y2, conf, _ = current_box
+    current_coords = np.array([x1, y1, x2, y2])
+    
+    ema_box = vision_state.get("ema_box")
+    if ema_box is None:
+        ema_box = current_coords
+    else:
+        alpha = 0.6 # Smoothing factor (0.6 = new 60%, old 40%)
+        ema_box = alpha * current_coords + (1 - alpha) * ema_box
+        
+    vision_state["ema_box"] = ema_box
+    
+    # Return smoothed detection
+    smoothed_box = [ema_box[0], ema_box[1], ema_box[2], ema_box[3], conf, consensus_cls]
+    return smoothed_box, consensus_cls
+
 def process_frame(
     image_bytes,  # [Modified] bytes or np.ndarray 
     mode: str = "playing", 
@@ -121,42 +157,6 @@ def process_frame(
     else:
         x_scale, y_scale = 1.0, 1.0 / aspect_ratio
     
-    # [Optimization] Temporal Aggregation Function
-    def apply_temporal_smoothing(current_box, current_cls, vision_state):
-        if not vision_state: return current_box, current_cls
-        
-        # 1. Initialize History Deques
-        if "history_boxes" not in vision_state: vision_state["history_boxes"] = []
-        if "history_classes" not in vision_state: vision_state["history_classes"] = []
-        if "ema_box" not in vision_state: vision_state["ema_box"] = None
-        
-        # 2. Class Voting (Consensus)
-        history_classes = vision_state["history_classes"]
-        history_classes.append(current_cls)
-        if len(history_classes) > 5: history_classes.pop(0)
-        
-        # Most frequent class
-        from collections import Counter
-        most_common = Counter(history_classes).most_common(1)
-        consensus_cls = most_common[0][0] if most_common else current_cls
-        
-        # 3. EMA Smoothing
-        x1, y1, x2, y2, conf, _ = current_box
-        current_coords = np.array([x1, y1, x2, y2])
-        
-        ema_box = vision_state.get("ema_box")
-        if ema_box is None:
-            ema_box = current_coords
-        else:
-            alpha = 0.6 # Smoothing factor (0.6 = new 60%, old 40%)
-            ema_box = alpha * current_coords + (1 - alpha) * ema_box
-            
-        vision_state["ema_box"] = ema_box
-        
-        # Return smoothed detection
-        smoothed_box = [ema_box[0], ema_box[1], ema_box[2], ema_box[3], conf, consensus_cls]
-        return smoothed_box, consensus_cls
-
     # 4. 설정값
     # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
     INFERENCE_LOW_CONF = 0.30 # [Tuning] Stricter noise filtering
@@ -431,8 +431,147 @@ def process_frame(
     base_response["detections"] = rich_detections
 
     # ---------------------------------------------------------
-    # 로직 판단 (Logic Decision)
+    # 로직 판단 (Logic Decision) - [Refactored]
     # ---------------------------------------------------------
+    return process_logic_only(
+        detected_objects=detected_objects,
+        mode=mode,
+        target_class_id=target_class_id,
+        difficulty=difficulty,
+        vision_state=vision_state,
+        base_response=base_response, # Passes keypoints, width/height etc
+        pet_info_override=pet_info # Pass the pet_info found during inference (smoothing applied)
+    )
+
+def process_logic_only(
+    detected_objects: list,
+    mode: str,
+    target_class_id: int,
+    difficulty: str,
+    vision_state: dict,
+    base_response: dict = None,
+    pet_info_override: dict = None
+) -> dict:
+    """
+    Edge AI 또는 Server AI의 감지 결과(BBox)를 바탕으로 게임 로직을 수행합니다.
+    """
+    if base_response is None:
+        base_response = { 
+            "success": False, "message": "", "feedback_message": "", 
+            "is_specific_feedback": False, "base_reward": {}, "bonus_points": 0,
+            "bbox": detected_objects 
+        }
+
+    # Config 로드
+    pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
+    mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+    target_props = mode_config["targets"]
+    
+    # [Optimization] Scale Factors (Approximation if width/height missing)
+    width = base_response.get("width", 640)
+    height = base_response.get("height", 640)
+    aspect_ratio = width / height if height > 0 else 1.0
+    
+    if aspect_ratio > 1.0: x_scale, y_scale = aspect_ratio, 1.0
+    else: x_scale, y_scale = 1.0, 1.0 / aspect_ratio
+
+    # 1. Parse Detections
+    prop_boxes = {}
+    found_pet = False
+    pet_info = {"box": [], "keypoints": [], "nose": None, "paws": [], "conf": 0.0}
+    
+    # If passed from process_frame, use the already smoothed info
+    if pet_info_override and pet_info_override.get("box"):
+        pet_info = pet_info_override
+        found_pet = True
+        # prop_boxes still need to be filled from detected_objects for non-pet items
+    
+    # Re-scan detected_objects to fill prop_boxes and find pet if missing
+    best_pet_conf = 0.0
+    
+    for obj in detected_objects:
+        # obj: [x1, y1, x2, y2, conf, cls_id]
+        if len(obj) < 6: continue
+        
+        box = obj[:4]
+        conf = float(obj[4])
+        cls_id = int(obj[5])
+        
+        # Pet Check (Dog 16, Cat 15, Bird 14)
+        if cls_id in [14, 15, 16]:
+            if not found_pet: # If not already provided by override
+                is_target = False
+                if target_class_id == -1: 
+                    if conf > best_pet_conf: is_target = True
+                elif cls_id == target_class_id:
+                    if conf > best_pet_conf: is_target = True
+                
+                if is_target:
+                    best_pet_conf = conf
+                    
+                    # [NEW] Temporal Smoothing Logic Reuse
+                    if vision_state:
+                         smoothed_box, smoothed_cls = apply_temporal_smoothing(obj, cls_id, vision_state)
+                         pet_info["box"] = smoothed_box
+                         # If consensus class changes, we should technically update logic, 
+                         # but for simplicity we rely on current box geometry primarily.
+                         # If smooth_cls changes Pet Type (Dog->Cat), that's rare.
+                    else:
+                         pet_info["box"] = obj
+
+                    pet_info["conf"] = conf
+                    found_pet = True
+
+                    # [Dynamic Config Update] Auto-detect mode (-1)
+                    if target_class_id == -1:
+                         real_cls_id = int(cls_id)
+                         if real_cls_id in PET_BEHAVIORS:
+                             pet_config = PET_BEHAVIORS[real_cls_id]
+                             mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+                             target_props = mode_config["targets"]
+        
+        # Human Check (0) - Treat as Prop for interaction
+        elif cls_id == 0:
+            prop_boxes[0] = obj
+            
+        # Other Props
+        else:
+            if cls_id in target_props:
+                # Keep best confidence
+                if cls_id not in prop_boxes or conf > float(prop_boxes[cls_id][4]):
+                    prop_boxes[cls_id] = obj
+
+    # ---------------------------------------------------------
+    # [Anti-Flickering] Persistence Logic (Logic Sync with Server)
+    # ---------------------------------------------------------
+    if found_pet:
+        if vision_state:
+            vision_state["last_pet_box"] = pet_info.copy()
+            vision_state["missing_count"] = 0
+            vision_state["is_tracking"] = True
+    elif vision_state and vision_state.get("is_tracking", False):
+        MAX_MISSING = 5
+        if vision_state["missing_count"] < MAX_MISSING:
+            last_info = vision_state.get("last_pet_box")
+            if last_info:
+                pet_info = last_info
+                found_pet = True
+                
+                # Recover Target Props if in Auto Mode
+                if target_class_id == -1 and len(pet_info["box"]) > 5:
+                    recovered_cls = int(pet_info["box"][5])
+                    if recovered_cls in PET_BEHAVIORS:
+                         pet_config = PET_BEHAVIORS[recovered_cls]
+                         mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+                         target_props = mode_config["targets"]
+                
+                vision_state["missing_count"] += 1
+        else:
+            vision_state["is_tracking"] = False
+            vision_state["last_pet_box"] = None
+
+    # 2. Logic Decision (Copy of original Logic)
+    
     has_target = any(p in prop_boxes for p in target_props)
     
     # CASE 1: 펫 미발견
@@ -448,7 +587,6 @@ def process_frame(
         return base_response
 
     # CASE 2: 펫 발견 -> 상호작용 체크
-    # 타겟 부재 체크
     if not has_target:
         missing_msg = {
             "feeding": "강아지는 보이는데, 밥그릇은 어디 있나요?",
@@ -466,16 +604,16 @@ def process_frame(
     # 거리 계산
     min_dist_sq = 9999.0
     
-    # 거리 측정 기준점 (반려동물)
     src_points = []
-    if pet_info["nose"]: src_points.append(pet_info["nose"])
-    if mode == "playing" and pet_info["paws"]: src_points.extend(pet_info["paws"])
-    # 없을 경우 bbox 중심
+    # If Keypoints available (passed from server inference), use them
+    if pet_info.get("nose"): src_points.append(pet_info["nose"])
+    if mode == "playing" and pet_info.get("paws"): src_points.extend(pet_info["paws"])
+    
+    # Fallback to BBox Center if no keypoints (Edge AI usually)
     if not src_points and pet_info["box"]:
         bx = pet_info["box"]
         src_points.append([(bx[0]+bx[2])/2, (bx[1]+bx[3])/2])
 
-    # 타겟과의 거리 측정
     for pid in target_props:
         if pid in prop_boxes:
             target_box = prop_boxes[pid]
@@ -483,7 +621,6 @@ def process_frame(
             target_cy = (target_box[1] + target_box[3]) / 2
             
             for sp in src_points:
-                # [Optimization] Squared Distance (No sqrt)
                 dist_sq = calculate_squared_distance(sp, [target_cx, target_cy], x_scale, y_scale)
                 if dist_sq < min_dist_sq: min_dist_sq = dist_sq
 
@@ -491,7 +628,6 @@ def process_frame(
     MIN_DIST_SETTINGS = DETECTION_SETTINGS["min_distance"].get(mode, {"easy": 0.25, "hard": 0.15})
     MIN_DISTANCE = MIN_DIST_SETTINGS.get(difficulty, MIN_DIST_SETTINGS["easy"])
     
-    # 상호작용 판정 (Compare squares)
     is_interacting = (min_dist_sq < MIN_DISTANCE ** 2)
     
     if is_interacting:
@@ -520,7 +656,7 @@ def process_frame(
             "is_specific_feedback": True
         })
     else:
-        # 실패 (거리 부족)
+        # 실패
         fail_msgs = {
             "feeding": "그릇 가까이 가야 해요!",
             "playing": "장난감과 너무 멀어요",
@@ -530,11 +666,11 @@ def process_frame(
         base_response.update({
             "success": False,
             "message": msg,
-            "feedback_message": "distance_fail", # or "not_interacting"
+            "feedback_message": "distance_fail", 
             "is_specific_feedback": True
         })
 
-    # [Optimization] 결과 캐싱 (Zero-Order Hold)
+    # [Optimization] 결과 캐싱
     if vision_state is not None:
         vision_state["last_response"] = base_response
 

@@ -55,8 +55,9 @@ async def analysis_endpoint(
         print(f"[FSM_WS] 연결 실패: {e}")
         return
 
-    # 대소문자 무시 및 기본값 설정 (기본값: 16 - 강아지)
-    target_class_id = PET_CLASS_MAP.get(pet_type.lower(), 16)
+    # [TEST] Force Auto-Detection (Detect Dog/Cat/Bird dynamically)
+    # Original: target_class_id = PET_CLASS_MAP.get(pet_type.lower(), 16)
+    target_class_id = -1
     
     # --- FSM 상태 변수 ---
     state = "READY"              # 현재 상태: READY, DETECTING, STAY, SUCCESS
@@ -175,10 +176,19 @@ async def analysis_endpoint(
                     import json
                     edge_result = json.loads(message['text'])
                     
-                    # Skip Detector, inject directly into Result
-                    # Need to simulate 'detector.process_frame' return structure
-                    result = edge_result
-                    # Ensure minimal keys exist
+                    # [Fix] Invoke Logic Layer (Server-side Logic Reuse)
+                    # Instead of bypassing everything, we now feed the BBoxes into the Logic Engine
+                    result = await run_in_threadpool(
+                        detector.process_logic_only,
+                        detected_objects=edge_result.get('bbox', []),
+                        mode=mode,
+                        target_class_id=target_class_id,
+                        difficulty=difficulty,
+                        vision_state=vision_state,
+                        # Pass override if specific fields are needed, but bbox list is main input
+                    )
+                    
+                    # Ensure minimal keys exist (Should be handled by process_logic_only, but safe check)
                     if "success" not in result: result["success"] = False
                     
                     # Pass through to FSM Logic below (Skip 'run_in_threadpool(detector...)')
