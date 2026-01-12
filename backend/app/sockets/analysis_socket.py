@@ -181,7 +181,9 @@ async def analysis_endpoint(
                     base_resp_input = {
                         "width": edge_result.get("width", 640),
                         "height": edge_result.get("height", 640),
-                        "bbox": edge_result.get('bbox', [])
+                        "bbox": edge_result.get('bbox', []),
+                        "pet_keypoints": edge_result.get('pet_keypoints', []),
+                        "human_keypoints": edge_result.get('human_keypoints', [])
                     }
 
                     # [Fix] Invoke Logic Layer (Server-side Logic Reuse)
