@@ -34,113 +34,131 @@ double calculateIoU(List<double> box1, List<double> box2) {
 /// input: Raw output tensor [1, features, anchors] -> Flat Float32List or List<List>
 /// YOLOv8/v11 shape: [Batch, 4+Classes, 8400] -> We usually need to transpose to [8400, 4+Classes]
 List<DetectionResult> nonMaxSuppression(
-  List<dynamic> output, 
+  dynamic output, // List<dynamic> (nested) or Float32List (flat)
   int numClasses, 
   double confThreshold, 
   double iouThreshold,
-  {bool isModelV8 = true, int keypointNum = 0} 
+  {bool isModelV8 = true, int keypointNum = 0, List<int>? shape} 
 ) {
-  // Parsing YOLOv8 Output: [1, 4 + cls, 8400]
-  // We assume 'output' is the [0]th element: [4+cls][8400] nested list or flat array appropriately handled.
-  // Actually tflite_flutter returns structured tensor. Let's assume input is flattened or shaped.
-  // The most standard way to handle this in Dart is accepting the TensorBuffer.
-  // For simplicity, let's assume input is List<List<double>> representing [features][anchors]
-  
-  // Note: Output shape from TFLite for YOLOv8 is usually [1, 84, 8400] (for 80 classes)
-  // Rows = Features (cx, cy, w, h, class_scores...)
-  // Cols = Anchors
-  
   final List<DetectionResult> detections = [];
   
-  // Basic dimensions check
-  if (output.isEmpty) return [];
+  if (output == null) return [];
   
-  final int numFeatures = output.length;    // e.g. 4 + 80 = 84
-  final int numAnchors = output[0].length;  // e.g. 8400
-  
-  for (int i = 0; i < numAnchors; i++) {
-    // 1. Find Max Class Score
-    double maxScore = 0.0;
-    int maxClassIndex = -1;
-    
-    // Classes start from index 4
-    for (int c = 0; c < numClasses; c++) {
-       double score = output[4 + c][i];
-       if (score > maxScore) {
-         maxScore = score;
-         maxClassIndex = c;
-       }
-    }
-    
-    // 2. Threshold Check
-    if (maxScore < confThreshold) continue;
-    
-    // 3. Decode Box (cx, cy, w, h) -> (x1, y1, x2, y2)
-    double cx = output[0][i];
-    double cy = output[1][i];
-    double w = output[2][i];
-    double h = output[3][i];
-    
-    double x1 = cx - w / 2;
-    double y1 = cy - h / 2;
-    double x2 = cx + w / 2;
-    double y2 = cy + h / 2;
-    
-    // [Fix] Do NOT clamp to 0.0-1.0 here because model outputs PIXEL coordinates (e.g. 0-640).
-    // Caller (edge_detector_native) handles normalization by dividing by targetSize.
-    // x1 = x1.clamp(0.0, 1.0);
-    // y1 = y1.clamp(0.0, 1.0);
-    // x2 = x2.clamp(0.0, 1.0);
-    // y2 = y2.clamp(0.0, 1.0);
-    
-    // 4. Extract Keypoints (if any)
-    List<double>? kpts;
-    if (keypointNum > 0) {
-      kpts = [];
-      // Keypoints start after classes. 
-      // Index = 4 + numClasses + (k * 3)
-      // k*3 because x, y, conf
-      int kptStartIdx = 4 + numClasses;
+  // FLAT BUFFER MODE
+  if (output is Float32List && shape != null && shape.length >= 3) {
+      // Shape: [Batch, Features, Anchors]
+      final int numFeatures = shape[1];
+      final int numAnchors = shape[2];
       
-      for (int k = 0; k < keypointNum; k++) {
-         double kx = output[kptStartIdx + k * 3][i];
-         double ky = output[kptStartIdx + k * 3 + 1][i];
-         double kc = output[kptStartIdx + k * 3 + 2][i];
+      // Access: buffer[f * numAnchors + i] (Assuming [1, 84, 8400])
+      // Verify layout: TFLite usually outputs Row-Major.
+      // If shape is [1, 84, 8400], it stores 8400 values of Feat 0, then 8400 of Feat 1...
+      
+      for (int i = 0; i < numAnchors; i++) {
+         // 1. Max Score
+         double maxScore = 0.0;
+         int maxClassIndex = -1;
          
-         // Normalize Keypoint Coordinates (Assuming they are absolute in model output? No, YOLOv8 output is usually relative to input size like box cx, cy?)
-         // Actually YOLOv8 export usually outputs absolute coords relative to image size.
-         // Since box cx/cy were divided by input size? No, in standard export they are not normalized.
-         // Wait, let's check box logic above:
-         // double cx = output[0][i]; ...
-         // The caller divides by targetSize later in `For loop` in `edge_detector_native.dart`: 
-         // `det.box[0] / targetSize`
-         // So `edge_utils` returns raw model output coordinates.
-         // We should do the same for keypoints here. Caller will normalize.
+         for (int c = 0; c < numClasses; c++) {
+             // Score Index: (4 + c) * numAnchors + i
+             int idx = (4 + c) * numAnchors + i;
+             double score = output[idx];
+             if (score > maxScore) {
+                 maxScore = score;
+                 maxClassIndex = c;
+             }
+         }
          
-         kpts.add(kx);
-         kpts.add(ky);
-         kpts.add(kc);
+         if (maxScore < confThreshold) continue;
+
+         // 2. Box
+         double cx = output[0 * numAnchors + i];
+         double cy = output[1 * numAnchors + i];
+         double w = output[2 * numAnchors + i];
+         double h = output[3 * numAnchors + i];
+         
+         double x1 = cx - w / 2;
+         double y1 = cy - h / 2;
+         double x2 = cx + w / 2;
+         double y2 = cy + h / 2;
+         
+         // 3. Keypoints
+         List<double>? kpts;
+         if (keypointNum > 0) {
+             kpts = [];
+             int kptStartRow = 4 + numClasses;
+             for (int k = 0; k < keypointNum; k++) {
+                 int row_x = kptStartRow + k * 3;
+                 int row_y = row_x + 1;
+                 int row_c = row_x + 2;
+                 
+                 double kx = output[row_x * numAnchors + i];
+                 double ky = output[row_y * numAnchors + i];
+                 double kc = output[row_c * numAnchors + i];
+                 
+                 kpts.add(kx); kpts.add(ky); kpts.add(kc);
+             }
+         }
+         
+         detections.add(DetectionResult([x1, y1, x2, y2], maxScore, maxClassIndex, keypoints: kpts));
       }
-    }
-    
-    detections.add(DetectionResult([x1, y1, x2, y2], maxScore, maxClassIndex, keypoints: kpts));
+
+  } else if (output is List) {
+      // LEGACY NESTED LIST MODE (Keep for compatibility if needed)
+      if (output.isEmpty) return [];
+      
+      // Assume output is [Features][Anchors] (after parsing [0])
+      // Or output could be [Batch][Features][Anchors] -> Caller usually passes batch0
+      
+      // Safe check: output[0] is List?
+      if (output[0] is! List) return []; // Flat list without shape?
+      
+      final int numFeatures = output.length;
+      final int numAnchors = (output[0] as List).length;
+      
+      for (int i = 0; i < numAnchors; i++) {
+          double maxScore = 0.0;
+          int maxClassIndex = -1;
+          for (int c = 0; c < numClasses; c++) {
+              double score = (output[4 + c] as List)[i]; // Dynamic access
+              if (score > maxScore) { maxScore = score; maxClassIndex = c; }
+          }
+          if (maxScore < confThreshold) continue;
+          
+          double cx = (output[0] as List)[i];
+          double cy = (output[1] as List)[i];
+          double w = (output[2] as List)[i];
+          double h = (output[3] as List)[i];
+          
+          double x1 = cx - w / 2;
+          double y1 = cy - h / 2;
+          double x2 = cx + w / 2;
+          double y2 = cy + h / 2;
+          
+          List<double>? kpts;
+          if (keypointNum > 0) {
+              kpts = [];
+              int kptStartIdx = 4 + numClasses;
+              for (int k = 0; k < keypointNum; k++) {
+                  double kx = (output[kptStartIdx + k * 3] as List)[i];
+                  double ky = (output[kptStartIdx + k * 3 + 1] as List)[i];
+                  double kc = (output[kptStartIdx + k * 3 + 2] as List)[i];
+                  kpts.addAll([kx, ky, kc]);
+              }
+          }
+          detections.add(DetectionResult([x1, y1, x2, y2], maxScore, maxClassIndex, keypoints: kpts));
+      }
   }
-  
-  // 4. Sort by score (descending)
+
+  // Common Sort & NMS
   detections.sort((a, b) => b.score.compareTo(a.score));
   
-  // 5. NMS Loop
   final List<DetectionResult> result = [];
   while (detections.isNotEmpty) {
-    final current = detections.removeAt(0);
-    result.add(current);
-    
-    detections.removeWhere((other) {
-      double iou = calculateIoU(current.box, other.box);
-      return iou > iouThreshold;
-    });
+      final current = detections.removeAt(0);
+      result.add(current);
+      detections.removeWhere((other) => calculateIoU(current.box, other.box) > iouThreshold);
   }
-  
   return result;
 }
 
@@ -254,6 +272,82 @@ Float32List convertYUVToFloat32Tensor(
     }
   }
   
+  return buffer;
+}
+
+/// Converts YUV420 to Uint8List (RGB) directly [0-255]
+/// Input: CameraImage planes
+/// Output: Uint8List [H * W * 3]
+Uint8List convertYUVToRGBBytes(
+  Map<String, dynamic> data, 
+  int targetW, 
+  int targetH,
+  int rotationAngle
+) {
+  final int width = data['width'];
+  final int height = data['height'];
+  final List<dynamic> planes = data['planes'];
+  
+  final Uint8List yBytes = planes[0]['bytes'];
+  final Uint8List uBytes = planes[1]['bytes'];
+  final Uint8List vBytes = planes[2]['bytes'];
+  
+  final int yRowStride = planes[0]['bytesPerRow'];
+  final int uvRowStride = planes[1]['bytesPerRow'];
+  final int uvPixelStride = planes[1]['bytesPerPixel'] ?? 1;
+
+  final Uint8List buffer = Uint8List(targetW * targetH * 3);
+  int pixelIndex = 0;
+
+  for (int y = 0; y < targetH; y++) {
+    for (int x = 0; x < targetW; x++) {
+       int srcX, srcY;
+       
+       if (rotationAngle == 90) { // 90 CW (Right)
+         srcX = (y * width / targetH).floor();
+         srcY = ((targetW - 1 - x) * height / targetW).floor();
+       } else if (rotationAngle == 180) { // 180
+         srcX = ((targetW - 1 - x) * width / targetW).floor();
+         srcY = ((targetH - 1 - y) * height / targetH).floor();
+       } else if (rotationAngle == 270) { // 270 CW (Left)
+         srcX = ((targetH - 1 - y) * width / targetH).floor();
+         srcY = (x * height / targetW).floor();
+       } else { // 0
+         srcX = (x * width / targetW).floor();
+         srcY = (y * height / targetH).floor();
+       }
+       
+       srcX = srcX.clamp(0, width - 1);
+       srcY = srcY.clamp(0, height - 1);
+       
+       final int uvIndex = uvPixelStride * (srcX / 2).floor() + uvRowStride * (srcY / 2).floor();
+       final int index = srcY * yRowStride + srcX;
+       
+       if (index >= yBytes.length || uvIndex >= uBytes.length || uvIndex >= vBytes.length) {
+         buffer[pixelIndex++] = 0;
+         buffer[pixelIndex++] = 0;
+         buffer[pixelIndex++] = 0;
+         continue;
+       }
+
+       final int yVal = yBytes[index];
+       final int uVal = uBytes[uvIndex];
+       final int vVal = vBytes[uvIndex];
+
+       // Integer Conversion (Standard)
+       final int c = yVal;
+       final int d = uVal - 128;
+       final int e = vVal - 128;
+       
+       int r = (c + 1.402 * e).round();
+       int g = (c - 0.344136 * d - 0.714136 * e).round();
+       int b = (c + 1.772 * d).round();
+
+       buffer[pixelIndex++] = r.clamp(0, 255);
+       buffer[pixelIndex++] = g.clamp(0, 255);
+       buffer[pixelIndex++] = b.clamp(0, 255);
+    }
+  }
   return buffer;
 }
 

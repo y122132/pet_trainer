@@ -181,7 +181,15 @@ class TrainingController extends ChangeNotifier {
             if (!EdgeDetector().isLoaded) {
                 // Try to init on the fly (might cause lag for 1 frame but better than failure)
                 print("EdgeAI enabled but not loaded. Initializing...");
-                await EdgeDetector().initialize();
+                try {
+                   await EdgeDetector().initialize();
+                } catch (e) {
+                   print("EdgeAI Init Failed: $e");
+                   errorMessage = "AI Init Exception: $e";
+                   feedback = "AI Init Failed: $e";
+                   notifyListeners(); // Update UI
+                   return; // Stop processing
+                }
             }
             
             if (EdgeDetector().isLoaded) {
@@ -190,9 +198,23 @@ class TrainingController extends ChangeNotifier {
                 final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
                 
                 // [Fix] Inject Frame ID and Dimensions for Server Logic Compatibility
-                edgeResult['frame_id'] = thisFrameId;
-                
-                // Handle Orientation for Logic Aspect Ratio
+            edgeResult['frame_id'] = thisFrameId;
+            
+            // [DEBUG] Check for Edge Errors IMMEDIATELY
+            if (edgeResult.containsKey('error')) {
+                final err = edgeResult['error'];
+                print("Edge Error Local Catch: $err");
+                errorMessage = "Edge Error: $err";
+                feedback = "Edge Error: $err";
+                notifyListeners();
+                // Don't send to server if critical error, just return to visual feedback
+                if (edgeResult.containsKey('stack')) {
+                    print(edgeResult['stack']);
+                }
+                return; 
+            }
+            
+            // Handle Orientation for Logic Aspect Ratio
                 // CameraImage is usually Landscape (sensor). If UI is Portrait, we swap.
                 int logicW = image.width;
                 int logicH = image.height;
@@ -333,7 +355,14 @@ class TrainingController extends ChangeNotifier {
              stopTraining(); // Stop Loop
           }
        }
-       
+              // [DEBUG] Check for Edge Errors
+        if (data.containsKey('error')) {
+           final err = data['error'];
+           print("Edge Error Received: $err");
+           errorMessage = "AI Error: $err"; // Show on screen
+           feedback = "AI Error: $err"; // Force feedback update
+        }
+
        notifyListeners();
 
      } catch (e) {

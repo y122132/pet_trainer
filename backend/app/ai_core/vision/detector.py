@@ -487,13 +487,44 @@ def process_logic_only(
     pet_info = {"box": [], "keypoints": [], "nose": None, "paws": [], "conf": 0.0}
     
     # [Fix] Preserve Keypoints from Edge AI if provided
+    # [Fix] Preserve & Parse Keypoints from Edge AI if provided
     if base_response.get("pet_keypoints"):
-        # We might have multiple pets in pet_keypoints list, but pet_info targets the primary one.
-        # This is tricky strictly speaking because we don't know WHICH keypoints belong to WHICH box in this list effectively without mapping.
-        # However, typically Edge AI sends keypoints corresponding to the detections.
-        # But 'pet_info' is a single pet's info.
-        # Let's see how 'pet_info_override' is used.
-        pass
+        # Edge AI sends List of Keypoint Lists: [[x,y,c, x,y,c... (17 points)], ...]
+        # We assume the first keypoint list corresponds to the primary pet (since usually 1 pet)
+        # Or proper matching logic: Find keypoints inside the Pet Box.
+        
+        edge_kpts_list = base_response["pet_keypoints"]
+        if edge_kpts_list:
+            # Simple heuristic: Use the first one for now (optimize later for multi-pet)
+            # Edge format: [x,y,c, x,y,c ...] flat per pet? 
+            # Check edge_detector_native.dart:
+            # normalizedKpts.add(kx/W)... so it's [x, y, c, x, y, c ...]
+            
+            raw_kpts = edge_kpts_list[0] # List[float]
+            
+            # Map to Logical Logic (Nose=Index 2 ? No, COCO Keypoints)
+            # COCO: 0:Nose, 1:LEye, 2:REye, 3:LEar, 4:REar, ...
+            # Wait, our model is trained on Animal Pose? 
+            # If standard AP-10k or similar:
+            # Let's assume standard index 0 is Nose.
+            
+            if len(raw_kpts) >= 3:
+                # Nose (Index 0)
+                nx, ny, nc = raw_kpts[0], raw_kpts[1], raw_kpts[2]
+                if nc > 0.5:
+                   pet_info["nose"] = [nx, ny]
+                   
+            # Paws (Front Left, Front Right...)
+            # We need exact indices. For now, Nose is critical for "Kiss/Touch".
+            # If we want Paws: Indices 9, 10, 11, 12?
+            # Let's populate 'keypoints' field for generic usage
+            
+            # Convert flat list to list of [x,y,c]
+            structured_kpts = []
+            for k in range(0, len(raw_kpts), 3):
+                structured_kpts.append(raw_kpts[k:k+3])
+            
+            pet_info["keypoints"] = structured_kpts
 
     # If passed from process_frame, use the already smoothed info
     if pet_info_override and pet_info_override.get("box"):

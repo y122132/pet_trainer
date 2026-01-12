@@ -62,7 +62,11 @@ class EdgeDetector {
         _sendPort!.send({'cmd': Cmd.init}); // Load Models
       } else if (message is Map<String, dynamic>) {
         if (message.containsKey('init_done')) {
-          _initCompleter?.complete();
+          if (message['init_done'] == true) {
+             _initCompleter?.complete();
+          } else {
+             _initCompleter?.completeError(message['error'] ?? "Unknown Init Error");
+          }
         } else if (message.containsKey('pong')) {
           _pingCompleter?.complete(true);
         } else if (message.containsKey('req_id')) {
@@ -146,7 +150,12 @@ class EdgeDetector {
       'rotation': rotationAngle // [NEW]
     });
 
-    return completer.future;
+    // [Fix] INCREASE TIMEOUT to 3000ms (1280px inference is heavy)
+    return completer.future.timeout(const Duration(milliseconds: 3000), onTimeout: () {
+       _requests.remove(id);
+       _kill(); 
+       throw TimeoutException("Edge AI Isolate Hung (>3000ms)");
+    });
   }
   
   // [Fix] Add explicit re-init trigger for hot-restart scenarios
@@ -183,25 +192,28 @@ void _isolateEntry(_IsolateInitData initData) async {
     if (cmd == Cmd.init) {
       try {
         final options = InterpreterOptions();
-        if (Platform.isAndroid) options.addDelegate(XNNPackDelegate());
+        // [Safety] Disable delegates for debugging crashes (Int8 CPU fallback is safest)
+        // if (Platform.isAndroid) options.addDelegate(XNNPackDelegate());
         
-        // 1. Pet Pose Model (1280px)
+        // 1. Pet Pose Model
         interpreterPet = await Interpreter.fromAsset('assets/models/pet_pose_int8.tflite', options: options);
         
-        // 2. Object Detection Model (640px)
+        // 2. Object Detection Model
         interpreterObj = await Interpreter.fromAsset('assets/models/yolo11n_int8.tflite', options: options);
         
-        // 3. Human Pose Model (640px)
+        // 3. Human Pose Model
         interpreterHuman = await Interpreter.fromAsset('assets/models/yolo11n-pose_int8.tflite', options: options);
 
         print("Edge Isolate: All 3 Models Loaded");
-        
         initData.sendPort.send({'init_done': true});
-      } catch (e) {
+        
+      } catch (e, stack) {
         print("Edge Isolate Init Error: $e");
+        initData.sendPort.send({'init_done': false, 'error': e.toString()});
       }
     } 
     else if (cmd == Cmd.detect) {
+      final sw = Stopwatch()..start(); // [DEBUG] Profile
       final id = message['req_id'];
       final rawData = message['data'];
       final mode = message['mode'];
@@ -218,6 +230,7 @@ void _isolateEntry(_IsolateInitData initData) async {
       };
       
       if (interpreterPet == null) {
+        result['error'] = "Models not loaded (Init Failed)";
         initData.sendPort.send(result);
         return;
       }
@@ -228,56 +241,64 @@ void _isolateEntry(_IsolateInitData initData) async {
         final List<List<double>> humanKeypointsList = [];
         double maxConf = 0.0;
 
-        // --- Model A: Pet Pose (Always Run, 1280px) ---
+        // --- Model A: Pet Pose (Always Run) ---
         try {
-          const targetSize = 1280;
-          final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
+          const int targetW = 1280;
+          const int targetH = 1280;
           
           final inputTensor = interpreterPet!.getInputTensor(0);
-          final input = _prepareInputTensor(floatInput, inputTensor);
+          
+          // [DEBUG] Check Quantization Params
+          print("Input Type: ${inputTensor.type}, Params: ${inputTensor.params}");
+
+          // [Optimization] Use Float32 Flat Buffer (Safe Fallback)
+          // 1280x1280 Float32 is supported by TFLite (via auto-quantization or float input) and worked previously.
+          // We bypass `_prepareInputTensor` to avoid `reshape()` crash.
+          final floatInput = convertYUVToFloat32Tensor(rawData, targetW, targetH, rotation);
           
           final outputTensor = interpreterPet!.getOutputTensor(0);
-          final shape = outputTensor.shape; 
-          final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-          final outputMap = {0: outputBuffer.reshape(shape)};
+          final outputShape = outputTensor.shape; 
           
-          interpreterPet!.runForMultipleInputs([input], outputMap);
+          result['debug_info']['shape'] = outputShape.toString();
+          result['debug_info']['inputType'] = inputTensor.type.toString();
           
-          final rawOutput = outputMap[0] as List;
-          final batch0 = rawOutput[0] as List;
+          final outputBuffer = Float32List(outputShape.reduce((a, b) => a * b));
+          final outputMap = {0: outputBuffer}; 
+          
+          // Pass Flat Float32 List directly. TFLite usually handles flat input if size matches.
+          interpreterPet!.runForMultipleInputs([floatInput], outputMap);
 
           final detections = nonMaxSuppression(
-            batch0, 
-            3, // Pet Classes: Dog(0->16), Cat(1->15), Bird(2->14)
-            0.30, 0.45,
-            keypointNum: 17 // [NEW] Pet Pose
+            outputBuffer,  
+            3, 
+            0.15, 0.45,
+            keypointNum: 17,
+            shape: outputShape 
           );
           
-          result['debug_info']['pet_count'] = detections.length; // [DEBUG]
-          
+           result['debug_info']['pet_count'] = detections.length;
+
           for (var det in detections) {
-             int mappedCls = 16; // Default Dog
-             if (det.classIndex == 1) mappedCls = 15; // Cat
-             if (det.classIndex == 2) mappedCls = 14; // Bird
+             int mappedCls = 16; 
+             if (det.classIndex == 1) mappedCls = 15; 
+             if (det.classIndex == 2) mappedCls = 14; 
              
-             // [Fix] Normalize Coordinates (0.0 ~ 1.0)
+             // Normalize by the actual target sizes used
              allDetections.add([
-               det.box[0] / targetSize, det.box[1] / targetSize, det.box[2] / targetSize, det.box[3] / targetSize,
+               det.box[0] / targetW, det.box[1] / targetH, det.box[2] / targetW, det.box[3] / targetH,
                det.score,
                mappedCls.toDouble()
              ]);
              
-             // [NEW] Process Keypoints
              if (det.keypoints != null) {
                 final List<double> normalizedKpts = [];
                 for (int k = 0; k < 17; k++) {
-                   // x, y, conf
                    double kx = det.keypoints![k*3];
                    double ky = det.keypoints![k*3+1];
                    double kc = det.keypoints![k*3+2];
                    
-                   normalizedKpts.add(kx / targetSize);
-                   normalizedKpts.add(ky / targetSize);
+                   normalizedKpts.add(kx / targetW);
+                   normalizedKpts.add(ky / targetH);
                    normalizedKpts.add(kc);
                 }
                 petKeypointsList.add(normalizedKpts);
@@ -285,39 +306,40 @@ void _isolateEntry(_IsolateInitData initData) async {
              
              if (det.score > maxConf) maxConf = det.score;
           }
-        } catch (e) {
+        } catch (e, stack) {
              print("Model A (Pet) Failed: $e");
+             result['error'] = "Pet Model Error: $e"; 
+             result['stack'] = stack.toString();
         }
 
-        // --- Model B: Object Detection (Run if NOT interaction, 640px) ---
+        // --- Model B: Object (Run if NOT interaction) ---
         if (mode != 'interaction' && interpreterObj != null) {
           try {
-            const targetSize = 640;
-            final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
-            final input = floatInput.reshape([1, targetSize, targetSize, 3]);
+            const int targetW = 640;
+            const int targetH = 640;
+            
+            final uint8Input = convertYUVToRGBBytes(rawData, targetW, targetH, rotation);
             
             final outputTensor = interpreterObj!.getOutputTensor(0);
             final shape = outputTensor.shape;
+            
             final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-            final outputMap = {0: outputBuffer.reshape(shape)};
+            final outputMap = {0: outputBuffer}; 
             
-            interpreterObj!.runForMultipleInputs([input], outputMap);
-            
-            final rawOutput = outputMap[0] as List;
-            final batch0 = rawOutput[0] as List;
+            interpreterObj!.runForMultipleInputs([uint8Input], outputMap);
   
             final detections = nonMaxSuppression(
-               batch0,
-               80, // COCO Classes
-               0.25, 0.45 
+               outputBuffer,
+               80, 
+               0.15, 0.45,
+               shape: shape
             );
             
-            result['debug_info']['obj_count'] = detections.length; // [DEBUG]
+            result['debug_info']['obj_count'] = detections.length;
             
             for (var det in detections) {
-               // Use original COCO class index
                allDetections.add([
-                 det.box[0] / targetSize, det.box[1] / targetSize, det.box[2] / targetSize, det.box[3] / targetSize,
+                 det.box[0] / targetW, det.box[1] / targetH, det.box[2] / targetW, det.box[3] / targetH,
                  det.score,
                  det.classIndex.toDouble()
                ]);
@@ -331,15 +353,14 @@ void _isolateEntry(_IsolateInitData initData) async {
         if (mode == 'interaction' && interpreterHuman != null) {
           try {
             const targetSize = 640;
-            final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
-            final input = floatInput.reshape([1, targetSize, targetSize, 3]);
+            final uint8Input = convertYUVToRGBBytes(rawData, targetSize, targetSize, rotation);
             
             final outputTensor = interpreterHuman!.getOutputTensor(0);
             final shape = outputTensor.shape;
             final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-            final outputMap = {0: outputBuffer.reshape(shape)};
+            final outputMap = {0: outputBuffer}; // Flat buffer
             
-            interpreterHuman!.runForMultipleInputs([input], outputMap);
+            interpreterHuman!.runForMultipleInputs([uint8Input], outputMap);
             
             final rawOutput = outputMap[0] as List;
             final batch0 = rawOutput[0] as List;
@@ -390,9 +411,15 @@ void _isolateEntry(_IsolateInitData initData) async {
            result['conf_score'] = maxConf;
         }
 
-      } catch (e) {
+      } catch (e, stack) {
         print("Edge Inference Error: $e");
+        result['error'] = "Inference Error: $e"; // [DEBUG] Propagate error
+        result['stack'] = stack.toString();
       }
+      
+      sw.stop();
+      print("Edge Inference took: ${sw.elapsedMilliseconds}ms");
+      result['debug_info']['inference_ms'] = sw.elapsedMilliseconds;
       
       initData.sendPort.send(result);
     }
