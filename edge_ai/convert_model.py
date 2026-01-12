@@ -1,31 +1,40 @@
 from ultralytics import YOLO
-import os
 
-# 1. 변환 대상 모델 리스트 설정
-# 파일명이 이미지와 일치하는지 확인하십시오.
-# 1. 변환 대상 모델 설정 (파일명: 입력크기)
-# Frontend(edge_detector_native.dart)에 하드코딩된 값과 정확히 일치해야 합니다.
+# 1. 모델별 특화 설정을 정의합니다.
+# 모델파일명: [입력크기, 교정용_데이터]
 model_config = {
-    'pet_pose.pt': 1280,      # High Accuracy for Keypoints
-    'yolo11n-pose.pt': 640,   # Human Pose (Interaction)
-    'yolo11n.pt': 640         # Object Detection (Fast)
+    # 반려동물 행동 분석용 (사용자 커스텀 모델)
+    #'pet_pose.pt': [640, '/home/yang/PROJECT/finetuning/calib.yaml'],
+    
+    # 사람-반려동물 인터랙션용 (사람 포즈 표준)
+    'yolo11n-pose.pt': [640, 'coco128-pose.yaml'],
+    
+    # 사물 탐지용 (범용 사물 표준)
+    #'yolo11n.pt': [640, 'coco128.yaml']
 }
 
-for model_name, size in model_config.items():
-    print(f"\n🚀 [작전 개시] {model_name} (Size: {size}) 변환 시작...")
+for model_name, config in model_config.items():
+    img_size, yaml_file = config
+    print(f"\n🚀 [작전 개시] {model_name} 변환 (Calibration: {yaml_file})")
     
     try:
-        # 2. .pt 모델 로드
+        # 모델 로드
         model = YOLO(model_name)
 
-        # 3. TFLite 포맷으로 변환
-        # int8: 8비트 양자화로 모바일 가속
-        # imgsz: 모델별 전용 크기 적용
-        model.export(format='tflite', int8=True, imgsz=size)
+        # TFLite 변환 실행
+        # data: int8 양자화 시 정확도 유지를 위한 필수 교정 데이터
+        # nms: Flutter 앱에서 결과값 처리를 간소화하기 위한 옵션
+        model.export(
+            format='tflite', 
+            int8=True, 
+            imgsz=img_size, 
+            data=yaml_file,
+            nms=True
+        )
         
         print(f"✅ [임무 완수] {model_name} 변환 성공!")
         
     except Exception as e:
         print(f"❌ [에러 발생] {model_name} 변환 중 문제 발생: {e}")
 
-print("\n🎯 모든 모델 변환 공정이 완료되었습니다.")
+print("\n🎯 모든 전용 모델의 모바일 최적화 공정이 완료되었습니다.")

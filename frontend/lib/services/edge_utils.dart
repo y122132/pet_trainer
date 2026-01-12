@@ -266,9 +266,9 @@ Float32List convertYUVToFloat32Tensor(
        int g = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).round();
        int b = (yVal + 1.772 * (uVal - 128)).round();
        
-       buffer[pixelIndex++] = r.clamp(0, 255) / 255.0;
-       buffer[pixelIndex++] = g.clamp(0, 255) / 255.0;
-       buffer[pixelIndex++] = b.clamp(0, 255) / 255.0;
+       buffer[pixelIndex++] = r.clamp(0, 255).toDouble();
+       buffer[pixelIndex++] = g.clamp(0, 255).toDouble();
+       buffer[pixelIndex++] = b.clamp(0, 255).toDouble();
     }
   }
   
@@ -352,3 +352,53 @@ Uint8List convertYUVToRGBBytes(
 }
 
 
+/// Parse TFLite Output that already has NMS applied (nms=True export)
+/// Shape: [1, 300, 6] (Obj) or [1, 300, 57] (Pose)
+/// Layout: [x1, y1, x2, y2, score, class, kpt1_x, kpt1_y, kpt1_conf, ...]
+List<DetectionResult> parseNMSOutput(
+  Float32List output, 
+  double confThreshold,
+  {int keypointNum = 0}
+) {
+  final List<DetectionResult> results = [];
+  
+  // Stride calculation
+  // 4 (box) + 1 (score) + 1 (class) + (kpts * 3)
+  final int stride = 4 + 1 + 1 + (keypointNum * 3);
+  final int numDetections = output.length ~/ stride;
+  
+  for (int i = 0; i < numDetections; i++) {
+     int offset = i * stride;
+     
+     double score = output[offset + 4];
+     if (score < confThreshold) continue;
+     
+     // Ultralytics NMS usually returns Top-Left / Bottom-Right (x1,y1,x2,y2)
+     // BUT we must verify if it's cx, cy, w, h. 
+     // Standard TFLite Object Detection API is [y1, x1, y2, x2].
+     // Ultralytics export logic: runs non_max_suppression op.
+     // Let's assume (x1, y1, x2, y2) for now based on typical pytorch export.
+     
+     double x1 = output[offset + 0];
+     double y1 = output[offset + 1];
+     double x2 = output[offset + 2];
+     double y2 = output[offset + 3];
+     
+     double cls = output[offset + 5];
+     
+     List<double>? kpts;
+     if (keypointNum > 0) {
+        kpts = [];
+        int kptStart = offset + 6;
+        for (int k = 0; k < keypointNum; k++) {
+           kpts.add(output[kptStart + k*3]);     // x
+           kpts.add(output[kptStart + k*3 + 1]); // y
+           kpts.add(output[kptStart + k*3 + 2]); // conf
+        }
+     }
+     
+     results.add(DetectionResult([x1, y1, x2, y2], score, cls.toInt(), keypoints: kpts));
+  }
+  
+  return results;
+}

@@ -27,6 +27,16 @@ class TrainingController extends ChangeNotifier {
   // State Variables
   bool isAnalyzing = false;
   TrainingStatus trainingState = TrainingStatus.ready;
+  // [DEBUG] On-Screen Logging
+  String debugLog = "";
+  void addLog(String msg) {
+     print(msg);
+     debugLog += "$msg\n";
+     if (debugLog.split('\n').length > 10) { // Keep last 10 lines
+        debugLog = debugLog.split('\n').sublist(debugLog.split('\n').length - 10).join('\n');
+     }
+     notifyListeners();
+  }
   String feedback = "";
   double confScore = 0.0;
   
@@ -87,16 +97,19 @@ class TrainingController extends ChangeNotifier {
 
     // [Edge AI] Initialize Detector if enabled
     if (GlobalSettings.useEdgeAI) {
+      addLog("⭕ [PROBE 2] StartTraining: Edge AI is ENABLED. Initializing...");
       try {
         await EdgeDetector().initialize();
-        print("EdgeDetector initialized");
+        addLog("⭕ [PROBE 2-OK] EdgeDetector init SUCCESS");
       } catch (e) {
-        print("EdgeDetector init failed: $e");
+        addLog("❌ [PROBE 2-FAIL] EdgeDetector init failed: $e");
         errorMessage = "AI Init Failed: $e";
         isAnalyzing = false; // [Fix] Reset state
         notifyListeners();
         return;
       }
+    } else {
+      addLog("⭕ [PROBE 2] StartTraining: Edge AI is DISABLED (Server Mode).");
     }
 
     await _socketClient.connect(petType, difficulty, mode);
@@ -197,11 +210,18 @@ class TrainingController extends ChangeNotifier {
             
             if (EdgeDetector().isLoaded) {
                 // 1. Edge Inference
-                print("Calling EdgeDetector for Frame $thisFrameId...");
+                // Log every 5 frames (~1 sec) to confirm liveness
+                if (thisFrameId % 5 == 0 || thisFrameId == 1) {
+                   addLog("Frame $thisFrameId: Calling AI..."); 
+                }
                 
                 final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
                 
-                print("EdgeDetector Returned for Frame $thisFrameId detected: ${edgeResult['success']}");
+                if (thisFrameId % 5 == 0 || thisFrameId == 1) {
+                   final shapeStr = edgeResult['debug_info'] != null ? edgeResult['debug_info']['shape'] : "N/A";
+                   final errStr = edgeResult['error'] ?? "No Error";
+                   addLog("Frame $thisFrameId: Success:${edgeResult['success']} Shape:$shapeStr Err:$errStr"); 
+                }
                 
                 // [Fix] Inject Frame ID and Dimensions for Server Logic Compatibility
             edgeResult['frame_id'] = thisFrameId;

@@ -29,58 +29,77 @@ class EdgeDetector {
 
   bool get isLoaded => _sendPort != null;
 
+  // [Fix] Init Lock to prevent Race Conditions (Double Tap)
+  bool _isInitializing = false;
+
   Future<void> initialize() async {
-    // 1. Check if already initialized or stale
-    if (_isolate != null && _sendPort != null) {
-       // [Fix] Instead of killing, we reuse if healthy.
+    // 1. Initialization Lock
+    if (_isInitializing) {
+       print("EdgeDetector: Already initializing, waiting for existing future...");
+       return _initCompleter?.future ?? Future.value();
+    }
+    
+    // 2. Already Loaded Check
+    if (isLoaded) {
+       // Deep Health Check
        bool isHealthy = await _checkHealth();
        if (isHealthy) {
+          print("EdgeDetector: Already loaded and healthy. Skipping init.");
           return; 
        }
-       
-       print("Edge AI Isolate Unhealthy/Stale! Restarting...");
+       print("EdgeDetector: Stale isolate detected. Restarting...");
        _kill();
     } else {
-       // Ensure clean state if partial init
+       // Partial state cleanup
        _kill();
     }
-
-    _initCompleter = Completer<void>();
-    _receivePort = ReceivePort();
     
-    // Pass RootIsolateToken for asset loading in background
-    final rootToken = RootIsolateToken.instance;
-    
-    _isolate = await Isolate.spawn(
-      _isolateEntry, 
-      _IsolateInitData(_receivePort!.sendPort, rootToken!),
-    );
+    _isInitializing = true;
 
-    _receivePort!.listen((message) {
-      if (message is SendPort) {
-        _sendPort = message;
-        _sendPort!.send({'cmd': Cmd.init}); // Load Models
-      } else if (message is Map<String, dynamic>) {
-        if (message.containsKey('init_done')) {
-          if (message['init_done'] == true) {
-             _initCompleter?.complete();
-          } else {
-             _initCompleter?.completeError(message['error'] ?? "Unknown Init Error");
-          }
-        } else if (message.containsKey('pong')) {
-          _pingCompleter?.complete(true);
-        } else if (message.containsKey('req_id')) {
-          final id = message['req_id'];
-          final completer = _requests.remove(id);
-          completer?.complete(message);
+    try {
+        _initCompleter = Completer<void>();
+        _receivePort = ReceivePort();
+        
+        // Pass RootIsolateToken for asset loading in background
+        final rootToken = RootIsolateToken.instance;
+        if (rootToken == null) {
+           throw Exception("RootIsolateToken is NULL. Cannot spawn background isolate.");
         }
-      }
-    });
+        
+        _isolate = await Isolate.spawn(
+          _isolateEntry, 
+          _IsolateInitData(_receivePort!.sendPort, rootToken),
+        );
+    
+        _receivePort!.listen((message) {
+          if (message is SendPort) {
+            _sendPort = message;
+            _sendPort!.send({'cmd': Cmd.init}); // Load Models (Only sent once per isolate)
+          } else if (message is Map<String, dynamic>) {
+            if (message.containsKey('init_done')) {
+              if (message['init_done'] == true) {
+                 if (!_initCompleter!.isCompleted) _initCompleter?.complete();
+              } else {
+                 if (!_initCompleter!.isCompleted) _initCompleter?.completeError(message['error'] ?? "Unknown Init Error");
+              }
+            } else if (message.containsKey('pong')) {
+              _pingCompleter?.complete(message['pong'] == true);
+            } else if (message.containsKey('req_id')) {
+              final id = message['req_id'];
+              final completer = _requests.remove(id);
+              completer?.complete(message);
+            }
+          }
+        });
 
-    return _initCompleter!.future.timeout(const Duration(seconds: 5), onTimeout: () {
-       _kill();
-       throw TimeoutException("Edge Detector Init Timeout (Isolate unresponsive)");
-    });
+        await _initCompleter!.future.timeout(const Duration(seconds: 5), onTimeout: () {
+           _kill();
+           throw TimeoutException("Edge Detector Init Timeout (Isolate unresponsive)");
+        });
+    
+    } finally {
+       _isInitializing = false;
+    }
   }
   
   // [NEW] Health Check
@@ -88,7 +107,8 @@ class EdgeDetector {
       _pingCompleter = Completer<bool>();
       _sendPort?.send({'cmd': Cmd.ping});
       try {
-        return await _pingCompleter!.future.timeout(const Duration(milliseconds: 200));
+        final result = await _pingCompleter!.future.timeout(const Duration(milliseconds: 200));
+        return result; // result is now bool from 'pong' message
       } catch (e) {
         return false;
       }
@@ -246,8 +266,8 @@ void _isolateEntry(_IsolateInitData initData) async {
 
         // --- Model A: Pet Pose (Always Run) ---
         try {
-          const int targetW = 1280;
-          const int targetH = 1280;
+          const int targetW = 640;
+          const int targetH = 640;
           
           final inputTensor = interpreterPet!.getInputTensor(0);
           
@@ -268,16 +288,29 @@ void _isolateEntry(_IsolateInitData initData) async {
           final outputBuffer = Float32List(outputShape.reduce((a, b) => a * b));
           final outputMap = {0: outputBuffer}; 
           
-          // Pass Flat Float32 List directly. TFLite usually handles flat input if size matches.
+          // Pass Flat Float32 List directly.
           interpreterPet!.runForMultipleInputs([floatInput], outputMap);
 
-          final detections = nonMaxSuppression(
-            outputBuffer,  
-            3, 
-            0.15, 0.45,
-            keypointNum: 17,
-            shape: outputShape 
-          );
+          List<DetectionResult> detections = [];
+
+          // [Fix] Check for NMS Output (Batch, 300, Features)
+          if (outputShape.length == 3 && outputShape[1] == 300) {
+              // Pre-processed NMS mode
+              detections = parseNMSOutput(
+                outputBuffer, 
+                0.15, // Threshold
+                keypointNum: 17
+              );
+          } else {
+              // Raw Output (Batch, Features, Anchors)
+              detections = nonMaxSuppression(
+                outputBuffer,  
+                3, 
+                0.15, 0.45,
+                keypointNum: 17,
+                shape: outputShape 
+              );
+          }
           
            result['debug_info']['pet_count'] = detections.length;
 
@@ -433,7 +466,9 @@ void _isolateEntry(_IsolateInitData initData) async {
       Isolate.exit();
     }
     else if (cmd == Cmd.ping) {
-      initData.sendPort.send({'pong': true});
+      // [Fix] Ping should verify MODEL STATE, not just Isolate liveness.
+      bool isReady = (interpreterPet != null);
+      initData.sendPort.send({'pong': isReady});
     }
   });
 }

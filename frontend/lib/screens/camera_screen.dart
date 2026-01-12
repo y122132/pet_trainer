@@ -107,12 +107,17 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
       await _cameraController.stopImageStream();
       charProvider.updateStatusMessage("분석 중지됨.");
     } else {
+      // [DEBUG] PROBE 1: User Clicked Start
+      print("⭕ [PROBE 1] User Pressed START");
+      
       // [Fix] Await initialization so EdgeDetector is ready before frames flow
       await ctrl.startTraining(charProvider.currentPetType, widget.difficulty, widget.mode);
       
       // Only start stream if training started successfully
       if (ctrl.isAnalyzing) {
+          print("⭕ [PROBE 3] Starting Camera Stream...");
           await _cameraController.startImageStream((image) {
+              // print("⭕ [PROBE 4] Camera Yielded Frame"); // Comment out to avoid spam, or keep for 1st frame check
               ctrl.processFrame(image, _cameraController.description.sensorOrientation, _currentOrientation);
           });
       }
@@ -192,8 +197,16 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                         Text("Status: ${trainingCtrl.trainingState.name.toUpperCase()}", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                         Text("Score: ${(trainingCtrl.confScore * 100).toStringAsFixed(1)}%", style: const TextStyle(color: Colors.greenAccent, fontSize: 10)),
-                                        Text("Latency: ${trainingCtrl.latency}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                      ])
+                                  )),
+                                  
+                                  // [DEBUG] On-Screen Log Overlay
+                                  Positioned(bottom: 120, left: 10, right: 10, child: Container(
+                                     padding: const EdgeInsets.all(8),
+                                     color: Colors.black45,
+                                     child: Text(trainingCtrl.debugLog, 
+                                        style: const TextStyle(color: Colors.yellowAccent, fontSize: 12, fontFamily: 'monospace')
+                                     )
                                   ))
                             ]
                          )),
