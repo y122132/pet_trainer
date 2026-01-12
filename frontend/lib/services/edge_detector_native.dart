@@ -77,7 +77,10 @@ class EdgeDetector {
       }
     });
 
-    return _initCompleter!.future;
+    return _initCompleter!.future.timeout(const Duration(seconds: 5), onTimeout: () {
+       _kill();
+       throw TimeoutException("Edge Detector Init Timeout (Isolate unresponsive)");
+    });
   }
   
   // [NEW] Health Check

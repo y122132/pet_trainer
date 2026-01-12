@@ -169,11 +169,14 @@ class TrainingController extends ChangeNotifier {
         }).toList(),
       };
 
-      if (isAnalyzing && _canSendFrame) {
+       if (isAnalyzing && _canSendFrame) {
+         // [DEBUG] Trace Frame Start
+         // print("Frame Start: $thisFrameId");
+         
          _frameStartTime = DateTime.now().millisecondsSinceEpoch;
          _lastFrameSentTimestamp = _frameStartTime;
          _canSendFrame = false; // Lock
-         _pendingFrameId = thisFrameId; // [NEW] Track pending ID
+         _pendingFrameId = thisFrameId; 
          
          // [Edge AI] Branching
          if (GlobalSettings.useEdgeAI) {
@@ -194,8 +197,11 @@ class TrainingController extends ChangeNotifier {
             
             if (EdgeDetector().isLoaded) {
                 // 1. Edge Inference
-                // Pass rotationAngle to handle orientation defined in processFrame
+                print("Calling EdgeDetector for Frame $thisFrameId...");
+                
                 final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
+                
+                print("EdgeDetector Returned for Frame $thisFrameId detected: ${edgeResult['success']}");
                 
                 // [Fix] Inject Frame ID and Dimensions for Server Logic Compatibility
             edgeResult['frame_id'] = thisFrameId;
@@ -225,9 +231,14 @@ class TrainingController extends ChangeNotifier {
                 edgeResult['width'] = logicW;
                 edgeResult['height'] = logicH; 
                 
-                // [DEBUG] Check Debug Info
+                // [DEBUG] Check and Update Latency Immediately
                 if (edgeResult.containsKey('debug_info')) {
-                    // print("Debug Info: ${edgeResult['debug_info']}");
+                    final debugInfo = edgeResult['debug_info'];
+                    if (debugInfo.containsKey('inference_ms')) {
+                       // Use actual inference time for Edge Latency
+                       latency = debugInfo['inference_ms'];
+                       notifyListeners(); 
+                    }
                 }
     
                 // Send JSON Result
