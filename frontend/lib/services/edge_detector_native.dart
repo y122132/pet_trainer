@@ -106,17 +106,17 @@ class _IsolateInitData {
 // --- Isolate Entry Point ---
 void _isolateEntry(_IsolateInitData initData) async {
   // Initialize Background Channel
-  BackgroundIsolateBinaryMessenger.ensureInitialized(initData.rootToken);
+  try {
+    BackgroundIsolateBinaryMessenger.ensureInitialized(initData.rootToken);
+  } catch (_) {}
   
   final receivePort = ReceivePort();
   initData.sendPort.send(receivePort.sendPort);
 
   Interpreter? interpreterPet;
-  // Interpreter? interpreterObj; // Future expansion
+  Interpreter? interpreterObj;
+  Interpreter? interpreterHuman;
   
-  // Buffers
-  // Re-use buffers if possible to reduce GC, but for simplicity allocate per frame first
-
   receivePort.listen((message) async {
     final cmd = message['cmd'] as Cmd;
     
@@ -125,10 +125,16 @@ void _isolateEntry(_IsolateInitData initData) async {
         final options = InterpreterOptions();
         if (Platform.isAndroid) options.addDelegate(XNNPackDelegate());
         
-        // Load Models (Assume assets exist)
+        // 1. Pet Pose Model (1280px)
         interpreterPet = await Interpreter.fromAsset('assets/models/pet_pose_int8.tflite', options: options);
+        
+        // 2. Object Detection Model (640px)
+        interpreterObj = await Interpreter.fromAsset('assets/models/yolo11n_int8.tflite', options: options);
+        
+        // 3. Human Pose Model (640px)
+        interpreterHuman = await Interpreter.fromAsset('assets/models/yolo11n-pose_int8.tflite', options: options);
 
-        print("Edge Isolate: Models Loaded");
+        print("Edge Isolate: All 3 Models Loaded");
         
         initData.sendPort.send({'init_done': true});
       } catch (e) {
@@ -143,7 +149,9 @@ void _isolateEntry(_IsolateInitData initData) async {
       
       final result = <String, dynamic>{
         'req_id': id,
-        'success': false
+        'success': false,
+        'bbox': [], // Final merged list
+        'conf_score': 0.0
       };
       
       if (interpreterPet == null) {
@@ -152,67 +160,128 @@ void _isolateEntry(_IsolateInitData initData) async {
       }
 
       try {
-        // 1. Preprocess (YUV -> Float32 [1, 1280, 1280, 3] with Rotation)
-        const targetSize = 1280;
-        final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
+        final List<List<dynamic>> allDetections = [];
+        double maxConf = 0.0;
 
+        // --- Model A: Pet Pose (Always Run, 1280px) ---
+        {
+          const targetSize = 1280;
+          final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
+          final input = floatInput.reshape([1, targetSize, targetSize, 3]);
+          
+          final outputTensor = interpreterPet!.getOutputTensor(0);
+          final shape = outputTensor.shape; 
+          final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
+          final outputMap = {0: outputBuffer.reshape(shape)};
+          
+          interpreterPet!.runForMultipleInputs([input], outputMap);
+          
+          final rawOutput = outputMap[0] as List;
+          final batch0 = rawOutput[0] as List;
+
+          final detections = nonMaxSuppression(
+            batch0, 
+            3, // Pet Classes: Dog(0->16), Cat(1->15), Bird(2->14)
+            0.30, 0.45
+          );
+          
+          // Map Classes & Add
+          for (var det in detections) {
+             int mappedCls = 16; // Default Dog
+             if (det.classIndex == 1) mappedCls = 15; // Cat
+             if (det.classIndex == 2) mappedCls = 14; // Bird
+             
+             allDetections.add([
+               det.box[0], det.box[1], det.box[2], det.box[3],
+               det.score,
+               mappedCls.toDouble()
+             ]);
+             if (det.score > maxConf) maxConf = det.score;
+          }
+        }
+
+        // --- Model B: Object Detection (Run if NOT interaction, 640px) ---
+        if (mode != 'interaction' && interpreterObj != null) {
+          const targetSize = 640;
+          final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
+          final input = floatInput.reshape([1, targetSize, targetSize, 3]);
+          
+          final outputTensor = interpreterObj!.getOutputTensor(0);
+          final shape = outputTensor.shape;
+          final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
+          final outputMap = {0: outputBuffer.reshape(shape)};
+          
+          interpreterObj!.runForMultipleInputs([input], outputMap);
+          
+          final rawOutput = outputMap[0] as List;
+          final batch0 = rawOutput[0] as List;
+
+          final detections = nonMaxSuppression(
+             batch0,
+             80, // COCO Classes
+             0.25, 0.45 
+          );
+          
+          for (var det in detections) {
+             // Use original COCO class index
+             allDetections.add([
+               det.box[0], det.box[1], det.box[2], det.box[3],
+               det.score,
+               det.classIndex.toDouble()
+             ]);
+          }
+        }
+
+        // --- Model C: Human Pose (Run if interaction, 640px) ---
+        if (mode == 'interaction' && interpreterHuman != null) {
+          const targetSize = 640;
+          final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
+          final input = floatInput.reshape([1, targetSize, targetSize, 3]);
+          
+          final outputTensor = interpreterHuman!.getOutputTensor(0);
+          final shape = outputTensor.shape;
+          final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
+          final outputMap = {0: outputBuffer.reshape(shape)};
+          
+          interpreterHuman!.runForMultipleInputs([input], outputMap);
+          
+          final rawOutput = outputMap[0] as List;
+          final batch0 = rawOutput[0] as List;
+
+          final detections = nonMaxSuppression(
+             batch0,
+             1, // Person Class
+             0.30, 0.45
+          );
+          
+          for (var det in detections) {
+             // Person class is 0. Map to 0.
+             allDetections.add([
+               det.box[0], det.box[1], det.box[2], det.box[3],
+               det.score,
+               0.0 // Person
+             ]);
+          }
+        }
         
-        // Input Tensor: [1, 1280, 1280, 3] -> Flat: [1280*1280*3]
-        // Reshape if needed
-        final input = floatInput.reshape([1, targetSize, targetSize, 3]);
-        
-        // Output Tensor: [1, 4+cls, 8400] (YOLOv8 default)
-        // Check output shape
-        final outputTensor = interpreterPet!.getOutputTensor(0);
-        final shape = outputTensor.shape; // e.g. [1, 7, 8400]
-        
-        // Prepare Output Buffer
-        // We use Map to handle multi-output if needed, or just specific tensor
-        // Flatten output for easy handling
-        final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-        final outputMap = {0: outputBuffer.reshape(shape)};
-        
-        // 2. Inference
-        interpreterPet!.runForMultipleInputs([input], outputMap);
-        
-        // 3. Post-Process (NMS)
-        // Extract raw list
-        final rawOutput = outputMap[0] as List; // [1, features, anchors] or similar
-        // Need to pass to NMS
-        // NMS Logic expects List<List> or flattened access
-        // Assuming rawOutput is [Batch, Features, Anchors]
-        // rawOutput[0] is [Features][Anchors] nested list likely
-        
-        final batch0 = rawOutput[0] as List; // Should be List<List<double>> or similar if reshaped?
-        // Actually tflite_flutter reshape does create nested lists.
-        
-        final detections = nonMaxSuppression(
-          batch0, 
-          3, // Pet Classes (Dog, Cat, Bird)
-          0.30, // Conf
-          0.45 // IoU
-        );
-        
-        if (detections.isNotEmpty) {
-           final best = detections.first;
+        if (allDetections.isNotEmpty) {
            result['success'] = true;
-           // Format result expected by TrainingController (Mapped to Server format)
-           // e.g. 'bbox': [[x1, y1, x2, y2, conf, cls]] (Server format)
+           result['bbox'] = allDetections;
+           result['conf_score'] = maxConf;
            
-           // Class Mapping: 0->16(Dog), 1->15(Cat), 2->14(Bird)
-           int mappedCls = 16;
-           if (best.classIndex == 1) mappedCls = 15;
-           if (best.classIndex == 2) mappedCls = 14;
-           
-           result['bbox'] = [[
-             best.box[0], best.box[1], best.box[2], best.box[3],
-             best.score,
-             mappedCls.toDouble()
-           ]];
-           result['conf_score'] = best.score;
-           
-           // TODO: Implement Logic (Distance)
-           // If successful interaction, add 'action_type', 'base_reward'
+           // TODO: Implement Logic (Distance/Interaction) Here
+           // For now, we just pass detections to Server (via socket)
+           // But since Server is Bypassed, logic MUST be here.
+           // However, implementing full logic is Step 3-2.
+           // We will currently just return BBox so UI works, 
+           // but Game Logic (FSM) will likely FAIL or IDLE because result['success'] might be misused?
+           // Wait, Server side 'detector.py' logic does FSM.
+           // Edge Mode sends 'result' JSON. Server uses 'result' for FSM.
+           // BUT Server FSM relies on 'vision_state' and detection history inside Server memory.
+           // So if we just send BBox, Server FSM logic in 'analysis_socket.py' checks 'is_success_vision'.
+           // Ideally we need to run 'logic' here to determine 'is_success_vision' accurately (e.g. distance check).
+           // Currently we set 'success' = true if ANY detection found. This is temporary.
+           // We need Step 3 logic porting soon.
         }
 
       } catch (e) {
@@ -223,7 +292,10 @@ void _isolateEntry(_IsolateInitData initData) async {
     }
     else if (cmd == Cmd.close) {
       interpreterPet?.close();
+      interpreterObj?.close();
+      interpreterHuman?.close();
       Isolate.exit();
     }
   });
 }
+
