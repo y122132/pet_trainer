@@ -95,7 +95,8 @@ def apply_temporal_smoothing(current_box, current_cls, vision_state):
     vision_state["ema_box"] = ema_box
     
     # Return smoothed detection
-    smoothed_box = [ema_box[0], ema_box[1], ema_box[2], ema_box[3], conf, consensus_cls]
+    # [Fix] Explicit cast to native float for JSON serialization (Numpy types crash json.dumps)
+    smoothed_box = [float(ema_box[0]), float(ema_box[1]), float(ema_box[2]), float(ema_box[3]), float(conf), float(consensus_cls)]
     return smoothed_box, consensus_cls
 
 def process_frame(
