@@ -573,6 +573,23 @@ def process_logic_only(
 
     # 2. Logic Decision (Copy of original Logic)
     
+    # [Fix] Update base_response["bbox"] with the Smoothed/Tracked Pet Box
+    # This ensures the UI draws the stable box used by logic, not just the raw input.
+    # Also visualizes 'Ghost' tracking.
+    if found_pet and pet_info["box"]:
+        # Reconstruct the bbox list. 
+        # We keep props (non-pets) and replace the pet box with the smoothed version.
+        new_bbox_list = []
+        for box in base_response.get("bbox", []):
+            if len(box) > 5:
+                cls = int(box[5])
+                if cls not in [14, 15, 16]: # Keep non-pets
+                    new_bbox_list.append(box)
+        
+        # Add the Smoothed Pet Box
+        new_bbox_list.append(pet_info["box"])
+        base_response["bbox"] = new_bbox_list
+
     has_target = any(p in prop_boxes for p in target_props)
     
     # CASE 1: 펫 미발견

@@ -337,11 +337,12 @@ class TrainingController extends ChangeNotifier {
   void dispose() {
     _socketClient.disconnect();
     
-    // [Fix] Ensure Edge AI Isolate is killed when leaving the screen
-    // This prevents zombie isolates and ensures fresh init on re-entry
-    if (GlobalSettings.useEdgeAI) {
-      EdgeDetector().close();
-    }
+    // [Optimization] Keep Edge AI Isolate alive!
+    // Repeatedly creating/destroying TFLite isolates causes native instability (Hangs).
+    // By keeping it alive, we ensure stability and instant re-entry performance.
+    // if (GlobalSettings.useEdgeAI) {
+    //   EdgeDetector().close();
+    // }
     
     super.dispose();
   }

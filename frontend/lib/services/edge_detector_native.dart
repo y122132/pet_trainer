@@ -8,7 +8,7 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:pet_trainer_frontend/services/edge_utils.dart';
 
 // --- Commands ---
-enum Cmd { init, detect, close }
+enum Cmd { init, detect, close, ping }
 
 class EdgeDetector {
   static final EdgeDetector _instance = EdgeDetector._internal();
@@ -22,12 +22,23 @@ class EdgeDetector {
   
   // Requests map to match responses
   final Map<int, Completer<Map<String, dynamic>>> _requests = {};
-  int _requestIdCounter = 0;
+  
+  // [NEW] Ping Completer
+  Completer<bool>? _pingCompleter;
 
   bool get isLoaded => _sendPort != null;
 
   Future<void> initialize() async {
-    if (_isolate != null) return;
+    // 1. If Isolate exists, check Health (Self-Healing)
+    if (_isolate != null && _sendPort != null) {
+       bool isHealthy = await _checkHealth();
+       if (isHealthy) return; // All good
+       
+       print("Edge AI Isolate Unhealthy! Restarting...");
+       // Kill and Restart
+       _kill();
+    }
+
     _initCompleter = Completer<void>();
     _receivePort = ReceivePort();
     
@@ -46,6 +57,8 @@ class EdgeDetector {
       } else if (message is Map<String, dynamic>) {
         if (message.containsKey('init_done')) {
           _initCompleter?.complete();
+        } else if (message.containsKey('pong')) {
+          _pingCompleter?.complete(true);
         } else if (message.containsKey('req_id')) {
           final id = message['req_id'];
           final completer = _requests.remove(id);
@@ -55,6 +68,35 @@ class EdgeDetector {
     });
 
     return _initCompleter!.future;
+  }
+  
+  // [NEW] Health Check
+  Future<bool> _checkHealth() async {
+      _pingCompleter = Completer<bool>();
+      _sendPort?.send({'cmd': Cmd.ping});
+      try {
+        return await _pingCompleter!.future.timeout(const Duration(milliseconds: 200));
+      } catch (e) {
+        return false;
+      }
+  }
+
+  void _kill() {
+    _isolate?.kill(priority: Isolate.immediate);
+    _isolate = null;
+    _sendPort = null;
+    _receivePort?.close();
+    _receivePort = null;
+    _requests.clear();
+  }
+  
+  // Manual Close
+  void close() {
+     _sendPort?.send({'cmd': Cmd.close});
+     // Give time for cleanup? No, just kill local ref
+     Future.delayed(const Duration(milliseconds: 100), () {
+        _kill();
+     });
   }
 
   Future<Map<String, dynamic>> processFrame(CameraImage image, String mode, int rotationAngle) async {
@@ -308,6 +350,9 @@ void _isolateEntry(_IsolateInitData initData) async {
       interpreterObj?.close();
       interpreterHuman?.close();
       Isolate.exit();
+    }
+    else if (cmd == Cmd.ping) {
+      initData.sendPort.send({'pong': true});
     }
   });
 }
