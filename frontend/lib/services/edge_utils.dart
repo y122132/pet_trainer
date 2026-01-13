@@ -33,131 +33,133 @@ double calculateIoU(List<double> box1, List<double> box2) {
 /// YOLO Non-Maximum Suppression (NMS)
 /// input: Raw output tensor [1, features, anchors] -> Flat Float32List or List<List>
 /// YOLOv8/v11 shape: [Batch, 4+Classes, 8400] -> We usually need to transpose to [8400, 4+Classes]
+/// YOLO Non-Maximum Suppression (NMS)
+/// input: Raw output tensor [1, Features, 8400] -> Flat Float32List
+/// Access: output[anchor_index + feature_index * 8400]
 List<DetectionResult> nonMaxSuppression(
-  dynamic output, // List<dynamic> (nested) or Float32List (flat)
+  Float32List output, 
   int numClasses, 
   double confThreshold, 
   double iouThreshold,
-  {bool isModelV8 = true, int keypointNum = 0, List<int>? shape} 
+  {int keypointNum = 0, List<int>? shape} 
 ) {
   final List<DetectionResult> detections = [];
   
-  if (output == null) return [];
+  if (output.isEmpty) return [];
   
-  // FLAT BUFFER MODE
-  if (output is Float32List && shape != null && shape.length >= 3) {
-      // Shape: [Batch, Features, Anchors]
-      final int numFeatures = shape[1];
-      final int numAnchors = shape[2];
-      
-      // Access: buffer[f * numAnchors + i] (Assuming [1, 84, 8400])
-      // Verify layout: TFLite usually outputs Row-Major.
-      // If shape is [1, 84, 8400], it stores 8400 values of Feat 0, then 8400 of Feat 1...
-      
-      for (int i = 0; i < numAnchors; i++) {
-         // 1. Max Score
-         double maxScore = 0.0;
-         int maxClassIndex = -1;
+  // 1. Determine Dimensions
+  int numAnchors = 8400; 
+  if (shape != null && shape.length >= 3) {
+      numAnchors = shape[2]; 
+  }
+  
+  // [Debug] Max Score Tracker
+  double globalMaxScoreRaw = -9999.0;
+  double globalMaxScoreSig = 0.0;
+  int globalMaxIndex = -1;
+
+  // 2. Iterate over all Anchors
+  for (int i = 0; i < numAnchors; i++) {
+         // [Fix] Apply Sigmoid: 1 / (1 + exp(-x))
+         // rawScore is Logit
+         double score = 1.0 / (1.0 + exp(-rawScore));
          
-         for (int c = 0; c < numClasses; c++) {
-             // Score Index: (4 + c) * numAnchors + i
-             int idx = (4 + c) * numAnchors + i;
-             double score = output[idx];
-             if (score > maxScore) {
-                 maxScore = score;
-                 maxClassIndex = c;
-             }
+         if (score > 0.1) {
+             print("[NMS-CANDIDATE] A:$i C:$c Raw:$rawScore -> Sig:$score");
          }
          
-         if (maxScore < confThreshold) continue;
-
-         // 2. Box
-         double cx = output[0 * numAnchors + i];
-         double cy = output[1 * numAnchors + i];
-         double w = output[2 * numAnchors + i];
-         double h = output[3 * numAnchors + i];
-         
-         double x1 = cx - w / 2;
-         double y1 = cy - h / 2;
-         double x2 = cx + w / 2;
-         double y2 = cy + h / 2;
-         
-         // 3. Keypoints
-         List<double>? kpts;
-         if (keypointNum > 0) {
-             kpts = [];
-             int kptStartRow = 4 + numClasses;
-             for (int k = 0; k < keypointNum; k++) {
-                 int row_x = kptStartRow + k * 3;
-                 int row_y = row_x + 1;
-                 int row_c = row_x + 2;
-                 
-                 double kx = output[row_x * numAnchors + i];
-                 double ky = output[row_y * numAnchors + i];
-                 double kc = output[row_c * numAnchors + i];
-                 
-                 kpts.add(kx); kpts.add(ky); kpts.add(kc);
-             }
+         if (score > maxScore) {
+             maxScore = score;
+             maxClassIndex = c;
          }
          
-         detections.add(DetectionResult([x1, y1, x2, y2], maxScore, maxClassIndex, keypoints: kpts));
-      }
+         // [Debug] Track Global Max
+         if (rawScore > globalMaxScoreRaw) {
+             globalMaxScoreRaw = rawScore;
+             globalMaxScoreSig = score;
+             globalMaxIndex = i;
+         }
+     }
+     
+     if (maxScore < confThreshold) continue;
 
-  } else if (output is List) {
-      // LEGACY NESTED LIST MODE (Keep for compatibility if needed)
-      if (output.isEmpty) return [];
-      
-      // Assume output is [Features][Anchors] (after parsing [0])
-      // Or output could be [Batch][Features][Anchors] -> Caller usually passes batch0
-      
-      // Safe check: output[0] is List?
-      if (output[0] is! List) return []; // Flat list without shape?
-      
-      final int numFeatures = output.length;
-      final int numAnchors = (output[0] as List).length;
-      
-      for (int i = 0; i < numAnchors; i++) {
-          double maxScore = 0.0;
-          int maxClassIndex = -1;
-          for (int c = 0; c < numClasses; c++) {
-              double score = (output[4 + c] as List)[i]; // Dynamic access
-              if (score > maxScore) { maxScore = score; maxClassIndex = c; }
-          }
-          if (maxScore < confThreshold) continue;
-          
-          double cx = (output[0] as List)[i];
-          double cy = (output[1] as List)[i];
-          double w = (output[2] as List)[i];
-          double h = (output[3] as List)[i];
-          
-          double x1 = cx - w / 2;
-          double y1 = cy - h / 2;
-          double x2 = cx + w / 2;
-          double y2 = cy + h / 2;
-          
-          List<double>? kpts;
-          if (keypointNum > 0) {
-              kpts = [];
-              int kptStartIdx = 4 + numClasses;
-              for (int k = 0; k < keypointNum; k++) {
-                  double kx = (output[kptStartIdx + k * 3] as List)[i];
-                  double ky = (output[kptStartIdx + k * 3 + 1] as List)[i];
-                  double kc = (output[kptStartIdx + k * 3 + 2] as List)[i];
-                  kpts.addAll([kx, ky, kc]);
-              }
-          }
-          detections.add(DetectionResult([x1, y1, x2, y2], maxScore, maxClassIndex, keypoints: kpts));
-      }
+     // B. Extract Box (cx, cy, w, h)
+     double cx = output[i + 0 * numAnchors];
+     double cy = output[i + 1 * numAnchors];
+     double w = output[i + 2 * numAnchors];
+     double h = output[i + 3 * numAnchors];
+     
+     // [Fix] Coordinate Scaling (Heuristic: if > 1.0, assume pixels)
+     // Assuming 640x640 model standard
+     if (cx > 1.0 || cy > 1.0 || w > 1.0 || h > 1.0) {
+         cx /= 640.0;
+         cy /= 640.0;
+         w /= 640.0;
+         h /= 640.0;
+     }
+
+     double x1 = cx - w / 2;
+     double y1 = cy - h / 2;
+     double x2 = cx + w / 2;
+     double y2 = cy + h / 2;
+     
+     // C. Extract Keypoints
+     List<double>? kpts;
+     if (keypointNum > 0) {
+         kpts = [];
+         int kptStartFeature = 4 + numClasses;
+         
+         for (int k = 0; k < keypointNum; k++) {
+             int fX = kptStartFeature + k * 3;
+             int fY = kptStartFeature + k * 3 + 1;
+             int fC = kptStartFeature + k * 3 + 2;
+             
+             double kx = output[i + fX * numAnchors];
+             double ky = output[i + fY * numAnchors];
+             double rawKconf = output[i + fC * numAnchors];
+             double kconf = 1.0 / (1.0 + exp(-rawKconf)); // Sigmoid for Keypoints
+             
+             // Normalize KP (Heuristic)
+             if (kx > 1.0 || ky > 1.0) {
+                 kx /= 640.0;
+                 ky /= 640.0;
+             }
+             
+             kpts.add(kx); kpts.add(ky); kpts.add(kconf);
+         }
+     }
+     
+     detections.add(DetectionResult([x1, y1, x2, y2], maxScore, maxClassIndex, keypoints: kpts));
+  }
+  
+  // [Debug Log]
+  if (detections.isEmpty) {
+     print("[NMS-DEBUG] No Detections. Best Anchor[$globalMaxIndex]: Raw=$globalMaxScoreRaw -> Sig=$globalMaxScoreSig");
+  } else {
+     print("[NMS-DEBUG] ${detections.length} Detections. Best: ${detections[0].score}");
   }
 
-  // Common Sort & NMS
+  // 3. Sort by Score (Descending)
   detections.sort((a, b) => b.score.compareTo(a.score));
   
+  // 4. Trace-based NMS (IoU Filtering)
   final List<DetectionResult> result = [];
   while (detections.isNotEmpty) {
       final current = detections.removeAt(0);
       result.add(current);
-      detections.removeWhere((other) => calculateIoU(current.box, other.box) > iouThreshold);
+      
+      detections.removeWhere((other) {
+          // Check IoU only for same class (or cross-class? usually same class for detection)
+          // User didn't specify class-agnostic, but YOLO usually does class-specific NMS.
+          // However, simple NMS often filters everything overlapping.
+          // Let's assume standard NMS (filtering high overlapping boxes mostly).
+          // But if we have Multi-Class (Dog, Cat), we shouldn't suppress Cat if Dog is on top?
+          // Actually, 'nonMaxSuppression' usually suppresses overlapping boxes regardless of class 
+          // if using 'agnostic=True'. Standard YOLO defaults to class-specific.
+          // Let's do simple suppression for now.
+          
+          return calculateIoU(current.box, other.box) > iouThreshold;
+      });
   }
   return result;
 }
@@ -179,7 +181,8 @@ Float32List convertYUVToFloat32Tensor(
   Map<String, dynamic> data, 
   int targetW, 
   int targetH,
-  int rotationAngle // [NEW] 0, 90, 180, 270
+  int rotationAngle,
+  {Float32List? reuseBuffer}
 ) {
   final int width = data['width'];
   final int height = data['height'];
@@ -193,8 +196,13 @@ Float32List convertYUVToFloat32Tensor(
   final int uvRowStride = planes[1]['bytesPerRow'];
   final int uvPixelStride = planes[1]['bytesPerPixel'] ?? 1;
 
-  // Output Buffer: [H * W * 3]
-  final Float32List buffer = Float32List(targetW * targetH * 3);
+  final Float32List buffer;
+  if (reuseBuffer != null && reuseBuffer.length == targetW * targetH * 3) {
+     buffer = reuseBuffer;
+  } else {
+     buffer = Float32List(targetW * targetH * 3);
+  }
+
   int pixelIndex = 0;
 
   for (int y = 0; y < targetH; y++) {

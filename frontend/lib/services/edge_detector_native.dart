@@ -64,7 +64,7 @@ class EdgeDetector {
         // [Main Thread] Load Assets Here!
         // ServicesBinding is guaranteed availability here.
         print("Probe: Loading Asset Bytes on Main Thread...");
-        final petData = await rootBundle.load('assets/models/pet_pose_float32.tflite');
+        final petData = await rootBundle.load('assets/models/pet_pose_int8.tflite');
         final objData = await rootBundle.load('assets/models/yolo11n_int8.tflite');
         final humanData = await rootBundle.load('assets/models/yolo11n-pose_int8.tflite');
         
@@ -269,6 +269,14 @@ void _isolateEntry(_IsolateInitData initData) async {
   // [Smart Init] Store resolved input shapes
   List<int> _petInputShape = [1, 640, 640, 3]; 
   
+  // [PERF] Persistent Buffers for Reuse
+  // 640*640*3 = 1,228,800 elements
+  Float32List? _inputFloatBuffer;
+  Uint8List? _inputQuantBuffer; // Scratchpad for quantization if needed
+  Float32List? _outputBufferPet;
+  Float32List? _outputBufferObj;
+  Float32List? _outputBufferHuman;
+  
   receivePort.listen((message) async {
     final cmd = message['cmd'] as Cmd;
     
@@ -347,238 +355,150 @@ void _isolateEntry(_IsolateInitData initData) async {
         final List<List<double>> petKeypointsList = [];
         final List<List<double>> humanKeypointsList = [];
         double maxConf = 0.0;
+        
+        result['debug_info'] = {
+           'input_type': 'N/A', 'output_type': 'N/A', 
+           'detections_found': 0, 'parsing_mode': 'Init',
+           'inference_ms': 0, 'pure_inference_ms': 0
+        };
+
+        // --- Helper: Flatten 3D List to Float32List ---
+        void _flattenTo(List<dynamic> src3D, Float32List dstFlat) {
+            int idx = 0;
+            try {
+              for (var batch in src3D) {
+                 for (var row in batch) {
+                    if (row is List) {
+                       for (var val in row) {
+                          if (idx < dstFlat.length) {
+                             dstFlat[idx++] = (val as num).toDouble();
+                          }
+                       }
+                    }
+                 }
+              }
+            } catch (e) {
+               // Silently fail or minimal log to maximize perf
+            }
+        }
 
         // --- Model A: Pet Pose (Always Run) ---
-        try {
-          const int targetW = 640;
-          const int targetH = 640;
-          
-          final inputTensor = interpreterPet!.getInputTensor(0);
-          final outputTensor = interpreterPet!.getOutputTensor(0);
-          
-          // [CRITICAL] Extract quantization parameters
-          final inputType = inputTensor.type.toString();
-          final outputType = outputTensor.type.toString();
-          final inputShape = inputTensor.shape.toString();
-          final outputShapeList = outputTensor.shape;
-          
-          // Quantization parameters (if exists)
-          String inputQuantInfo = "None";
-          String outputQuantInfo = "None";
-          
+        if (interpreterPet != null) {
           try {
-            final inputParams = inputTensor.params;
-            if (inputParams != null) {
-              inputQuantInfo = "Scale: ${inputParams.scale}, Zero: ${inputParams.zeroPoint}";
+            const int targetW = 640;
+            const int targetH = 640;
+            const int numPixels = targetW * targetH * 3;
+            
+            final inputTensor = interpreterPet!.getInputTensor(0);
+            final outputTensor = interpreterPet!.getOutputTensor(0);
+            
+            result['debug_info']['input_type'] = inputTensor.type.toString();
+            
+            // 1. Buffers
+            if (_inputFloatBuffer == null || _inputFloatBuffer!.length != numPixels) {
+               _inputFloatBuffer = Float32List(numPixels);
+               _inputQuantBuffer = Uint8List(numPixels); 
             }
-          } catch (e) {
-            inputQuantInfo = "N/A";
-          }
-          
-          try {
-            final outputParams = outputTensor.params;
-            if (outputParams != null) {
-              outputQuantInfo = "Scale: ${outputParams.scale}, Zero: ${outputParams.zeroPoint}";
+            
+            // 2. Preprocess
+            convertYUVToFloat32Tensor(
+                rawData, targetW, targetH, rotation, 
+                reuseBuffer: _inputFloatBuffer
+            );
+            
+            // 3. Prepare Input
+            final dynamic inputObj = _prepareInputTensor(
+                _inputFloatBuffer!, 
+                inputTensor,
+                reuseQuantBuffer: _inputQuantBuffer
+            );
+
+            // 4. Output Buffer
+            final outputShape = outputTensor.shape; 
+            final int outputSize = outputShape.reduce((a, b) => a * b);
+            
+            if (_outputBufferPet == null || _outputBufferPet!.length != outputSize) {
+               _outputBufferPet = Float32List(outputSize);
             }
-          } catch (e) {
-            outputQuantInfo = "N/A";
-          }
-          
-          print("[ISO-DEBUG] Pet Model - Input Shape: $inputShape, Type: $inputType");
-          print("[ISO-DEBUG] Input Quantization: $inputQuantInfo");
-          print("[ISO-DEBUG] Output Shape: $outputShapeList, Type: $outputType");
-          print("[ISO-DEBUG] Output Quantization: $outputQuantInfo");
-          
-          // [DEBUG] Populate result info for UI log
-          result['debug_info']['shape'] = inputShape;
-          result['debug_info']['input_type'] = inputType;
-          result['debug_info']['output_type'] = outputType;
-          result['debug_info']['input_quant'] = inputQuantInfo;
-          result['debug_info']['output_quant'] = outputQuantInfo;
+            
+            // Create 3D Container
+            final outputTensor3D = List.generate(
+              outputShape[0], 
+              (_) => List.generate(
+                outputShape[1], 
+                (_) => List.filled(outputShape[2], 0.0)
+              )
+            );
+            
+            // 5. Run Inference
+            final swInference = Stopwatch()..start();
+            interpreterPet!.run(inputObj, outputTensor3D);
+            swInference.stop();
+            result['debug_info']['pure_inference_ms'] = swInference.elapsedMilliseconds;
+            
+            // [CRITICAL FIX] Sync back from 3D output to Flat Buffer
+            // Because reshape() created a copy structure.
+            _flattenTo(outputTensor3D, _outputBufferPet!);
+            
+            // [Verification] Max Value Check
+            double currentMax = 0.0;
+            for(final v in _outputBufferPet!) {
+               if (v > currentMax) currentMax = v;
+            }
+            print("[ISO-DEBUG-V2] Output Max: $currentMax");
+            result['debug_info']['measured_max'] = currentMax;
 
-          // [Restored] Model Expects Float32 (Confirmed by User Screenshot)
-          // We must provide Float32 input. TFLite handles quantization internally if needed.
-          
-          final swPreprocess = Stopwatch()..start();
-          final floatInput = convertYUVToFloat32Tensor(rawData, targetW, targetH, rotation);
-          swPreprocess.stop();
-          print("[ISO-PERF] Preprocessing (YUV→RGB+Normalize): ${swPreprocess.elapsedMilliseconds}ms");
-          
-          // [CRITICAL] Validate input data
-          final inputSample = floatInput.sublist(0, min(30, floatInput.length)).map((v) => v.toStringAsFixed(4)).join(', ');
-          final inputMin = floatInput.reduce((a, b) => a < b ? a : b);
-          final inputMax = floatInput.reduce((a, b) => a > b ? a : b);
-          
-          result['debug_info']['input_sample'] = inputSample;
-          result['debug_info']['input_min'] = inputMin;
-          result['debug_info']['input_max'] = inputMax;
-          
-          print("[ISO-DEBUG] Input Sample (first 30 values): $inputSample");
-          print("[ISO-DEBUG] Input Range: Min=$inputMin, Max=$inputMax (Expected: 0.0-1.0)");
-          
-          if (floatInput.length != targetW * targetH * 3) {
-             throw Exception("Input Size Mismatch! Got ${floatInput.length}, Need ${targetW*targetH*3}");
-          }
-          
-          // [FIX] Reshape to 4D tensor [1, 640, 640, 3]
-          final swReshape = Stopwatch()..start();
-          final inputTensor4D = floatInput.reshape([1, targetW, targetH, 3]);
-          swReshape.stop();
-          print("[ISO-PERF] Reshape Input: ${swReshape.elapsedMilliseconds}ms");
-          
-          // [DEBUG] Validate input data range
-          final sampleSize = floatInput.length < 9 ? floatInput.length : 9;
-          final sampleValues = floatInput.sublist(0, sampleSize);
-          final minVal = sampleValues.reduce((a, b) => a < b ? a : b);
-          final maxVal = sampleValues.reduce((a, b) => a > b ? a : b);
-          print("[ISO-DEBUG] Input Sample (first 3 pixels RGB): ${sampleValues.map((v) => v.toStringAsFixed(3)).join(', ')}");
-          print("[ISO-DEBUG] Input Range: Min=$minVal, Max=$maxVal (Expected: 0.0-1.0)");
-          
-          // [NEW] Convert Float32 input to PNG for visualization
-          // [CRITICAL PERF] PNG encoding is VERY SLOW (~900ms)
-          // Only generate every 30 frames to maintain performance
-          _pngFrameCounter++;
-          
-          if (_pngFrameCounter % 30 == 1) { // Only every 30 frames
-             try {
-                // Convert Float32 (0-1) to Uint8 (0-255)
-                final uint8Data = Uint8List(floatInput.length);
-                for (int i = 0; i < floatInput.length; i++) {
-                   uint8Data[i] = (floatInput[i] * 255).clamp(0, 255).toInt();
-                }
-                
-                // Encode as PNG (640x640 RGB)
-                final image = img.Image.fromBytes(
-                   width: targetW,
-                   height: targetH,
-                   bytes: uint8Data.buffer,
-                   numChannels: 3,
-                );
-                final pngBytes = img.encodePng(image);
-                result['debug_info']['input_image_png'] = pngBytes;
-             } catch (e) {
-                print("[ISO-ERROR] Failed to encode input image: $e");
-             }
-          }
-           
-          final outputShape = outputTensor.shape; 
-          final outputBuffer = Float32List(outputShape.reduce((a, b) => a * b));
-          
-          // [FIX] Reshape output buffer to match expected shape
-          // TFLite run() requires exact shape matching
-          final outputTensor3D = outputBuffer.reshape(outputShape);
-          
-          // [FIX] Remove unnecessary allocateTensors() - already allocated in init
-          // Calling this every frame causes overhead and instability
-          
-          // [CRITICAL] Measure ONLY inference time
-          final swInference = Stopwatch()..start();
-          interpreterPet!.run(inputTensor4D, outputTensor3D);
-          swInference.stop();
-          final pureInferenceMs = swInference.elapsedMilliseconds;
-          print("[ISO-PERF] *** Pure Inference: ${pureInferenceMs}ms ***");
-          
-          // Store pure inference time for UI
-          result['debug_info']['pure_inference_ms'] = pureInferenceMs;
+            // [Debug] Check first 10 values
+            List<double> sample = [];
+            for(int i=0; i<min(10, outputSize); i++) sample.add(_outputBufferPet![i]);
+            print("[ISO-DEBUG] Pet Output Sample: $sample");
+            result['debug_info']['output_sample'] = sample.toString();
 
-          List<DetectionResult> detections = [];
+            // [Debug] Output Stats
+            result['debug_info']['output_shape'] = outputShape.toString();
 
-          // [CRITICAL] Parse Model Output
-          // Output Shape: [1, 300, 57] for pet_pose_int8.tflite
-          // Format: 57 = 4(bbox) + 1(conf) + 1(cls) + 51(17 keypoints * 3)
-          
-          final swParsing = Stopwatch()..start();
-          
-          // Sample output for debugging
-          final outputSample = outputBuffer.sublist(0, min(20, outputBuffer.length)).map((v) => v.toStringAsFixed(4)).join(', ');
-          
-          // [CRITICAL] Check if output has ANY non-zero values
-          final outputMin = outputBuffer.reduce((a, b) => a < b ? a : b);
-          final outputMax = outputBuffer.reduce((a, b) => a > b ? a : b);
-          final nonZeroCount = outputBuffer.where((v) => v.abs() > 0.0001).length;
-          
-          result['debug_info']['output_sample'] = outputSample;
-          result['debug_info']['output_shape'] = outputShape.toString();
-          result['debug_info']['output_total'] = outputBuffer.length;
-          result['debug_info']['output_min'] = outputMin;
-          result['debug_info']['output_max'] = outputMax;
-          result['debug_info']['output_nonzero'] = nonZeroCount;
-          
-          print("[ISO-DEBUG] Output Min: $outputMin, Max: $outputMax, NonZero: $nonZeroCount/${outputBuffer.length}");
-          
-          // Check if this is NMS output (sorted by conf) or Raw output
-          // NMS Mode: First few detections have highest confidence
-          // Raw Mode: Need to scan all 300 anchors
-          
-          bool isNMSMode = false;
-          if (outputShape[1] <= 300) {
-             // Likely NMS output (e.g., 300 detections, pre-sorted)
-             isNMSMode = true;
-             result['debug_info']['parsing_mode'] = 'NMS';
-          } else {
-             result['debug_info']['parsing_mode'] = 'Raw';
-          }
-          
-          if (isNMSMode) {
-              // Pre-processed NMS mode
-              print("[ISO-DEBUG] Parsing NMS output mode...");
-              detections = parseNMSOutput(
-                outputBuffer, 
-                0.001, // [TEST] Minimum threshold to detect ANY output
-                keypointNum: 17
-              );
-          } else {
-              // Raw Output (Batch, Features, Anchors)
-              print("[ISO-DEBUG] Parsing Raw output mode...");
-              detections = nonMaxSuppression(
-                outputBuffer,  
-                3, 
-                0.15, 0.45,
+            // 6. Parse Output (Pet: 3 Classes, 17 Keypoints)
+            final detections = nonMaxSuppression(
+                _outputBufferPet!,  
+                3, // Classes
+                0.50, // [High Thresh] 0.50 for clean output
+                0.40, // [Strict NMS] 0.40
                 keypointNum: 17,
                 shape: outputShape 
-              );
-          }
-          swParsing.stop();
-          
-          // [CRITICAL] Log detection results for UI
-          result['debug_info']['detections_found'] = detections.length;
-          result['debug_info']['parsing_time_ms'] = swParsing.elapsedMilliseconds;
-          
-          print("[ISO-RESULT] Pet detections found: ${detections.length}");
-           print("[ISO-RESULT] Pet detections found: ${detections.length}");
+            );
+            
+            result['debug_info']['detections_found'] = detections.length;
+            result['debug_info']['parsing_mode'] = 'Raw (Stride)';
 
-          for (var det in detections) {
-             int mappedCls = 16; 
-             if (det.classIndex == 1) mappedCls = 15; 
-             if (det.classIndex == 2) mappedCls = 14; 
-             
-             // Normalize by the actual target sizes used
-             allDetections.add([
-               det.box[0] / targetW, det.box[1] / targetH, det.box[2] / targetW, det.box[3] / targetH,
-               det.score,
-               mappedCls.toDouble()
-             ]);
-             
-             if (det.keypoints != null) {
-                final List<double> normalizedKpts = [];
-                for (int k = 0; k < 17; k++) {
-                   double kx = det.keypoints![k*3];
-                   double ky = det.keypoints![k*3+1];
-                   double kc = det.keypoints![k*3+2];
-                   
-                   normalizedKpts.add(kx / targetW);
-                   normalizedKpts.add(ky / targetH);
-                   normalizedKpts.add(kc);
-                }
-                petKeypointsList.add(normalizedKpts);
-             }
-             
-             if (det.score > maxConf) maxConf = det.score;
-          }
-        } catch (e, stack) {
+            for (var det in detections) {
+               int mappedCls = 16; 
+               if (det.classIndex == 1) mappedCls = 15; 
+               if (det.classIndex == 2) mappedCls = 14; 
+               
+               // [Fix] No internal division needed, NMS returns Normalized (0-1)
+               allDetections.add([
+                 det.box[0], det.box[1], det.box[2], det.box[3],
+                 det.score,
+                 mappedCls.toDouble()
+               ]);
+               
+               if (det.keypoints != null) {
+                  final List<double> normalizedKpts = [];
+                  for (int k = 0; k < 17; k++) {
+                     // NMS already normalized these
+                     normalizedKpts.add(det.keypoints![k*3]);
+                     normalizedKpts.add(det.keypoints![k*3+1]);
+                     normalizedKpts.add(det.keypoints![k*3+2]);
+                  }
+                  petKeypointsList.add(normalizedKpts);
+               }
+               if (det.score > maxConf) maxConf = det.score;
+            }
+          } catch (e, stack) {
              print("Model A (Pet) Failed: $e");
-             result['error'] = "Pet Model Error: $e"; 
-             result['stack'] = stack.toString();
+             print("Stack: $stack");
+             result['debug_info']['pet_error'] = e.toString();
+          }
         }
 
         // --- Model B: Object (Run if NOT interaction) ---
@@ -587,95 +507,125 @@ void _isolateEntry(_IsolateInitData initData) async {
             const int targetW = 640;
             const int targetH = 640;
             
-            // [FIX] Use Float32 input (model expects Float32, not Uint8)
-            final floatInput = convertYUVToFloat32Tensor(rawData, targetW, targetH, rotation);
-            final inputTensor4D = floatInput.reshape([1, targetW, targetH, 3]);
-            
+            final inputTensor = interpreterObj!.getInputTensor(0);
             final outputTensor = interpreterObj!.getOutputTensor(0);
-            final shape = outputTensor.shape;
             
-            final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-            final outputTensor3D = outputBuffer.reshape(shape);
+            final dynamic inputObj = _prepareInputTensor(
+                _inputFloatBuffer!, 
+                inputTensor,
+                reuseQuantBuffer: _inputQuantBuffer
+            );
             
-            // [FIX] Use run() with reshaped tensors
-            interpreterObj!.run(inputTensor4D, outputTensor3D);
+            final outputShape = outputTensor.shape; 
+            final int outputSize = outputShape.reduce((a, b) => a * b);
+            
+            if (_outputBufferObj == null || _outputBufferObj!.length != outputSize) {
+                _outputBufferObj = Float32List(outputSize);
+            }
+            // 3D Container
+            final outputTensor3D = List.generate(
+              outputShape[0], 
+              (_) => List.generate(
+                outputShape[1], 
+                (_) => List.filled(outputShape[2], 0.0)
+              )
+            );
+            
+            interpreterObj!.run(inputObj, outputTensor3D);
+            _flattenTo(outputTensor3D, _outputBufferObj!);
   
+            // Obj: 80 Classes, 0 Keypoints
             final detections = nonMaxSuppression(
-               outputBuffer,
+               _outputBufferObj!,
                80, 
-               0.15, 0.45,
-               shape: shape
+               0.50, // [High Thresh] 0.50
+               0.40, // [Strict NMS] 0.40
+               shape: outputShape
             );
             
             result['debug_info']['obj_count'] = detections.length;
             
             for (var det in detections) {
+               if ([0, 14, 15, 16].contains(det.classIndex)) continue; 
+               
                allDetections.add([
-                 det.box[0] / targetW, det.box[1] / targetH, det.box[2] / targetW, det.box[3] / targetH,
+                 det.box[0], det.box[1], det.box[2], det.box[3],
                  det.score,
                  det.classIndex.toDouble()
                ]);
             }
           } catch (e) {
             print("Model B (Obj) Failed: $e");
+            result['debug_info']['obj_error'] = e.toString();
           }
         }
 
-        // --- Model C: Human Pose (Run if interaction, 640px) ---
+        // --- Model C: Human Pose (Run if interaction) ---
         if (mode == 'interaction' && interpreterHuman != null) {
           try {
-            const targetSize = 640;
+            const int targetSize = 640;
             
-            // [FIX] Use Float32 input (model expects Float32, not Uint8)
-            final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
-            final inputTensor4D = floatInput.reshape([1, targetSize, targetSize, 3]);
-            
+            final inputTensor = interpreterHuman!.getInputTensor(0);
             final outputTensor = interpreterHuman!.getOutputTensor(0);
-            final shape = outputTensor.shape;
-            final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-            final outputTensor3D = outputBuffer.reshape(shape);
-            
-            // [FIX] Use run() with reshaped tensors
-            interpreterHuman!.run(inputTensor4D, outputTensor3D);
-            
-            // Parse output (still need to handle shape properly)
-            final detections = nonMaxSuppression(
-               outputBuffer,
-               1, // Person Class
-               0.30, 0.45,
-               keypointNum: 17 // [NEW] Human Pose
+
+            final dynamic inputObj = _prepareInputTensor(
+                _inputFloatBuffer!, 
+                inputTensor,
+                reuseQuantBuffer: _inputQuantBuffer
             );
             
-            result['debug_info']['human_count'] = detections.length; // [DEBUG]
+            final outputShape = outputTensor.shape; 
+            final int outputSize = outputShape.reduce((a, b) => a * b);
+            
+            if (_outputBufferHuman == null || _outputBufferHuman!.length != outputSize) {
+                _outputBufferHuman = Float32List(outputSize);
+            }
+            // 3D Container
+            final outputTensor3D = List.generate(
+              outputShape[0], 
+              (_) => List.generate(
+                outputShape[1], 
+                (_) => List.filled(outputShape[2], 0.0)
+              )
+            );
+            
+            interpreterHuman!.run(inputObj, outputTensor3D);
+            _flattenTo(outputTensor3D, _outputBufferHuman!);
+            
+            // Human: 1 Class, 17 Keypoints
+            final detections = nonMaxSuppression(
+               _outputBufferHuman!,
+               1, 
+               0.50, // [High Thresh] 0.50
+               0.40, // [Strict NMS] 0.40
+               keypointNum: 17, 
+               shape: outputShape
+            );
+            
+            result['debug_info']['human_count'] = detections.length;
             
             for (var det in detections) {
-               // Person class is 0. Map to 0.
                allDetections.add([
-                 det.box[0] / targetSize, det.box[1] / targetSize, det.box[2] / targetSize, det.box[3] / targetSize,
+                 det.box[0], det.box[1], det.box[2], det.box[3],
                  det.score,
-                 0.0 // Person
+                 0.0 
                ]);
                
-               // [NEW] Process Keypoints
                if (det.keypoints != null) {
                   final List<double> normalizedKpts = [];
                   for (int k = 0; k < 17; k++) {
-                     double kx = det.keypoints![k*3];
-                     double ky = det.keypoints![k*3+1];
-                     double kc = det.keypoints![k*3+2];
-                     
-                     normalizedKpts.add(kx / targetSize);
-                     normalizedKpts.add(ky / targetSize);
-                     normalizedKpts.add(kc);
+                     normalizedKpts.add(det.keypoints![k*3]);
+                     normalizedKpts.add(det.keypoints![k*3+1]);
+                     normalizedKpts.add(det.keypoints![k*3+2]);
                   }
                   humanKeypointsList.add(normalizedKpts);
                }
             }
           } catch (e) {
             print("Model C (Human) Failed: $e");
+            result['debug_info']['human_error'] = e.toString();
           }
         }
-
         
         if (allDetections.isNotEmpty) {
            result['success'] = true;
@@ -688,7 +638,7 @@ void _isolateEntry(_IsolateInitData initData) async {
       } catch (e, stack) {
         print("Edge Inference Error: $e");
         print("Stack: $stack");
-        result['error'] = "Inference Error: $e"; // [DEBUG] Propagate error
+        result['error'] = "Inference Error: $e"; 
         result['stack'] = stack.toString();
       }
       
@@ -719,8 +669,8 @@ void _isolateEntry(_IsolateInitData initData) async {
 // --- Helper Code ---
 
 /// Quantize Logic for Int8/UInt8 Inputs
-Object _prepareInputTensor(Float32List floatInput, Tensor inputTensor) {
-  // If input is Float32, just reshape
+Object _prepareInputTensor(Float32List floatInput, Tensor inputTensor, {Uint8List? reuseQuantBuffer}) {
+  // If input is Float32, just reshape (No copy)
   if (inputTensor.type == TfLiteType.kTfLiteFloat32 || 
       inputTensor.type == TfLiteType.kTfLiteNoType) {
     return floatInput.reshape(inputTensor.shape);
@@ -732,26 +682,21 @@ Object _prepareInputTensor(Float32List floatInput, Tensor inputTensor) {
     double scale = params.scale;
     int zeroPoint = params.zeroPoint;
     
-    // Safety for 0 scale
+    // Safety
     if (scale == 0.0) scale = 1.0; 
     
-    // [Fix] Smart Input Scaling
-    // TFLite Quantization often expects the "Real" value domain to match the training domain.
-    // Case A: Model trained on [0, 255] images. Scale ~ 1.0 (Real domain 0-255).
-    //         We provide [0, 1]. Result is black image. -> Need to multiply by 255.
-    // Case B: Model trained on [0, 1] normalized. Scale ~ 0.0039 (Real domain 0-1).
-    //         We provide [0, 1]. All good.
-    // Heuristic: If scale > 0.1, it expects [0, 255].
+    // Heuristic: If scale > 0.1, it expects [0, 255] domain.
     bool needRescale = scale > 0.1;
     
     final size = floatInput.length;
-    final uint8 = Uint8List(size);
+    // Use reused buffer if available
+    final uint8 = reuseQuantBuffer ?? Uint8List(size);
+    
     for (int i = 0; i < size; i++) {
        double val = floatInput[i];
        if (needRescale) val *= 255.0;
        
-       // float = (q - zp) * scale
-       // q = float / scale + zp
+       // Quantize: q = float / scale + zp
        uint8[i] = (val / scale + zeroPoint).round().clamp(0, 255);
     }
     return uint8.reshape(inputTensor.shape);

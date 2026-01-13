@@ -7,7 +7,7 @@ model_config = {
     #'pet_pose.pt': [640, '/home/yang/PROJECT/finetuning/calib.yaml'],
     
     # 사람-반려동물 인터랙션용 (사람 포즈 표준)
-    'yolo11n-pose.pt': [640, 'coco128-pose.yaml'],
+    'yolo11n-pose.pt': [640, 'coco8-pose.yaml'],
     
     # 사물 탐지용 (범용 사물 표준)
     #'yolo11n.pt': [640, 'coco128.yaml']
@@ -29,7 +29,7 @@ for model_name, config in model_config.items():
             int8=True, 
             imgsz=img_size, 
             data=yaml_file,
-            nms=True
+            nms=False
         )
         
         print(f"✅ [임무 완수] {model_name} 변환 성공!")
