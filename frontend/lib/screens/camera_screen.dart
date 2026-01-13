@@ -53,7 +53,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     super.initState();
     _cameraController = CameraController(
       widget.cameras.first,
-      ResolutionPreset.high, // High (720p) -> Best for 1280px inference
+      ResolutionPreset.medium, // High (720p) -> Best for 1280px inference
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
@@ -225,6 +225,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                         Text("Lat: ${trainingCtrl.inferenceMs}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                         Text("Pre:${trainingCtrl.tPreprocess} Inf:${trainingCtrl.tInference}", style: const TextStyle(color: Colors.yellowAccent, fontSize: 10)),
                                         Text("Flat:${trainingCtrl.tFlatten} NMS:${trainingCtrl.tNms}", style: const TextStyle(color: Colors.yellowAccent, fontSize: 10)),
+                                        Text("Ser:${trainingCtrl.tSerial} Tr:${trainingCtrl.tTransfer}", style: const TextStyle(color: Colors.orangeAccent, fontSize: 10)), // [NEW]
                                         Text("GPU: ${trainingCtrl.isGpu ? 'ON' : 'OFF'}", style: TextStyle(color: trainingCtrl.isGpu ? Colors.greenAccent : Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
                                      ])
                                   )),
