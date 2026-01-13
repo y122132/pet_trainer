@@ -253,7 +253,11 @@ class TrainingController extends ChangeNotifier {
              final bonus = data['bonus_points'] ?? 0;
              
              // [Fix] Store reward data BEFORE notifying the view
-             lastReward = {'base': base, 'bonus': bonus};
+             lastReward = {
+               'base': base, 
+               'bonus': bonus,
+               'level_up_info': data['level_up_info'] // [New]
+             };
 
              // Update Provider Reward (Stats)
              _charProvider?.gainReward(base, bonus); 

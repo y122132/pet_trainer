@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart'; 
 import 'package:pet_trainer_frontend/models/pet_config.dart';
 import 'package:pet_trainer_frontend/models/character_model.dart';
-
+import '../services/battle_service.dart';
 import 'package:pet_trainer_frontend/api_config.dart';
 
 import 'package:pet_trainer_frontend/services/auth_service.dart';
@@ -14,6 +14,9 @@ class CharProvider with ChangeNotifier {
   // 캐릭터 상태 데이터 (Private 변수)
   Character? _character;
   Character? get character => _character;
+  Character? get currentCharacter => _character;
+
+  final BattleService _battleService = BattleService();
 
   // Temporary images for newly registered character
   XFile? tempFrontImage;
@@ -49,13 +52,19 @@ class CharProvider with ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
   
-  final String _baseUrl = AppConfig.baseUrl; // 예: http://192.168.1.5:8000
+  final String _baseUrl = AppConfig.baseUrl;
 
   String _currentPetType = "dog";         // 기본값: 강아지
   PetConfig _petConfig = PET_CONFIGS["dog"]!; // 기본 설정
 
   String get currentPetType => _currentPetType;
   PetConfig get petConfig => _petConfig;
+
+  bool _hasNewSkillAlert = false;
+  bool get hasNewSkillAlert => _hasNewSkillAlert;
+
+  List<int> get learnedSkills => _character?.learnedSkills ?? [5];
+  List<int> get equippedSkills => _character?.equippedSkills ?? [5];
 
   void setTemporaryImages(Map<String, XFile?> images) {
     tempFrontImage = images['Front'];
@@ -185,32 +194,79 @@ class CharProvider with ChangeNotifier {
     }
   }
 
-  void updateExperience(int newExp, int newLevel) {
+  void updateExperience(dynamic newExp, dynamic newLevel) {
     if (_character == null || _character!.stat == null) return;
 
-    _character!.stat!.exp = newExp;
-    _character!.stat!.level = newLevel;
-    
-    int currentMaxExp = newLevel * 100;
-    notifyListeners();
+    try {
+      final int oldLevel = _character!.stat!.level;
+      final int expValue = (newExp as num).toInt();
+      final int levelValue = (newLevel as num).toInt();
+
+      _character!.stat!.exp = expValue;
+      _character!.stat!.level = levelValue;
+
+      if (levelValue > oldLevel) {
+        _hasNewSkillAlert = true; 
+        _statusMessage = "레벨업! 새로운 기술을 확인해보세요! 🎉";
+      }
+      notifyListeners(); 
+    } catch (e) {
+      debugPrint("❌ [CharProvider] 업데이트 오류: $e");
+    }
   }
 
   void _checkLevelUp() {
+    if (_character == null || _character!.stat == null) return;
+    
     bool leveledUp = false;
     int earnedPoints = 0;
 
-    while (_character!.stat!.exp >= maxExp) {
+    while (_character!.stat!.level < 100 && _character!.stat!.exp >= maxExp) {
       _character!.stat!.exp -= maxExp;
       _character!.stat!.level += 1;
-      _unusedStatPoints += 4; // 레벨업 보상: 4포인트
-      earnedPoints += 4;
+      
+      // [Added] Cap at 100
+      if (_character!.stat!.level >= 100) {
+        _character!.stat!.level = 100;
+        _character!.stat!.exp = 0;
+      }
+      _unusedStatPoints += 5;
+      earnedPoints += 5;
       leveledUp = true;
     }
 
     if (leveledUp) {
-      _statusMessage = "레벨업! 🎉 (포인트 +$earnedPoints)";
-      print("[Provider] 레벨업 완료! 현재 레벨: ${_character!.stat!.level}, 남은 경험치: ${_character!.stat!.exp}");
+      _hasNewSkillAlert = true; 
+      _statusMessage = "레벨업! 🎉 새로운 스킬이 해금되었습니다. (포인트 +$earnedPoints)";
+      
+      syncStatToBackend(); 
+      notifyListeners();
     }
+  }
+
+  Future<void> toggleSkillEquip(int skillId) async {
+    if (_character == null) return;
+
+    List<int> nextEquipped = List.from(_character!.equippedSkills);
+
+    if (nextEquipped.contains(skillId)) {
+      if (nextEquipped.length > 1) nextEquipped.remove(skillId);
+    } else {
+      if (nextEquipped.length < 4) nextEquipped.add(skillId);
+    }
+
+    bool success = await _battleService.updateEquippedSkills(nextEquipped);
+    if (success) {
+      _character!.equippedSkills = nextEquipped;
+      notifyListeners();
+    }
+  }
+
+
+  
+  void clearSkillAlert() {
+    _hasNewSkillAlert = false;
+    notifyListeners();
   }
 
   void updateStatusMessage(String msg) {
@@ -289,28 +345,29 @@ class CharProvider with ChangeNotifier {
   }
 
   //  강제 레벨업 요청 (테스트용)
-  Future<void> manualLevelUp() async {
-    if (_character == null) return;
+  Future<Map<String, dynamic>?> manualLevelUp() async {
+    if (_character == null) return null;
+
     try {
       final token = await AuthService().getToken();
       final response = await http.post(
         Uri.parse('${AppConfig.charactersUrl}/${_character!.id}/level-up'),
         headers: {
-          "Authorization": "Bearer $token",
-          "Content-Type": "application/json",
+          "Authorization": "Bearer $token"
         },
       );
 
       if (response.statusCode == 200) {
-        print("[Provider] Manual Level-up Success");
-        await fetchCharacter(_character!.id);
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        _character = Character.fromJson(data);
         _statusMessage = "레벨업 성공! 🎉";
         notifyListeners();
-      } else {
-        print("manualLevelUp failed: ${response.statusCode}");
+        return data; 
       }
+      return null;
     } catch (e) {
       print("manualLevelUp error: $e");
+      return null;
     }
   }
 
@@ -369,7 +426,10 @@ class CharProvider with ChangeNotifier {
       });
       
       request.fields['name'] = name;
-      request.fields['pet_type'] = petType;
+      request.fields['pet_type'] = petType; // [Modified] Pass selected type
+
+      print("--- [DEBUG] CharProvider: Sending MultipartRequest ---");
+      print("--- [DEBUG] Fields: ${request.fields} ---");
 
       // 파일 추가
       for (var entry in images.entries) {

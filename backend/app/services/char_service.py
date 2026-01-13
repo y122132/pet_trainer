@@ -2,7 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.db.models.character import Character, Stat, ActionLog
 from datetime import datetime
-
+from app.game.game_assets import PET_LEARNSET
+from sqlalchemy.orm import Session
 async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_result: dict):
     """
     YOLO 분석 결과(성공 시)를 바탕으로 캐릭터의 스탯을 업데이트하고 행동 로그를 저장합니다.
@@ -66,6 +67,26 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
         # 보상 정보가 없는 경우 기본값 (안전장치)
         stat.strength += 1
         updated_stat_val = stat.strength
+
+    # [Fix] Grant EXP for Training Success
+    # Training grants 30 EXP by default
+    exp_gain = 30
+    
+    # We need Character object for _give_exp_and_levelup
+    stmt_char = select(Character).where(Character.id == char_id)
+    res_char = await db.execute(stmt_char)
+    character = res_char.scalar_one_or_none()
+    
+    level_up_info = {}
+    if character:
+        # Note: _give_exp_and_levelup re-fetches Stat. 
+        # To be safe, we flush current changes.
+        await db.flush()
+        
+        level_up_info = await _give_exp_and_levelup(db, character, exp_gain) 
+        
+        # Re-fetch stat if needed or rely on object identity
+        await db.refresh(stat)
         
     # 4. 마일스톤(목표 달성) 체크
     # 예: 스탯이 10단위(10, 20, 30...)에 도달했을 때 이펙트 발생
@@ -91,7 +112,8 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
     return {
         "stat": stat,
         "daily_count": daily_count,
-        "milestone_reached": milestone_reached
+        "milestone_reached": milestone_reached,
+        "level_up_info": level_up_info # Pass this up
     }
 
 async def get_character(db: AsyncSession, char_id: int):
@@ -109,6 +131,7 @@ async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: 
     """
     새로운 사용자와 캐릭터를 생성합니다. (초기 자산 및 스탯 지급)
     """
+    print(f"--- [DEBUG] create_character called: user_id={user_id}, name={name}, pet_type={pet_type} ---")
     from app.db.models.user import User
 
     # 1. 사용자 확인 또는 생성 (간소화된 MVP 로직)
@@ -126,10 +149,64 @@ async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: 
     existing_char = result.scalar_one_or_none()
     
     if existing_char:
-        return existing_char
+        # [Dev Only] 유저 편의를 위해 만약 이미 캐릭터가 있다면 정보를 업데이트함
+        # (실제 서비스에서는 '이미 캐릭터가 있습니다' 에러를 내거나 '초기화' 메뉴를 따로 둠)
+        print(f"[CharService] Updating existing character {existing_char.id} for user {user_id}")
+        existing_char.pet_type = pet_type
+        existing_char.name = name
+        
+        pet_type_lower = pet_type.lower()
+        from app.game.game_assets import PET_LEARNSET, PET_BASE_STATS
+        
+        initial_skills = [5]
+        if pet_type_lower in PET_LEARNSET:
+            initial_skills = PET_LEARNSET[pet_type_lower].get(5, [5])
+            
+        existing_char.learned_skills = initial_skills
+        existing_char.equipped_skills = initial_skills
+        
+        # 스탯 리셋
+        from sqlalchemy.orm import selectinload
+        stmt_stat = select(Stat).where(Stat.character_id == existing_char.id)
+        res_stat = await db.execute(stmt_stat)
+        stat = res_stat.scalar_one_or_none()
+        
+        base_stats = PET_BASE_STATS.get(pet_type_lower, PET_BASE_STATS["dog"])
+        if stat:
+            stat.strength = base_stats.get("strength", 10)
+            stat.intelligence = base_stats.get("intelligence", 10)
+            stat.defense = base_stats.get("defense", 10)
+            stat.agility = base_stats.get("agility", 10)
+            stat.luck = base_stats.get("luck", 10)
+            stat.level = 5 # Reset to 5 anyway
+            stat.exp = 0
+            stat.health = 100
+        
+        # [New] Re-unlock skills for the current level (if skipping levels or just ensuring consistency)
+        await check_and_unlock_skills(db, existing_char, stat.level if stat else 5)
+        
+        await db.commit()
+        return await get_character(db, existing_char.id)
 
     # 3. 캐릭터 생성
-    new_char = Character(user_id=user_id, name=name, status="normal", pet_type=pet_type)
+    from app.game.game_assets import PET_LEARNSET
+    
+    # Get initial skills (Lv 5 skills)
+    initial_skills = [5] # Default
+    pet_type_lower = pet_type.lower()
+    if pet_type_lower in PET_LEARNSET:
+        initial_skills = PET_LEARNSET[pet_type_lower].get(5, [5])
+    
+    print(f"--- [DEBUG] Determined initial_skills for {pet_type_lower}: {initial_skills} ---")
+
+    new_char = Character(
+        user_id=user_id, 
+        name=name, 
+        status="normal", 
+        pet_type=pet_type,
+        learned_skills=initial_skills,
+        equipped_skills=initial_skills
+    )
     db.add(new_char)
     await db.flush() # ID 생성을 위해 flush (commit 전 ID 확보)
     
@@ -137,7 +214,7 @@ async def create_character(db: AsyncSession, user_id: int, name: str, pet_type: 
     from app.game.game_assets import PET_BASE_STATS
     
     # Default to Dog (Balanced) if type not found
-    base_stats = PET_BASE_STATS.get(pet_type, PET_BASE_STATS["dog"])
+    base_stats = PET_BASE_STATS.get(pet_type_lower, PET_BASE_STATS["dog"])
     
     new_stat = Stat(
         character_id=new_char.id, 
@@ -185,7 +262,7 @@ async def update_character_stats(db: AsyncSession, char_id: int, stats_update: d
     return stat
 
 async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain: int) -> dict:
-    from app.game.game_assets import PET_LEARNSET, PET_BASE_STATS
+    from app.game.game_assets import PET_LEARNSET, PET_BASE_STATS, MOVE_DATA
     
     stmt_stat = select(Stat).where(Stat.character_id == character.id)
     res_stat = await db.execute(stmt_stat)
@@ -194,17 +271,20 @@ async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain
     if not stat:
         return {}
 
+    print(f"[DEBUG] _give_exp_and_levelup called. Init Level: {stat.level}, Exp Gain: {exp_gain}")
+    
     stat.exp += exp_gain
     
     level_up_occurred = False
-    new_skills = []
-    
+    newly_acquired_skills_info = [] # Init here just in case
+
     # 레벨업 체크
-    while stat.exp >= stat.level * 100:
+    while stat.level < 100 and stat.exp >= stat.level * 100:
         stat.exp -= stat.level * 100
         stat.level += 1
         stat.unused_points += 5
         level_up_occurred = True
+        print(f"[DEBUG] Level Up! New Level: {stat.level}")
         
         # 스탯 성장
         pet_type = character.pet_type.lower()
@@ -217,26 +297,52 @@ async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain
         stat.health += 10 # HP Boost
         stat.unused_points += 1
         
-        # 스킬 습득
-        learnset = PET_LEARNSET.get(pet_type, {})
-        skills_at_level = learnset.get(stat.level, [])
-        current_skills = character.learned_skills or []
+    # [New] Enforce Max Level Cap
+    if stat.level >= 100:
+        stat.level = 100
+        stat.exp = 0 # Optional: clear exp at max level
         
-        for skill_id in skills_at_level:
-            if skill_id not in current_skills:
-                current_skills.append(skill_id)
-                new_skills.append(skill_id)
-        
+    # [Fix] Retroactive Skill Check (Ensure nothing skipped)
+    # Check all levels up to current level
+    pet_type = character.pet_type.lower()
+    learnset = PET_LEARNSET.get(pet_type, {})
+    
+    # Reload current skills to be sure
+    current_skills = set(character.learned_skills or [])
+    initial_skill_count = len(current_skills)
+    
+    newly_acquired_skills_info = [] # List of {level, name, id}
+    
+    # Iterate through all levels in learnset
+    for lv, skill_ids in learnset.items():
+        if stat.level >= lv: # Check if level requirement met
+            for skill_id in skill_ids:
+                if skill_id not in current_skills:
+                    current_skills.add(skill_id)
+                    skill_name = MOVE_DATA.get(skill_id, {}).get("name", "Unknown Skill")
+                    newly_acquired_skills_info.append({
+                        "id": skill_id,
+                        "name": skill_name, 
+                        "level": lv
+                    })
+                    print(f"[DEBUG] Skill Acquired: {skill_name} (ID: {skill_id}) at Lv {stat.level} (Unlock Lv {lv})")
+                    
+    if len(current_skills) > initial_skill_count:
         character.learned_skills = list(current_skills)
+        level_up_occurred = True 
 
     await db.commit()
+    
+    print(f"[DEBUG] Final Result - New Skills: {newly_acquired_skills_info}")
+
     
     return {
         "exp_gained": exp_gain,
         "new_level": stat.level,
         "new_exp": stat.exp,
         "level_up": level_up_occurred,
-        "new_skills": new_skills,
+        "new_skills": list(current_skills), # Return full list
+        "acquired_skills_details": newly_acquired_skills_info, # New field for notification
         "unused_points": stat.unused_points
     }
 
@@ -301,3 +407,20 @@ async def delete_character(db: AsyncSession, char_id: int) -> bool:
         await db.commit()
         return True
     return False
+
+async def check_and_unlock_skills(db: Session, character: Character, current_level: int):
+    pet_type = character.pet_type.lower()
+    learnset = PET_LEARNSET.get(pet_type, {})
+    
+    should_be_learned = []
+    for lv, skill_ids in learnset.items():
+        if current_level >= lv:
+            should_be_learned.extend(skill_ids)
+    
+    updated_learned_skills = list(set((character.learned_skills or []) + should_be_learned))
+    
+    if len(updated_learned_skills) > len(character.learned_skills or []):
+        character.learned_skills = updated_learned_skills
+        db.add(character)
+        await db.commit()
+        print(f"--- [해금 성공] 새 스킬이 추가되었습니다: {updated_learned_skills} ---")

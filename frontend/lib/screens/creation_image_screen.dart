@@ -18,12 +18,12 @@ const Color kDarkBrown = Color(0xFF5D4037);
 
 class CreationImageScreen extends StatefulWidget {
   final String characterName; // 1단계에서 받은 이름
-  final String petSpecies;    // 1단계에서 받은 종
+  final String petType;      // [New] 선택된 펫 종류
 
   const CreationImageScreen({
     super.key, 
-    required this.characterName,
-    required this.petSpecies
+    required this.characterName, 
+    required this.petType
   });
 
   @override
@@ -122,10 +122,10 @@ class _CreationImageScreenState extends State<CreationImageScreen> {
     try {
       final provider = Provider.of<CharProvider>(context, listen: false);
       
-      // 1단계 이름, 종 + 2단계 사진을 합쳐서 한번에 전송
+      // 1단계 이름 + 펫 종류 + 2단계 사진을 합쳐서 한번에 전송
       bool success = await provider.createCharacterWithImages(
-        widget.characterName,
-        widget.petSpecies,
+        widget.characterName, 
+        widget.petType, // [Modified] Pass petType
         _images,
       );
 

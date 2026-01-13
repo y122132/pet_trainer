@@ -17,7 +17,7 @@ class CreationNameScreen extends StatefulWidget {
 
 class _CreationNameScreenState extends State<CreationNameScreen> {
   final _nameController = TextEditingController();
-  String _selectedSpecies = 'dog'; // 기본값
+  String _selectedPetType = "dog"; // [New] 기본선택: 강아지
 
   @override
   void dispose() {
@@ -37,24 +37,24 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
       return;
     }
 
-    // 2단계(사진 등록)로 이름과 종 데이터 전달
+    // 2단계(사진 등록)로 이름과 펫 종류 전달
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => CreationImageScreen(
-          characterName: name,
-          petSpecies: _selectedSpecies,
+          characterName: name, 
+          petType: _selectedPetType, // [Modified] Pass selected type
         ),
       ),
     );
   }
 
-  Widget _buildSpeciesButton(String species, String label) {
-    final bool isSelected = _selectedSpecies == species;
+  Widget _buildPetTypeButton(String petType, String label) {
+    final bool isSelected = _selectedPetType == petType;
     return ElevatedButton(
       onPressed: () {
         setState(() {
-          _selectedSpecies = species;
+          _selectedPetType = petType;
         });
       },
       style: ElevatedButton.styleFrom(
@@ -79,10 +79,11 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: false, 
       ),
       body: Stack(
         children: [
+          // 배경 장식
           Align(
             alignment: Alignment.bottomCenter,
             child: Opacity(
@@ -110,14 +111,24 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
                   ),
                   const SizedBox(height: 40),
                   
+                  // 펫 종류 선택 섹션
+                  Text(
+                    "어떤 친구와 함께할까요?",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.jua(fontSize: 18, color: kDarkBrown.withOpacity(0.8)),
+                  ),
+                  const SizedBox(height: 15),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildSpeciesButton('dog', '강아지'),
-                      _buildSpeciesButton('cat', '고양이'),
-                      _buildSpeciesButton('bird', '새'),
+                      _buildPetTypeButton("dog", "🐶 강아지"),
+                      const SizedBox(width: 10),
+                      _buildPetTypeButton("cat", "🐱 고양이"),
+                      const SizedBox(width: 10),
+                      _buildPetTypeButton("bird", "🐦 새"),
                     ],
                   ),
+                  
                   const SizedBox(height: 40),
 
                   TextField(
@@ -145,6 +156,8 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
                     onSubmitted: (_) => _onNext(),
                   ),
                   const SizedBox(height: 30),
+                  
+                  const SizedBox(height: 40),
 
                   ElevatedButton(
                     onPressed: _onNext,
@@ -162,7 +175,8 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
                       style: GoogleFonts.jua(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                   ),
-                  const Spacer(flex: 3),
+
+                  const Spacer(flex: 2), 
                 ],
               ),
             ),

@@ -64,16 +64,15 @@ class ChatManager:
         print(f"[CHAT] 유저 {user_id}의 새 알림 리스너 등록됨.")
 
     async def cancel_notification_task(self, user_id: int):
-        if user_id in self.notification_tasks:
-            task = self.notification_tasks[user_id]
+        task = self.notification_tasks.pop(user_id, None) 
+        if task:
             if not task.done():
                 task.cancel()
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
-            del self.notification_tasks[user_id]
-            print(f"[CHAT] 유저 {user_id}의 이전 알림 리스너 제거됨.")
+            print(f"[CHAT] 유저 {user_id}의 알림 리스너가 안전하게 제거되었습니다.")
 
     async def broadcast(self, payload: dict):
         message = json.dumps(payload, ensure_ascii=False)

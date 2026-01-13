@@ -1,13 +1,10 @@
 # backend/app/api/v1/routers.py
 from fastapi import APIRouter
-# [수정] 모든 도메인 라우터를 임포트합니다.
 from app.api.v1 import chat, auth, characters, diaries, guestbook
 from app.api.v1 import battle
 
 # 메인 API 라우터 (/v1)
 api_router = APIRouter(prefix="/v1")
-
-# --- 각 기능별 라우터 통합 ---
 
 # 1. 인증 라우터 (network 브랜치 기능)
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])

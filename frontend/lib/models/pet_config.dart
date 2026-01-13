@@ -26,5 +26,11 @@ final Map<String, PetConfig> PET_CONFIGS = {
     defaultMode: "playing",
     availableModes: ["playing", "feeding", "interaction"], 
   ),
+  "bird": PetConfig(
+    type: "bird",
+    name: "새 🐦",
+    defaultMode: "playing",
+    availableModes: ["playing", "feeding", "interaction"], 
+  ),
   // 추후 거북이, 앵무새 등 추가 가능
 };
