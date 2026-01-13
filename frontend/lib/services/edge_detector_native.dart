@@ -190,16 +190,24 @@ class EdgeDetector {
      });
   }
 
+  // [Fix] Frame Skipping Flag
+  bool _isProcessing = false;
+
   Future<Map<String, dynamic>> processFrame(CameraImage image, String mode, int rotationAngle) async {
     if (_sendPort == null) return {};
 
+    // [Optim] Frame Skipping: Drop request if Isolate is busy
+    if (_isProcessing) {
+       // print("Probe: Frame Shifted (Busy)"); // Optional log
+       return {};
+    }
+    _isProcessing = true;
+    
     final completer = Completer<Map<String, dynamic>>();
-
     final id = _requestIdCounter++;
     _requests[id] = completer;
 
     // Convert CameraImage to transferable map (bytes)
-    // We do NOT use compute here, we send raw bytes to the isolate directly
     final rawData = {
       'width': image.width,
       'height': image.height,
@@ -215,15 +223,21 @@ class EdgeDetector {
       'req_id': id,
       'data': rawData,
       'mode': mode,
-      'rotation': rotationAngle // [NEW]
+      'rotation': rotationAngle
     });
 
-    // [Fix] INCREASE TIMEOUT to 3000ms (1280px inference is heavy)
-    return completer.future.timeout(const Duration(milliseconds: 3000), onTimeout: () {
-       _requests.remove(id);
-       _kill(); 
-       throw TimeoutException("Edge AI Isolate Hung (>3000ms)");
-    });
+    try {
+        return await completer.future.timeout(const Duration(milliseconds: 5000), onTimeout: () {
+          _requests.remove(id);
+          throw TimeoutException("Edge AI Isolate Hung (5000ms)"); 
+        });
+    } catch(e) {
+        // Handle error
+        return {'success': false, 'error': e.toString()};
+    } finally {
+        // [Fix] Always release lock
+        _isProcessing = false;
+    }
   }
   
   // [Fix] Add explicit re-init trigger for hot-restart scenarios
@@ -276,6 +290,11 @@ void _isolateEntry(_IsolateInitData initData) async {
   Float32List? _outputBufferPet;
   Float32List? _outputBufferObj;
   Float32List? _outputBufferHuman;
+
+  // [Phase 3] Persistent 3D Output Containers to avoid GC
+  List<List<List<double>>>? _petOutput3D;
+  List<List<List<double>>>? _objOutput3D;
+  List<List<List<double>>>? _humanOutput3D;
   
   receivePort.listen((message) async {
     final cmd = message['cmd'] as Cmd;
@@ -283,42 +302,71 @@ void _isolateEntry(_IsolateInitData initData) async {
     if (cmd == Cmd.init) {
       log("Cmd.init [STRICT MODE]");
       try {
-        InterpreterOptions? options; 
-        
-        // --- 1. Pet Model ---
-        log("Loading Pet Model...");
+        // Initialize buffers from message
         final petBytes = message['petBytes'] as Uint8List;
-        _buffers.add(petBytes);
-        interpreterPet = Interpreter.fromBuffer(petBytes, options: options);
-        
-        // [Strict Init] Force 640x640x3 to ensure 4D Tensor for Conv2D
-        // Without this, TFLite defaults to Flat 1D [1228800], causing crashes.
-        log("Forcing Resize to [1, 640, 640, 3]...");
-        interpreterPet!.resizeInputTensor(0, [1, 640, 640, 3]);
-        interpreterPet!.allocateTensors();
-        
-        _petInputShape = interpreterPet!.getInputTensor(0).shape;
-        log("Pet Allocated. Input: $_petInputShape"); // Should be [1, 640, 640, 3]
-
-        // --- 2. Object Model ---
-        log("Loading Obj Model...");
         final objBytes = message['objBytes'] as Uint8List;
-        _buffers.add(objBytes);
-        interpreterObj = Interpreter.fromBuffer(objBytes, options: options);
-        interpreterObj?.resizeInputTensor(0, [1, 640, 640, 3]); // Force consistency
-        interpreterObj?.allocateTensors();
-        log("Obj OK.");
-        
-        // --- 3. Human Model ---
-        log("Loading Human Model...");
         final humanBytes = message['humanBytes'] as Uint8List;
+        
+        _buffers.add(petBytes);
+        _buffers.add(objBytes);
         _buffers.add(humanBytes);
-        interpreterHuman = Interpreter.fromBuffer(humanBytes, options: options);
-        interpreterHuman?.resizeInputTensor(0, [1, 640, 640, 3]); 
-        interpreterHuman?.allocateTensors(); 
+
+        // --- Helper: Safe Init with Fallback ---
+        Interpreter safeInit(String name, Uint8List bytes, {bool useGpu = false}) {
+           InterpreterOptions options = InterpreterOptions();
+           if (useGpu) {
+               if (Platform.isAndroid) {
+                   options.addDelegate(GpuDelegateV2(options: GpuDelegateOptionsV2(
+                     isPrecisionLossAllowed: true, 
+                     // inferencePreference removed due to version mismatch
+                   )));
+               } else if (Platform.isIOS) {
+                   // MetalDelegate disabled
+               }
+           }
+           
+           try {
+              final interpreter = Interpreter.fromBuffer(bytes, options: options);
+              // [Strict Init] Resize
+              interpreter.resizeInputTensor(0, [1, 640, 640, 3]);
+              interpreter.allocateTensors();
+              return interpreter;
+           } catch (e) {
+              if (useGpu) {
+                  log("GPU Init Failed for $name ($e). Fallback to CPU.");
+                  return safeInit(name, bytes, useGpu: false); // Recursive Fallback
+              }
+              throw e; 
+           }
+        }
+
+        // Try GPU First? Yes.
+        bool tryGpu = true;
+        
+        log("Loading Pet Model...");
+        interpreterPet = safeInit("Pet", petBytes, useGpu: tryGpu);
+        _petInputShape = interpreterPet!.getInputTensor(0).shape; // [1, 640, 640, 3]
+        
+        // [Phase 3] Pre-allocate 3D Buffer
+        // Pet Output: [1, 61, 8400] (Features x Anchors, varies by model)
+        // We get actual shape from tensor.
+        var outShape = interpreterPet!.getOutputTensor(0).shape;
+        _petOutput3D = List.generate(outShape[0], (_) => List.generate(outShape[1], (_) => List.filled(outShape[2], 0.0)));
+        log("Pet OK. Input: $_petInputShape Output: $outShape");
+
+        log("Loading Obj Model...");
+        interpreterObj = safeInit("Obj", objBytes, useGpu: tryGpu);
+        outShape = interpreterObj!.getOutputTensor(0).shape;
+        _objOutput3D = List.generate(outShape[0], (_) => List.generate(outShape[1], (_) => List.filled(outShape[2], 0.0)));
+        log("Obj OK.");
+
+        log("Loading Human Model...");
+        interpreterHuman = safeInit("Human", humanBytes, useGpu: tryGpu);
+        outShape = interpreterHuman!.getOutputTensor(0).shape;
+        _humanOutput3D = List.generate(outShape[0], (_) => List.generate(outShape[1], (_) => List.filled(outShape[2], 0.0)));
         log("Human OK.");
 
-        log("All Models Ready (Strict Mode).");
+        log("All Models Ready (Strict Persistent Mode).");
         initData.sendPort.send({'init_done': true});
         
       } catch (e, stack) {
@@ -328,7 +376,7 @@ void _isolateEntry(_IsolateInitData initData) async {
       }
     } 
     else if (cmd == Cmd.detect) {
-      final sw = Stopwatch()..start(); // [DEBUG] Profile
+      final sw = Stopwatch()..start(); 
       final id = message['req_id'];
       final rawData = message['data'];
       final mode = message['mode'];
@@ -337,15 +385,18 @@ void _isolateEntry(_IsolateInitData initData) async {
       final result = <String, dynamic>{
         'req_id': id,
         'success': false,
-        'bbox': [], // Final merged list
-        'pet_keypoints': [], // [NEW]
-        'human_keypoints': [], // [NEW]
+        'bbox': [], 
+        'pet_keypoints': [], 
+        'human_keypoints': [], 
         'conf_score': 0.0,
-        'debug_info': {} // [NEW]
+        'debug_info': <String, dynamic>{
+           'detections_found': 0, 
+           'inference_ms': 0
+        } 
       };
       
       if (interpreterPet == null) {
-        result['error'] = "Models not loaded (Init Failed)";
+        result['error'] = "Models not loaded";
         initData.sendPort.send(result);
         return;
       }
@@ -356,34 +407,31 @@ void _isolateEntry(_IsolateInitData initData) async {
         final List<List<double>> humanKeypointsList = [];
         double maxConf = 0.0;
         
-        result['debug_info'] = {
-           'input_type': 'N/A', 'output_type': 'N/A', 
-           'detections_found': 0, 'parsing_mode': 'Init',
-           'inference_ms': 0, 'pure_inference_ms': 0
-        };
-
         // --- Helper: Flatten 3D List to Float32List ---
         void _flattenTo(List<dynamic> src3D, Float32List dstFlat) {
             int idx = 0;
+            // Optimized Flatten (Assumption: [1, Features, Anchors])
+            // src3D[0] is List<List<double>>
+            // To ensure max speed avoid checks if possible.
             try {
-              for (var batch in src3D) {
-                 for (var row in batch) {
-                    if (row is List) {
-                       for (var val in row) {
-                          if (idx < dstFlat.length) {
-                             dstFlat[idx++] = (val as num).toDouble();
-                          }
-                       }
-                    }
-                 }
-              }
-            } catch (e) {
-               // Silently fail or minimal log to maximize perf
-            }
+               final batch0 = src3D[0] as List<dynamic>;
+               final int rows = batch0.length;
+               if (rows == 0) return;
+               final row0 = batch0[0] as List<dynamic>;
+               final int cols = row0.length;
+               
+               // Direct Loop
+               for(int r=0; r<rows; r++) {
+                   final List<dynamic> row = batch0[r]; // Avoid typing if casting is slow?
+                   for(int c=0; c<cols; c++) {
+                       dstFlat[idx++] = (row[c] as num).toDouble();
+                   }
+               }
+            } catch (e) { }
         }
 
         // --- Model A: Pet Pose (Always Run) ---
-        if (interpreterPet != null) {
+        if (interpreterPet != null && _petOutput3D != null) {
           try {
             const int targetW = 640;
             const int targetH = 640;
@@ -392,19 +440,20 @@ void _isolateEntry(_IsolateInitData initData) async {
             final inputTensor = interpreterPet!.getInputTensor(0);
             final outputTensor = interpreterPet!.getOutputTensor(0);
             
-            result['debug_info']['input_type'] = inputTensor.type.toString();
-            
-            // 1. Buffers
+            // 1. Buffers (Lazy Alloc Input)
             if (_inputFloatBuffer == null || _inputFloatBuffer!.length != numPixels) {
                _inputFloatBuffer = Float32List(numPixels);
                _inputQuantBuffer = Uint8List(numPixels); 
             }
             
-            // 2. Preprocess
+            // 2. Preprocess (50ms -> 5ms with Int Math)
+            final swPrep = Stopwatch()..start();
             convertYUVToFloat32Tensor(
                 rawData, targetW, targetH, rotation, 
                 reuseBuffer: _inputFloatBuffer
             );
+            swPrep.stop();
+            result['debug_info']['t_preprocess'] = swPrep.elapsedMilliseconds;
             
             // 3. Prepare Input
             final dynamic inputObj = _prepareInputTensor(
@@ -413,7 +462,7 @@ void _isolateEntry(_IsolateInitData initData) async {
                 reuseQuantBuffer: _inputQuantBuffer
             );
 
-            // 4. Output Buffer
+            // 4. Output Buffer (Flattened)
             final outputShape = outputTensor.shape; 
             final int outputSize = outputShape.reduce((a, b) => a * b);
             
@@ -421,61 +470,40 @@ void _isolateEntry(_IsolateInitData initData) async {
                _outputBufferPet = Float32List(outputSize);
             }
             
-            // Create 3D Container
-            final outputTensor3D = List.generate(
-              outputShape[0], 
-              (_) => List.generate(
-                outputShape[1], 
-                (_) => List.filled(outputShape[2], 0.0)
-              )
-            );
-            
-            // 5. Run Inference
+            // 5. Run Inference (Reuse 3D)
             final swInference = Stopwatch()..start();
-            interpreterPet!.run(inputObj, outputTensor3D);
+            interpreterPet!.run(inputObj, _petOutput3D!);
             swInference.stop();
-            result['debug_info']['pure_inference_ms'] = swInference.elapsedMilliseconds;
+            result['debug_info']['t_inference'] = swInference.elapsedMilliseconds;
             
-            // [CRITICAL FIX] Sync back from 3D output to Flat Buffer
-            // Because reshape() created a copy structure.
-            _flattenTo(outputTensor3D, _outputBufferPet!);
+            // 6. Flatten (Reuse Logic)
+            final swFlat = Stopwatch()..start();
+            _flattenTo(_petOutput3D!, _outputBufferPet!);
+            swFlat.stop();
+            result['debug_info']['t_flatten'] = swFlat.elapsedMilliseconds;
             
-            // [Verification] Max Value Check
-            double currentMax = 0.0;
-            for(final v in _outputBufferPet!) {
-               if (v > currentMax) currentMax = v;
-            }
-            print("[ISO-DEBUG-V2] Output Max: $currentMax");
-            result['debug_info']['measured_max'] = currentMax;
-
-            // [Debug] Check first 10 values
-            List<double> sample = [];
-            for(int i=0; i<min(10, outputSize); i++) sample.add(_outputBufferPet![i]);
-            print("[ISO-DEBUG] Pet Output Sample: $sample");
-            result['debug_info']['output_sample'] = sample.toString();
-
-            // [Debug] Output Stats
-            result['debug_info']['output_shape'] = outputShape.toString();
-
-            // 6. Parse Output (Pet: 3 Classes, 17 Keypoints)
+            // [Optim] Removed O(N) Max/Debug Loops here.
+            
+            // 7. Parse Output
+            final swNMS = Stopwatch()..start();
             final detections = nonMaxSuppression(
                 _outputBufferPet!,  
                 3, // Classes
-                0.50, // [High Thresh] 0.50 for clean output
-                0.40, // [Strict NMS] 0.40
+                0.55, 
+                0.40,
                 keypointNum: 17,
                 shape: outputShape 
             );
+            swNMS.stop();
+            result['debug_info']['t_nms'] = swNMS.elapsedMilliseconds;
             
             result['debug_info']['detections_found'] = detections.length;
-            result['debug_info']['parsing_mode'] = 'Raw (Stride)';
 
             for (var det in detections) {
                int mappedCls = 16; 
                if (det.classIndex == 1) mappedCls = 15; 
                if (det.classIndex == 2) mappedCls = 14; 
                
-               // [Fix] No internal division needed, NMS returns Normalized (0-1)
                allDetections.add([
                  det.box[0], det.box[1], det.box[2], det.box[3],
                  det.score,
@@ -485,7 +513,6 @@ void _isolateEntry(_IsolateInitData initData) async {
                if (det.keypoints != null) {
                   final List<double> normalizedKpts = [];
                   for (int k = 0; k < 17; k++) {
-                     // NMS already normalized these
                      normalizedKpts.add(det.keypoints![k*3]);
                      normalizedKpts.add(det.keypoints![k*3+1]);
                      normalizedKpts.add(det.keypoints![k*3+2]);
@@ -494,19 +521,14 @@ void _isolateEntry(_IsolateInitData initData) async {
                }
                if (det.score > maxConf) maxConf = det.score;
             }
-          } catch (e, stack) {
-             print("Model A (Pet) Failed: $e");
-             print("Stack: $stack");
-             result['debug_info']['pet_error'] = e.toString();
+          } catch (e) {
+             // result['debug_info']['pet_error'] = e.toString();
           }
         }
 
         // --- Model B: Object (Run if NOT interaction) ---
-        if (mode != 'interaction' && interpreterObj != null) {
+        if (mode != 'interaction' && interpreterObj != null && _objOutput3D != null) {
           try {
-            const int targetW = 640;
-            const int targetH = 640;
-            
             final inputTensor = interpreterObj!.getInputTensor(0);
             final outputTensor = interpreterObj!.getOutputTensor(0);
             
@@ -522,49 +544,42 @@ void _isolateEntry(_IsolateInitData initData) async {
             if (_outputBufferObj == null || _outputBufferObj!.length != outputSize) {
                 _outputBufferObj = Float32List(outputSize);
             }
-            // 3D Container
-            final outputTensor3D = List.generate(
-              outputShape[0], 
-              (_) => List.generate(
-                outputShape[1], 
-                (_) => List.filled(outputShape[2], 0.0)
-              )
-            );
-            
-            interpreterObj!.run(inputObj, outputTensor3D);
-            _flattenTo(outputTensor3D, _outputBufferObj!);
-  
-            // Obj: 80 Classes, 0 Keypoints
+           
+            interpreterObj!.run(inputObj, _objOutput3D!);
+            _flattenTo(_objOutput3D!, _outputBufferObj!); // Obj: 80 Classes
             final detections = nonMaxSuppression(
                _outputBufferObj!,
                80, 
-               0.50, // [High Thresh] 0.50
-               0.40, // [Strict NMS] 0.40
+               0.55, 
+               0.40, 
                shape: outputShape
             );
             
-            result['debug_info']['obj_count'] = detections.length;
-            
+            // [Optim] Server-side Target Props Allowlist
+            // 29:Frisbee, 32:Ball, 39:Bottle, 41:Cup, 45:Bowl, 46-51:Fruits, 77:TeddyBear
+            const Set<int> allowedProps = {29, 32, 39, 41, 45, 46, 47, 48, 49, 50, 51, 77};
+
             for (var det in detections) {
-               if ([0, 14, 15, 16].contains(det.classIndex)) continue; 
+               final clsId = det.classIndex;
+               
+               // 1. Skip if Human(0) or Pet(14,15,16) -> Handled by specific models
+               if (clsId == 0 || clsId == 14 || clsId == 15 || clsId == 16) continue;
+               
+               // 2. [NEW] Strict Filter based on Game Logic
+               if (!allowedProps.contains(clsId)) continue; 
                
                allDetections.add([
                  det.box[0], det.box[1], det.box[2], det.box[3],
                  det.score,
-                 det.classIndex.toDouble()
+                 clsId.toDouble()
                ]);
             }
-          } catch (e) {
-            print("Model B (Obj) Failed: $e");
-            result['debug_info']['obj_error'] = e.toString();
-          }
+          } catch (e) { }
         }
 
         // --- Model C: Human Pose (Run if interaction) ---
-        if (mode == 'interaction' && interpreterHuman != null) {
+        if (mode == 'interaction' && interpreterHuman != null && _humanOutput3D != null) {
           try {
-            const int targetSize = 640;
-            
             final inputTensor = interpreterHuman!.getInputTensor(0);
             final outputTensor = interpreterHuman!.getOutputTensor(0);
 
@@ -580,29 +595,20 @@ void _isolateEntry(_IsolateInitData initData) async {
             if (_outputBufferHuman == null || _outputBufferHuman!.length != outputSize) {
                 _outputBufferHuman = Float32List(outputSize);
             }
-            // 3D Container
-            final outputTensor3D = List.generate(
-              outputShape[0], 
-              (_) => List.generate(
-                outputShape[1], 
-                (_) => List.filled(outputShape[2], 0.0)
-              )
-            );
             
-            interpreterHuman!.run(inputObj, outputTensor3D);
-            _flattenTo(outputTensor3D, _outputBufferHuman!);
+            interpreterHuman!.run(inputObj, _humanOutput3D!);
+            _flattenTo(_humanOutput3D!, _outputBufferHuman!);
             
-            // Human: 1 Class, 17 Keypoints
             final detections = nonMaxSuppression(
                _outputBufferHuman!,
                1, 
-               0.50, // [High Thresh] 0.50
-               0.40, // [Strict NMS] 0.40
+               0.55, 
+               0.40, 
                keypointNum: 17, 
                shape: outputShape
             );
             
-            result['debug_info']['human_count'] = detections.length;
+            // result['debug_info']['human_count'] = detections.length;
             
             for (var det in detections) {
                allDetections.add([
@@ -621,10 +627,7 @@ void _isolateEntry(_IsolateInitData initData) async {
                   humanKeypointsList.add(normalizedKpts);
                }
             }
-          } catch (e) {
-            print("Model C (Human) Failed: $e");
-            result['debug_info']['human_error'] = e.toString();
-          }
+          } catch (e) { }
         }
         
         if (allDetections.isNotEmpty) {

@@ -222,8 +222,9 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                         Text("Status: ${trainingCtrl.trainingState.name.toUpperCase()}", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                         Text("Score: ${(trainingCtrl.confScore * 100).toStringAsFixed(1)}%", style: const TextStyle(color: Colors.greenAccent, fontSize: 10)),
-                                        // [Restored] Latency Display
-                                        Text("Latency: ${trainingCtrl.inferenceMs}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                        Text("Lat: ${trainingCtrl.inferenceMs}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                        Text("Pre:${trainingCtrl.tPreprocess} Inf:${trainingCtrl.tInference}", style: const TextStyle(color: Colors.yellowAccent, fontSize: 10)),
+                                        Text("Flat:${trainingCtrl.tFlatten} NMS:${trainingCtrl.tNms}", style: const TextStyle(color: Colors.yellowAccent, fontSize: 10)),
                                      ])
                                   )),
                                   

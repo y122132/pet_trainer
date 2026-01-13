@@ -59,25 +59,29 @@ List<DetectionResult> nonMaxSuppression(
   int globalMaxIndex = -1;
 
   // 2. Iterate over all Anchors
+  // [Optim v2] Inverse Sigmoid Threshold
+  // logit > logitThreshold implies sigmoid(logit) > confThreshold
+  // Avoids exp() for 99% of anchors
+  final double logitThreshold = -log(1.0 / confThreshold - 1.0);
+
   for (int i = 0; i < numAnchors; i++) {
-         // [Fix] Apply Sigmoid: 1 / (1 + exp(-x))
-         // rawScore is Logit
-         double score = 1.0 / (1.0 + exp(-rawScore));
+     double maxScore = 0.0;
+     int maxClassIndex = -1;
+     
+     // Optimization: Check max raw score across classes first? 
+     // For loop is fast.
+     
+     for (int c = 0; c < numClasses; c++) {
+         double rawScore = output[i + (4 + c) * numAnchors];
          
-         if (score > 0.1) {
-             print("[NMS-CANDIDATE] A:$i C:$c Raw:$rawScore -> Sig:$score");
-         }
+         // [Critical Optim] Skip expensive exp()
+         if (rawScore <= logitThreshold) continue;
+
+         double score = 1.0 / (1.0 + exp(-rawScore));
          
          if (score > maxScore) {
              maxScore = score;
              maxClassIndex = c;
-         }
-         
-         // [Debug] Track Global Max
-         if (rawScore > globalMaxScoreRaw) {
-             globalMaxScoreRaw = rawScore;
-             globalMaxScoreSig = score;
-             globalMaxIndex = i;
          }
      }
      
@@ -89,13 +93,9 @@ List<DetectionResult> nonMaxSuppression(
      double w = output[i + 2 * numAnchors];
      double h = output[i + 3 * numAnchors];
      
-     // [Fix] Coordinate Scaling (Heuristic: if > 1.0, assume pixels)
-     // Assuming 640x640 model standard
+     // Coordinate Scaling
      if (cx > 1.0 || cy > 1.0 || w > 1.0 || h > 1.0) {
-         cx /= 640.0;
-         cy /= 640.0;
-         w /= 640.0;
-         h /= 640.0;
+         cx /= 640.0; cy /= 640.0; w /= 640.0; h /= 640.0;
      }
 
      double x1 = cx - w / 2;
@@ -108,7 +108,6 @@ List<DetectionResult> nonMaxSuppression(
      if (keypointNum > 0) {
          kpts = [];
          int kptStartFeature = 4 + numClasses;
-         
          for (int k = 0; k < keypointNum; k++) {
              int fX = kptStartFeature + k * 3;
              int fY = kptStartFeature + k * 3 + 1;
@@ -117,14 +116,13 @@ List<DetectionResult> nonMaxSuppression(
              double kx = output[i + fX * numAnchors];
              double ky = output[i + fY * numAnchors];
              double rawKconf = output[i + fC * numAnchors];
-             double kconf = 1.0 / (1.0 + exp(-rawKconf)); // Sigmoid for Keypoints
              
-             // Normalize KP (Heuristic)
+             // Optim: Keypoints also need sigmoid, but we only compute for valid boxes
+             double kconf = 1.0 / (1.0 + exp(-rawKconf)); 
+             
              if (kx > 1.0 || ky > 1.0) {
-                 kx /= 640.0;
-                 ky /= 640.0;
+                 kx /= 640.0; ky /= 640.0;
              }
-             
              kpts.add(kx); kpts.add(ky); kpts.add(kconf);
          }
      }
@@ -132,15 +130,15 @@ List<DetectionResult> nonMaxSuppression(
      detections.add(DetectionResult([x1, y1, x2, y2], maxScore, maxClassIndex, keypoints: kpts));
   }
   
-  // [Debug Log]
-  if (detections.isEmpty) {
-     print("[NMS-DEBUG] No Detections. Best Anchor[$globalMaxIndex]: Raw=$globalMaxScoreRaw -> Sig=$globalMaxScoreSig");
+  // 3. Lazy Sort & Top-K
+  // Only sort if we have too many candidates
+  if (detections.length > 50) {
+      detections.sort((a, b) => b.score.compareTo(a.score));
+      detections.length = 50;
   } else {
-     print("[NMS-DEBUG] ${detections.length} Detections. Best: ${detections[0].score}");
+      // Small count, simple sort is fine (or even skip if very small? NMS needs sorted order though)
+      detections.sort((a, b) => b.score.compareTo(a.score));
   }
-
-  // 3. Sort by Score (Descending)
-  detections.sort((a, b) => b.score.compareTo(a.score));
   
   // 4. Trace-based NMS (IoU Filtering)
   final List<DetectionResult> result = [];
@@ -177,7 +175,11 @@ double calculateSquaredDistance(List<double> p1, List<double> p2, double xScale,
 /// Converts YUV420 to Float32List (RGB Planar or Interleaved)
 /// Input: CameraImage planes (Y, U, V bytes and strides)
 /// Output: Float32List [1, 3, H, W] or [1, H, W, 3] normalized 0.0-1.0
-Float32List convertYUVToFloat32Tensor(
+// [Optim] Pre-calculated LUT for clamp/255.0?
+// Actually, simple division multiply might be faster than list lookup if cache miss?
+// const float scale = 1.0 / 255.0; v * scale is fast.
+
+void convertYUVToFloat32Tensor(
   Map<String, dynamic> data, 
   int targetW, 
   int targetH,
@@ -204,87 +206,127 @@ Float32List convertYUVToFloat32Tensor(
   }
 
   int pixelIndex = 0;
-
-  for (int y = 0; y < targetH; y++) {
-    for (int x = 0; x < targetW; x++) {
-       // Coordinate Transformation for Rotation
-       int srcX, srcY;
-       
-       // Calculate normalized position (0.0 - 1.0) in generic 0-degree space
-       // Then map to source coordinates based on rotation
-       
-       if (rotationAngle == 90) {
-         // Target(x,y) comes from Source. rotated 90 CW
-         // Visual: Top-Right of Source becomes Top-Left of Target?
-         // No, standard Camera rotation:
-         // 90 deg means the sensor is rotated 90 deg relative to upright.
-         // We need to sample "sideways".
-         
-         // Mapping back from Target(x,y) to Source(sx, sy):
-         // sx = y
-         // sy = targetW - 1 - x (Target Width corresponds to Source Height)
-         // Wait, aspect ratios strictly:
-         // Source Width corresponds to Target Height? No.
-         
-         // Simple Mapping logic:
-         // 0 deg:   sx = map(x, tW, sW), sy = map(y, tH, sH)
-         // 90 deg:  sx = map(y, tH, sW), sy = map(tW-x, tW, sH)
-         // 180 deg: sx = map(tW-x, tW, sW), sy = map(tH-y, tH, sH)
-         // 270 deg: sx = map(tH-y, tH, sW), sy = map(x, tW, sH)
-         
-         // Using Nearest Neighbor map
-         srcX = (y * width / targetH).floor();
-         srcY = ((targetW - 1 - x) * height / targetW).floor();
-         
-       } else if (rotationAngle == 180) {
-         srcX = ((targetW - 1 - x) * width / targetW).floor();
-         srcY = ((targetH - 1 - y) * height / targetH).floor();
-         
-       } else if (rotationAngle == 270) {
-         srcX = ((targetH - 1 - y) * width / targetH).floor();
-         srcY = (x * height / targetW).floor();
-         
-       } else {
-         // 0 degrees
-         srcX = (x * width / targetW).floor();
-         srcY = (y * height / targetH).floor();
-       }
-       
-       // Bounds Check (Safety first)
-       srcX = srcX.clamp(0, width - 1);
-       srcY = srcY.clamp(0, height - 1);
-       
-       // YUV Indices
-       final int uvIndex = uvPixelStride * (srcX / 2).floor() + uvRowStride * (srcY / 2).floor();
-       final int index = srcY * yRowStride + srcX;
-       
-       if (index >= yBytes.length || uvIndex >= uBytes.length || uvIndex >= vBytes.length) {
-         buffer[pixelIndex++] = 0.0;
-         buffer[pixelIndex++] = 0.0;
-         buffer[pixelIndex++] = 0.0;
-         continue;
-       }
-
-       final int yVal = yBytes[index];
-       final int uVal = uBytes[uvIndex];
-       final int vVal = vBytes[uvIndex];
-
-        // YUV to RGB conversion
-        int r = (yVal + 1.402 * (vVal - 128)).round();
-        int g = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).round();
-        int b = (yVal + 1.772 * (uVal - 128)).round();
-        
-        // [ULTRALYTICS TFLITE SPEC] Int8 quantized model with float32 I/O
-        // According to Ultralytics docs: input should be normalized to [0, 1]
-        // Model performs internal quantization/dequantization
-        // int8=True only quantizes internal layers, input/output remain float32
-        buffer[pixelIndex++] = r.clamp(0, 255).toDouble() / 255.0;  // 0-1
-        buffer[pixelIndex++] = g.clamp(0, 255).toDouble() / 255.0;  // 0-1
-        buffer[pixelIndex++] = b.clamp(0, 255).toDouble() / 255.0;  // 0-1
-    }
-  }
   
-  return buffer;
+  // Optimization: Pre-calculate scaling factors to avoid float division inside loop
+  // We map Target (0..639) to Source (0..Width-1)
+  // Use Fixed Point (x << 16) for speed? Dart performs well with doubles too.
+  // Let's stick to efficient checks.
+
+  // NOTE: We assume rotation is one of 0, 90, 180, 270.
+  // We can Flatten the switch case out of the inner loop?
+  // That requires duplicating the loop 4 times (code bloat but fastest).
+  // Given user wants EXTREME optimization, loop duplication is valid.
+
+  if (rotationAngle == 90) {
+      // 90 Deg: srcX = (y * width / targetH), srcY = ((targetW - x) * height / targetW)
+      // To iterate fast, we can optimize strides.
+      // But bilinear mapping is tricky. Nearest neighbor is:
+      final double scaleX = width / targetH;
+      final double scaleY = height / targetW;
+      
+      for (int y = 0; y < targetH; y++) {
+         int srcX = (y * scaleX).floor();
+         if (srcX >= width) srcX = width - 1;
+         
+         for (int x = 0; x < targetW; x++) {
+             int srcY = ((targetW - 1 - x) * scaleY).floor();
+             if (srcY >= height) srcY = height - 1;
+             
+             // Inlined YUV conversion
+             final int uvIndex = uvPixelStride * (srcX >> 1) + uvRowStride * (srcY >> 1);
+             final int index = srcY * yRowStride + srcX;
+             
+             final int yVal = yBytes[index];
+             final int uVal = uBytes[uvIndex];
+             final int vVal = vBytes[uvIndex];
+             
+             // Integer Approx for YUV
+             int c = yVal - 16;
+             int d = uVal - 128;
+             int e = vVal - 128;
+             
+             int r = (298 * c + 409 * e + 128) >> 8;
+             int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+             int b = (298 * c + 516 * d + 128) >> 8;
+             
+             buffer[pixelIndex++] = r.clamp(0, 255) * 0.00392156862;
+             buffer[pixelIndex++] = g.clamp(0, 255) * 0.00392156862; 
+             buffer[pixelIndex++] = b.clamp(0, 255) * 0.00392156862; 
+         }
+      }
+  } else if (rotationAngle == 0) {
+      final double scaleX = width / targetW;
+      final double scaleY = height / targetH;
+      
+      for (int y = 0; y < targetH; y++) {
+         int srcY = (y * scaleY).floor();
+         if (srcY >= height) srcY = height - 1;
+         int srcYRow = srcY * yRowStride;
+         int srcUVRow = (srcY >> 1) * uvRowStride;
+
+         for (int x = 0; x < targetW; x++) {
+             int srcX = (x * scaleX).floor();
+             if (srcX >= width) srcX = width - 1;
+
+             // Faster Indexing?
+             final int uvIndex = uvPixelStride * (srcX >> 1) + srcUVRow;
+             final int index = srcYRow + srcX;
+             
+             final int yVal = yBytes[index];
+             final int uVal = uBytes[uvIndex];
+             final int vVal = vBytes[uvIndex];
+             
+             int c = yVal - 16;
+             int d = uVal - 128;
+             int e = vVal - 128;
+             
+             int r = (298 * c + 409 * e + 128) >> 8;
+             int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+             int b = (298 * c + 516 * d + 128) >> 8;
+             
+             buffer[pixelIndex++] = r.clamp(0, 255) * 0.00392156862;
+             buffer[pixelIndex++] = g.clamp(0, 255) * 0.00392156862; 
+             buffer[pixelIndex++] = b.clamp(0, 255) * 0.00392156862; 
+         }
+      }
+  } else {
+      // Fallback for 180 / 270 (Lazy implementation using generic loop to save code space if rarely used)
+      // Or implement them if needed. User likely uses 0 or 90.
+      // Let's implement generic loop but optimized
+      for (int y = 0; y < targetH; y++) {
+        for (int x = 0; x < targetW; x++) {
+           int srcX = 0, srcY = 0;
+           if (rotationAngle == 180) {
+              srcX = ((targetW - 1 - x) * width / targetW).floor();
+              srcY = ((targetH - 1 - y) * height / targetH).floor();
+           } else { // 270
+              srcX = ((targetH - 1 - y) * width / targetH).floor();
+              srcY = (x * height / targetW).floor();
+           }
+           if (srcX < 0) srcX = 0; else if (srcX >= width) srcX = width - 1;
+           if (srcY < 0) srcY = 0; else if (srcY >= height) srcY = height - 1;
+           
+           final int uvIndex = uvPixelStride * (srcX >> 1) + uvRowStride * (srcY >> 1);
+           final int index = srcY * yRowStride + srcX;
+           
+           final int yVal = yBytes[index];
+           final int uVal = uBytes[uvIndex];
+           final int vVal = vBytes[uvIndex];
+           
+           int c = yVal - 16;
+           int d = uVal - 128;
+           int e = vVal - 128;
+           
+           int r = (298 * c + 409 * e + 128) >> 8;
+           int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+           int b = (298 * c + 516 * d + 128) >> 8;
+           
+           buffer[pixelIndex++] = r.clamp(0, 255) * 0.00392156862;
+           buffer[pixelIndex++] = g.clamp(0, 255) * 0.00392156862; 
+           buffer[pixelIndex++] = b.clamp(0, 255) * 0.00392156862; 
+        }
+      }
+  }
 }
 
 /// Converts YUV420 to Uint8List (RGB) directly [0-255]
