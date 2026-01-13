@@ -31,7 +31,7 @@ def draw_skeleton(frame, keypoints, connections, color=(0, 255, 0)):
              conf1 = pt1[2] if len(pt1) > 2 else 1.0
              conf2 = pt2[2] if len(pt2) > 2 else 1.0
              
-             if conf1 > 0.35 and conf2 > 0.35:
+             if conf1 > 0.01 and conf2 > 0.01: # [Debug] Lower to 0.01
                  x1, y1 = int(pt1[0] * w), int(pt1[1] * h)
                  x2, y2 = int(pt2[0] * w), int(pt2[1] * h)
                  cv2.line(frame, (x1, y1), (x2, y2), color, 2)
@@ -39,14 +39,16 @@ def draw_skeleton(frame, keypoints, connections, color=(0, 255, 0)):
     # Draw points
     for kp in keypoints:
         conf = kp[2] if len(kp) > 2 else 1.0
-        if conf > 0.35:
+        if conf > 0.25: # [Tuning] Raised to 0.30 to match detector.py
             x, y = int(kp[0] * w), int(kp[1] * h)
             cv2.circle(frame, (x, y), 3, color, -1)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Test Pet Trainer AI Detector")
     parser.add_argument("--video", type=str, required=True, help="Path to video file")
     parser.add_argument("--mode", type=str, default="playing", choices=["playing", "feeding", "interaction"], help="Game mode")
+    # parser.add_argument("--class_id", type=int, default=16, help="Target Pet Class ID") # Removed for auto-detect
     parser.add_argument("--output", type=str, default="auto", help="Output video path (optional)")
     parser.add_argument("--show", action="store_true", help="Show window (requires UI)")
     
@@ -128,6 +130,14 @@ def main():
     frame_idx = 0
     start_time_all = time.time()
     
+    # [NEW] Anti-Flickering State for Test
+    vision_state = {
+        "last_pet_box": None,
+        "missing_count": 0,
+        "is_tracking": False,
+        "last_response": None
+    }
+    
     # Loop Logic (Video vs Image)
     while True:
         if not is_image:
@@ -140,46 +150,86 @@ def main():
         
         t0 = time.time()
         
-        # Encode
-        _, buffer = cv2.imencode('.jpg', frame)
-        image_bytes = buffer.tobytes()
-        
-        # Process
+        # Process (Directly pass frame as numpy array, removing JPEG compression artifacts)
         result = process_frame(
-            image_bytes, 
+            frame, 
             mode=args.mode, 
-            target_class_id=16, # Default Dog
+            target_class_id=-1, # Auto-detect ANY pet
             process_interval=1, 
-            frame_index=frame_idx
+            frame_index=frame_idx,
+            vision_state=vision_state # [NEW] Pass State
         )
         
         dt = time.time() - t0
         stats["inference_time"].append(dt)
         stats["total_frames"] += 1
         
-        if result.get('bbox') and any(b[5] == 16 for b in result['bbox']):
+        # Count if ANY pet class is detected in this frame
+        if result.get('bbox') and any(b[5] in [14, 15, 16] for b in result['bbox']):
             stats["pet_detected"] += 1
             
         if result.get("success"):
             stats["interaction_success"] += 1
 
         # Draw
-        # 1. BBox
-        for box in result.get('bbox', []):
-            x1, y1, x2, y2, conf, cls_id = box
-            ix1, iy1 = int(x1*width), int(y1*height)
-            ix2, iy2 = int(x2*width), int(y2*height)
-            
-            color = (255, 0, 0)
-            if cls_id == 16: color = (0, 165, 255) # Dog: Orange
-            elif cls_id == 0: color = (0, 255, 0) # Human: Green
-            
-            cv2.rectangle(frame, (ix1, iy1), (ix2, iy2), color, 2)
-            label = f"ID:{int(cls_id)} {conf:.2f}"
-            cv2.putText(frame, label, (ix1, iy1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        # Draw
+        # 1. BBox (Use Rich Detections if available)
+        if 'detections' in result:
+            for det in result['detections']:
+                x1, y1, x2, y2 = det['box']
+                label_text = det['label']
+                color = det['color'] # Tuple/List from backend
+                conf = det['conf']
+                cls_id = det['class_id']
+                
+                ix1, iy1 = int(x1*width), int(y1*height)
+                ix2, iy2 = int(x2*width), int(y2*height)
+                
+                # Ensure color is a tuple of integers
+                if isinstance(color, list): color = tuple(color)
+                
+                cv2.rectangle(frame, (ix1, iy1), (ix2, iy2), color, 2)
+                
+                label_display = f"{label_text}({cls_id}) {conf:.2f}"
+                cv2.putText(frame, label_display, (ix1, iy1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        else:
+            # Fallback legacy logic
+            for box in result.get('bbox', []):
+                x1, y1, x2, y2, conf, cls_id = box
+                ix1, iy1 = int(x1*width), int(y1*height)
+                ix2, iy2 = int(x2*width), int(y2*height)
+                
+                color = (255, 0, 0)
+                class_name = "Unknown"
+                if cls_id == 16: 
+                    color = (0, 165, 255) # Dog: Orange
+                    class_name = "Dog"
+                elif cls_id == 15: 
+                    color = (0, 128, 255) # Cat: Orange-ish/Yellow
+                    class_name = "Cat"
+                elif cls_id == 14: 
+                    color = (255, 255, 0) # Bird: Cyan
+                    class_name = "Bird"
+                elif cls_id == 0: 
+                    color = (0, 255, 0) # Human: Green
+                    class_name = "Human"
+                
+                cv2.rectangle(frame, (ix1, iy1), (ix2, iy2), color, 2)
+                label = f"{class_name}({int(cls_id)}) {conf:.2f}"
+                cv2.putText(frame, label, (ix1, iy1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
         # 2. Skeletons
         if 'pet_keypoints' in result:
+            kps = result['pet_keypoints']
+            if kps:
+                # [Debug] Print first keypoint confidence stats (ALWAYS PRINT)
+                confs = [k[2] for k in kps if len(k) > 2]
+                avg_conf = sum(confs)/len(confs) if confs else 0
+                print(f"Frame {frame_idx}: Found {len(kps)} KPs. Avg Conf: {avg_conf:.4f}. Max: {max(confs) if confs else 0:.4f}")
+            else:
+                 if result.get('bbox') and any(b[5] in [14, 15, 16] for b in result['bbox']):
+                     print(f"Frame {frame_idx}: Box Found but NO Keypoints!") # Debug clue
+            
             draw_skeleton(frame, result['pet_keypoints'], pet_connections, (0, 165, 255))
         if 'human_keypoints' in result:
             draw_skeleton(frame, result['human_keypoints'], human_connections, (0, 255, 0))
@@ -220,7 +270,7 @@ def main():
     
     print(f"\n\n=== Analysis Report ===")
     print(f"Total Frames: {stats['total_frames']}")
-    print(f"Pet Detected: {stats['pet_detected']} ({stats['pet_detected']/stats['total_frames']*100:.1f}%)")
+    print(f"Pet Detected (Any): {stats['pet_detected']} ({stats['pet_detected']/stats['total_frames']*100:.1f}%)")
     print(f"Interaction Success: {stats['interaction_success']}")
     print(f"Avg Inference Time: {avg_inf*1000:.1f}ms per frame")
     print(f"Total Processing Time: {total_time:.1f}s")

@@ -460,14 +460,35 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                         ],
                       ),
                       const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: (stat?.exp ?? 0) / maxExp,
-                        backgroundColor: Colors.brown[100],
-                        color: Colors.brown[400],
-                        minHeight: 8,
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: LinearProgressIndicator(
+                              value: (stat?.exp ?? 0) / maxExp,
+                              backgroundColor: Colors.brown[100],
+                              color: Colors.brown[400],
+                              minHeight: 18,
+                            ),
+                          ),
+                          Text(
+                            "EXP ${stat?.exp ?? 0} / $maxExp",
+                            style: GoogleFonts.jua(
+                              color: Colors.white,
+                              fontSize: 11, 
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                const Shadow(
+                                  offset: Offset(0, 1),
+                                  blurRadius: 2.0,
+                                  color: Color(0x80000000),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      Text("EXP ${stat?.exp ?? 0} / $maxExp", style: GoogleFonts.jua(color: Colors.grey[600], fontSize: 12)),
                       const SizedBox(height: 12),
 
                       // Card Body (Radar Chart and Stats)

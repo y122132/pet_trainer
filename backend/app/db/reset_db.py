@@ -5,8 +5,8 @@ import os
 # 프로젝트 루트 디렉토리를 path에 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.db.database import engine, Base
-# 모델들을 임포트해야 metadata에 등록되어 테이블이 생성됩니다.
+from app.db.database import engine, Base, AsyncSessionLocal
+from app.db.models import user, character, guestbook  # 모든 모델 로드
 from app.db.models.user import User
 from app.db.models.character import Character, Stat, ActionLog
 

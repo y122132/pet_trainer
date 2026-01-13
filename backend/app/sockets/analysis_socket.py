@@ -87,8 +87,8 @@ async def analysis_endpoint(
                 async with AsyncSessionLocal() as db:
                     char_stats = {"strength": 0, "happiness": 0} # Default
                     
-                    # [Fix] user_id로 캐릭터 조회 후 char_id 사용
-                    # get_character_with_stats는 char_id를 받도록 설계되어 있음. 
+                     # [Fix] user_id로 캐릭터 조회 후 char_id 사용
+                    # get_character는 char_id를 받도록 설계되어 있음. 
                     
                     # 따라서 먼저 user_id에 해당하는 캐릭터를 찾아야 함.
                     from sqlalchemy import select
@@ -100,7 +100,7 @@ async def analysis_endpoint(
                     
                     if character_obj:
                          # 캐릭터가 있으면 스탯 로딩
-                         character = await char_service.get_character_with_stats(db, character_obj.id)
+                         character = await char_service.get_character(db, character_obj.id)
                          if character and character.stat:
                              char_stats = {
                                 "strength": character.stat.strength,
@@ -141,6 +141,14 @@ async def analysis_endpoint(
     # [NEW] 연결 직후 초기 인사 (Greeting)
     # 앱 시작 시 침묵(Startup Silence) 방지
     await trigger_llm("greeting", is_success=False)
+    
+    # [NEW] Anti-Flickering State
+    vision_state = {
+        "last_pet_box": None,
+        "missing_count": 0,
+        "is_tracking": False,
+        "last_response": None # [NEW] Zero-Order Hold (프레임 스킵용 캐시)
+    }
 
     
     # [Optimization] 프레임 스킵 카운터
@@ -191,7 +199,8 @@ async def analysis_endpoint(
                 difficulty,
                 frame_index=frame_count,
                 process_interval=PROCESS_INTERVAL,
-                frame_id=frame_id  # [NEW] Pass ID
+                frame_id=frame_id,  # [NEW] Pass ID
+                vision_state=vision_state # [NEW] Inject State
             )
 
             if result.get("skipped", False):

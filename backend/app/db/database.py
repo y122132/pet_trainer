@@ -39,6 +39,8 @@ async def init_db():
     from app.db.models import user, character, friendship, diary
     
     async with engine.begin() as conn:
+        # 기존 테이블 삭제 (개발용)
+        await conn.run_sync(Base.metadata.drop_all)
         # 테이블 생성
         await conn.run_sync(Base.metadata.create_all)
         
