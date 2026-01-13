@@ -1,10 +1,11 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import os
-from dotenv import load_dotenv
-
 from pathlib import Path
+from fastapi import FastAPI
+from requests import Request
+from dotenv import load_dotenv
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+
 
 # 현재 파일(main.py)의 위치: backend/app/main.py
 # 루트 .env 위치: backend/app/../../.env -> Project Root
@@ -100,3 +101,9 @@ async def on_shutdown():
     서버 종료 시 리소스를 안전하게 해제합니다.
     """
     await RedisManager.close() # Redis 연결 풀 닫기
+
+@app.middleware("http")
+async def update_last_active(request: Request, call_next):
+    # 토큰이 있는 요청인 경우 current_user의 last_active_at을 갱신하는 로직 추가 가능
+    response = await call_next(request)
+    return response

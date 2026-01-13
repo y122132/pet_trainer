@@ -1,7 +1,8 @@
 # backend/app/services/user_service.py
 from app.db.models.user import User
 from sqlalchemy.future import select
-from fastapi import HTTPException, status
+from datetime import timedelta, datetime, timezone
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import get_password_hash, verify_password, create_access_token
 
@@ -28,9 +29,6 @@ async def register_user(db: AsyncSession, user_in):
     return {"message": "회원가입 성공"}
 
 async def authenticate_user(db: AsyncSession, user_in):
-    """
-    로그인 비즈니스 로직: 자격 증명 확인 및 토큰 발급
-    """
     # 1. 유저 조회 (캐릭터 정보도 함께 로딩)
     from sqlalchemy.orm import selectinload
     stmt = select(User).options(selectinload(User.character)).where(User.username == user_in.username)
@@ -41,9 +39,15 @@ async def authenticate_user(db: AsyncSession, user_in):
     if not user or not verify_password(user_in.password, user.password):
         return None # 검증 실패 시 None 반환 (라우터에서 예외 처리)
     
+
+
+    user.last_active_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    
+    await db.commit()
+    await db.refresh(user)
+
     # 3. JWT 토큰 생성
     # ACCESS_TOKEN_EXPIRE_MINUTES를 security 모듈에서 가져와야 함 (import 필요)
-    from datetime import timedelta
     from app.core.security import ACCESS_TOKEN_EXPIRE_MINUTES
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -51,19 +55,18 @@ async def authenticate_user(db: AsyncSession, user_in):
         data={"sub": str(user.id)}, 
         expires_delta=access_token_expires
     )
-    
-    # 4. 캐릭터 존재 여부 확인 (Eager Loading 권장하지만 여기서는 간단히 로직 처리)
-    # user.character가 로딩되지 않았을 수 있으므로 명시적 쿼리 또는 selectinload 사용
-    # 여기서는 상단의 select 문을 수정하는 것이 가장 깔끔함.
-    
+
+    # 캐릭터 존재 여부 확인
+
     return {
         "access_token": access_token, 
         "token_type": "bearer", 
         "user_id": user.id,
         "username": user.username,
         "nickname": user.nickname,
-        "character_id": user.character.id if user.character else None, # [New] 캐릭터 ID 반환
-        "has_character": bool(user.character) # selectinload가 적용되었다면 바로 접근 가능
+        "character_id": user.character.id if user.character else None,
+        "has_character": bool(user.character), 
+        "last_active_at": user.last_active_at.isoformat(),
     }
 
 async def get_all_users(db: AsyncSession, query: str = None):

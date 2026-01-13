@@ -115,12 +115,22 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   void _triggerDash(int attackerId) async {
     final myId = Provider.of<CharProvider>(context, listen: false).character?.userId;
     setState(() => _attackerId = attackerId);
+
+    const double moveX = 160.0; 
+    const double moveY = 80.0;
+
     _dashAnimation = Tween<Offset>(
       begin: Offset.zero,
-      end: attackerId == myId ? const Offset(50, -50) : const Offset(-50, 50),
-    ).animate(CurvedAnimation(parent: _dashController, curve: Curves.easeInOut));
+      end: attackerId == myId 
+        ? const Offset(moveX, -moveY)   // 나: 오른쪽 위로 돌진 (X+, Y-)
+        : const Offset(-moveX, moveY),  // 상대: 왼쪽 아래로 돌진 (X-, Y+)
+    ).animate(CurvedAnimation(
+      parent: _dashController,
+      curve: Curves.easeOutBack
+    ));
 
     await _dashController.forward();
+    await Future.delayed(const Duration(milliseconds: 50));
     await _dashController.reverse();
   }
 
@@ -183,7 +193,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
                 _buildPlayerArea(state, myId, charProvider),
                 _buildBattleLogArea(state.logs),
                 _buildSkillPanel(displaySkills, state, controller),
-                _buildEffects(myId),
+                _buildEffects(myId, state),
               ],
             ),
           ),
@@ -207,9 +217,24 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   Widget _buildOpponentArea(dynamic state, int myId) {
     return Stack(
       children: [
-        Positioned(top: 130, right: 40, child: Transform.scale(scale: 0.9, child: _buildAnimatedAvatar(state.oppPetType, state.oppSideUrl, false, myId))),
         Positioned(
-          top: 100, left: 20, right: 20, 
+          top: 250, 
+          right: 40, 
+          child: Transform.scale(
+            scale: 0.9, 
+            child: _buildAnimatedAvatar(
+              state.oppPetType, 
+              state.oppSideUrl, 
+              false, 
+              myId,
+              state
+            )
+          )
+        ),
+        Positioned(
+          top: 140, 
+          left: 20, 
+          right: 20, 
           child: SafeArea(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end, 
@@ -232,9 +257,22 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   Widget _buildPlayerArea(dynamic state, int myId, CharProvider charProvider) {
     return Stack(
       children: [
-        Positioned(bottom: 350, left: 50, child: Transform.scale(scale: 1.1, child: _buildAnimatedAvatar(charProvider.currentPetType, charProvider.character?.sideUrl, true, myId))),
         Positioned(
-          bottom: 330, left: 20, right: 20, 
+          bottom: 430, 
+          left: 20, 
+          child: Transform.scale(
+            scale: 1.1, 
+            child: _buildAnimatedAvatar(
+              charProvider.currentPetType, 
+              charProvider.character?.sideUrl, 
+              true, 
+              myId, 
+              state
+            )
+          )
+        ),
+        Positioned(
+          bottom: 340, left: 20, right: 20, 
           child: Row(
             children: [
               _buildGlassHud(
@@ -251,20 +289,38 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildAnimatedAvatar(String petType, String? url, bool isMe, int myId) {
+  Widget _buildAnimatedAvatar(String petType, String? url, bool isMe, int myId, dynamic state) {
+    final String fullUrl = (url != null && url.isNotEmpty)
+      ? (url.startsWith('http') ? url : "${AppConfig.baseUrl.replaceFirst('/v1', '')}$url")
+      : "";
+
     return AnimatedBuilder(
       animation: Listenable.merge([_dashAnimation, _shakeAnimation]),
       builder: (ctx, child) {
-        Offset dashOff = (_attackerId == (isMe ? myId : _controller.state.oppId)) ? _dashAnimation.value : Offset.zero;
-        double shakeX = (_shakeTargetId == (isMe ? myId : _controller.state.oppId)) ? _shakeAnimation.value : 0.0;
+        final int targetId = isMe ? myId : (state.oppId ?? 0);
+
+        Offset dashOff = (_attackerId == (isMe ? myId : state.oppId)) ? _dashAnimation.value : Offset.zero;
+        double shakeX = (_shakeTargetId == (isMe ? myId : state.oppId)) ? _shakeAnimation.value : 0.0;
+        
         return Transform.translate(offset: dashOff + Offset(shakeX, 0), child: child);
       },
-      child: BattleAvatarWidget(petType: petType, idleAnimation: _idleAnimation, imageType: 'side', sideUrl: url, damageOpacity: 0.0),
+      child: BattleAvatarWidget(
+        petType: petType, 
+        idleAnimation: _idleAnimation, 
+        imageType: 'side', 
+        sideUrl: fullUrl, 
+        damageOpacity: 0.0
+      ),
     );
   }
 
   Widget _buildBattleLogArea(List<String> logs) {
-    return Positioned(top: 170, left: 40, right: 40, height: 40, child: Center(child: BattleLogWidget(logs: logs)));
+    return Positioned(
+      top: 160, 
+      left: 40, 
+      right: 40, 
+      height: 40, 
+      child: Center(child: BattleLogWidget(logs: logs)));
   }
 
   Widget _buildSkillPanel(List<Map<String, dynamic>?> skills, dynamic state, BattleProvider controller) {
@@ -285,7 +341,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildEffects(int myId) {
+  Widget _buildEffects(int myId, dynamic state) {
     return Stack(
       children: [
         IgnorePointer(child: FloatingTextOverlay(items: _floatingTexts, myId: myId)),
@@ -293,7 +349,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
           animation: _flashAnimation,
           builder: (context, child) => IgnorePointer(child: Container(color: Colors.white.withOpacity(_flashAnimation.value < 0.5 ? _flashAnimation.value : (1.0 - _flashAnimation.value)))),
         ),
-        if (_controller.state.isOpponentThinking && _controller.state.isConnected)
+        if (state.isOpponentThinking && state.isConnected)
           Positioned(bottom: 310, right: 20, child: _buildThinkingIndicator()),
       ],
     );
@@ -375,7 +431,13 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       builder: (context) => AlertDialog(
         title: Text(iWon ? "승리" : "패배"),
         content: Text(specialMessage ?? (iWon ? "축하합니다!" : "아쉽네요.")),
-        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("나가기"))],
+        actions: [TextButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+            Navigator.of(context).pop();
+          },
+          child: const Text("나가기")
+        )],
       ),
     );
   }

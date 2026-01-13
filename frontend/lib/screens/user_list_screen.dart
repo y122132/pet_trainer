@@ -1,20 +1,20 @@
 // frontend/lib/screens/user_list_screen.dart
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'battle_page.dart';
 import 'chat_screen.dart';
 import '../api_config.dart';
 import '../config/theme.dart';
+import 'pet_universe_screen.dart';
 import '../widgets/cute_avatar.dart';
+import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
 import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
 import '../services/battle_service.dart';
 import '../providers/chat_provider.dart';
 import '../providers/battle_provider.dart';
-import 'pet_universe_screen.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class UserListScreen extends StatefulWidget {
   final int initialTab;
@@ -42,6 +42,32 @@ class _UserListScreenState extends State<UserListScreen>
   bool _isLoading = false;
   int? _myId;
   String? _token;
+
+  String _getTimeAgo(String? isoTimestamp) {
+    if (isoTimestamp == null || isoTimestamp.isEmpty) return "접속 기록 없음";
+    
+    try {
+      // 서버의 UTC 시간을 내 로컬 시간으로 변환
+      String formattedTimestamp = isoTimestamp;
+      if (!formattedTimestamp.endsWith('Z') && !formattedTimestamp.contains('+')) {
+        formattedTimestamp += 'Z'; 
+      }
+      DateTime lastActive = DateTime.parse(isoTimestamp).toLocal();
+      DateTime now = DateTime.now();
+      Duration diff = now.difference(lastActive);
+
+      if (diff.inMinutes < 1) return "방금 전";
+      if (diff.inMinutes < 60) return "${diff.inMinutes}분 전";
+      if (diff.inHours < 24) return "${diff.inHours}시간 전";
+      if (diff.inDays < 7) return "${diff.inDays}일 전";
+      
+      // 일주일 이상 지나면 날짜 표시 (예: 1월 12일)
+      return "${lastActive.month}월 ${lastActive.day}일";
+    } catch (e) {
+      debugPrint("Time Parsing Error: $e");
+      return "기록 없음";
+    }
+  }
 
   // 색상 상수
   static const Color creamBackground = Color(0xFFFFF9E6);
@@ -192,6 +218,38 @@ class _UserListScreenState extends State<UserListScreen>
     } catch (e) {
       debugPrint("Error accepting request: $e");
     }
+  }
+
+  // 프로필 이미지를 생성
+  Widget _buildProfileImage(dynamic user, double size) {
+    final String? faceUrl = user['face_url'];
+    
+    final String fullImageUrl = (faceUrl != null && faceUrl.isNotEmpty)
+        ? "${AppConfig.baseUrl.replaceFirst('/v1', '')}$faceUrl"
+        : "";
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: darkBrown.withOpacity(0.2), width: 1.5),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))
+        ],
+      ),
+      child: ClipOval(
+        child: fullImageUrl.isNotEmpty
+            ? Image.network(
+                fullImageUrl,
+                fit: BoxFit.cover,
+                // 이미지 로드 실패 시 기본 아바타 표시
+                errorBuilder: (context, error, stackTrace) => 
+                    CuteAvatar(petType: user['pet_type'] ?? 'dog', size: size),
+              )
+            : CuteAvatar(petType: user['pet_type'] ?? 'dog', size: size),
+      ),
+    );
   }
 
   // --- ACTIONS ---
@@ -360,7 +418,7 @@ class _UserListScreenState extends State<UserListScreen>
                 padding: const EdgeInsets.only(bottom: 8.0),
                 child: Row(
                   children: [
-                    const CuteAvatar(petType: "dog", size: 40),
+                    _buildProfileImage(user, 40),
                     const SizedBox(width: 12),
                     Expanded(
                         child: Text(user['nickname'] ?? user['username'],
@@ -413,7 +471,7 @@ class _UserListScreenState extends State<UserListScreen>
               // 1. 아바타와 상태 표시 점 (Stack 사용)
               Stack(
                 children: [
-                  CuteAvatar(petType: user['pet_type'] ?? 'dog', size: 55),
+                  _buildProfileImage(user, 55),
                   Positioned(
                     right: 1,
                     bottom: 1,
@@ -454,10 +512,19 @@ class _UserListScreenState extends State<UserListScreen>
                         Text(
                           isOnline ? "접속 중" : "오프라인",
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 12,
                             color: isOnline ? Colors.green : Colors.grey,
+                            fontWeight: isOnline ? FontWeight.bold : FontWeight.normal,
                           ),
                         ),
+                        if (!isOnline) 
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Text(
+                              "(${_getTimeAgo(user['last_active_at'])})", 
+                              style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+                            ),
+                          ),
                         const Spacer(),
                                                 
                         Consumer<ChatProvider>(
@@ -683,7 +750,7 @@ class _UserListScreenState extends State<UserListScreen>
       ),
       child: Row(
         children: [
-          const CuteAvatar(petType: "dog", size: 45),
+          _buildProfileImage(user, 45),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
@@ -704,4 +771,5 @@ class _UserListScreenState extends State<UserListScreen>
       ),
     );
   }
+
 }

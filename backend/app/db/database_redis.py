@@ -46,5 +46,10 @@ class RedisManager:
     @classmethod
     async def publish_chat_notification(cls, receiver_id: int, payload: dict):
         client = cls.get_client()
-        message = json.dumps(payload, ensure_ascii=False)
-        await client.publish(f"user_notify_{receiver_id}", message)
+        try:
+            message = json.dumps(payload, ensure_ascii=False)
+            # return을 추가하여 구독자 수(int)를 반환하도록 합니다.
+            return await client.publish(f"user_notify_{receiver_id}", message)
+        finally:
+            # 클라이언트 연결을 명시적으로 닫기 (연결 풀 반환)
+            await client.aclose()
