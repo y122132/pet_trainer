@@ -16,6 +16,7 @@ router = APIRouter(tags=["guestbook"])
 # --- Schemas ---
 class GuestbookEntryCreate(BaseModel):
     content: str
+    is_secret: Optional[bool] = False
 
 class GuestbookAuthorResponse(BaseModel):
     id: int
@@ -27,6 +28,7 @@ class GuestbookEntryResponse(BaseModel):
     user_id: int # 방명록 주인 ID
     author_id: int # 작성자 ID
     content: str
+    is_secret: bool # 비밀글 여부
     created_at: datetime
     author: GuestbookAuthorResponse # 작성자 정보
 
@@ -46,41 +48,37 @@ async def create_guestbook_entry(
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
 
-    # 2. Get author info
-    author_user = await db.get(User, current_user_id, options=[selectinload(User.character)])
-    if not author_user:
-         raise HTTPException(status_code=404, detail="Author (current user) not found")
-
-    # 3. Create new entry
+    # 2. Create new entry
     new_entry = GuestbookEntry(
         user_id=target_user_id,
         author_id=current_user_id,
         content=entry_create.content,
+        is_secret=entry_create.is_secret,
         created_at=datetime.utcnow()
     )
     db.add(new_entry)
     await db.commit()
-    await db.refresh(new_entry)
-    
-    author_pet_type = author_user.character.pet_type if author_user.character else "dog"
 
-    return GuestbookEntryResponse(
-        id=new_entry.id,
-        user_id=new_entry.user_id,
-        author_id=new_entry.author_id,
-        content=new_entry.content,
-        created_at=new_entry.created_at,
-        author=GuestbookAuthorResponse(
-            id=author_user.id,
-            nickname=author_user.nickname or author_user.username,
-            pet_type=author_pet_type,
-        )
+    # 3. Re-fetch the new entry with all relationships loaded for the response
+    # This ensures the 'author' and 'author.character' data is included
+    result = await db.execute(
+        select(GuestbookEntry)
+        .where(GuestbookEntry.id == new_entry.id)
+        .options(selectinload(GuestbookEntry.author).selectinload(User.character))
     )
+    final_entry = result.scalar_one_or_none()
+
+    if not final_entry:
+        raise HTTPException(status_code=500, detail="Could not retrieve created entry")
+    
+    # Let FastAPI serialize the ORM model using the response_model
+    return final_entry
 
 @router.get("/user/{target_user_id}", response_model=List[GuestbookEntryResponse])
 async def get_guestbook_entries(
     target_user_id: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user_id: Optional[int] = Depends(get_current_user_id)
 ):
     """특정 유저의 방명록 목록을 조회합니다."""
     
@@ -97,13 +95,25 @@ async def get_guestbook_entries(
     
     response_list = []
     for entry in entries:
+        # 방명록 작성자가 삭제되는 등 데이터 불일치 상황에 대한 방어 코드
+        if not entry.author:
+            continue
+
+        content = entry.content
+        # 비밀글 처리
+        if entry.is_secret:
+            # 로그인하지 않았거나, 주인이 아니고, 작성자도 아니면 내용을 숨김
+            if not current_user_id or (current_user_id != entry.user_id and current_user_id != entry.author_id):
+                content = "🔒 비밀글입니다."
+
         author_pet_type = entry.author.character.pet_type if entry.author.character else "dog"
         response_list.append(
             GuestbookEntryResponse(
                 id=entry.id,
                 user_id=entry.user_id,
                 author_id=entry.author_id,
-                content=entry.content,
+                content=content,
+                is_secret=entry.is_secret,
                 created_at=entry.created_at,
                 author=GuestbookAuthorResponse(
                     id=entry.author.id,

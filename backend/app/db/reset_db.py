@@ -6,7 +6,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.db.database import engine, Base, AsyncSessionLocal
-from app.db.models import user, character  # 모든 모델 로드
+from app.db.models import user, character, guestbook  # 모든 모델 로드
 from app.db.models.user import User
 from app.db.models.character import Character, Stat
 from app.core.security import get_password_hash

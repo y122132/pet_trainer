@@ -1166,83 +1166,195 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
 
 
 
-  Widget _buildGuestbookCard(GuestbookEntry entry) {
+    Widget _buildGuestbookCard(GuestbookEntry entry) {
 
-    return Container(
 
-      margin: const EdgeInsets.only(bottom: 16),
 
-      padding: const EdgeInsets.all(16),
+      return Container(
 
-      decoration: BoxDecoration(
 
-        color: const Color(0xFFFFF9E6).withOpacity(0.5),
 
-        borderRadius: BorderRadius.circular(20),
+        margin: const EdgeInsets.only(bottom: 16),
 
-        border: Border.all(color: const Color(0xFFF5EFE6)),
 
-      ),
 
-      child: Row(
+        padding: const EdgeInsets.all(16),
 
-        crossAxisAlignment: CrossAxisAlignment.start,
 
-        children: [
 
-          CuteAvatar(petType: entry.authorPetType ?? 'dog', size: 44),
+        decoration: BoxDecoration(
 
-          const SizedBox(width: 16),
 
-          Expanded(
 
-            child: Column(
+          color: const Color(0xFFFFF9E6).withOpacity(0.5),
 
-              crossAxisAlignment: CrossAxisAlignment.start,
 
-              children: [
 
-                Text(
+          borderRadius: BorderRadius.circular(20),
 
-                  entry.authorNickname,
 
-                  style: GoogleFonts.jua(fontSize: 16, color: const Color(0xFF4E342E), fontWeight: FontWeight.bold),
 
-                ),
+          border: Border.all(color: const Color(0xFFF5EFE6)),
 
-                const SizedBox(height: 8),
 
-                Text(
 
-                  entry.content,
+        ),
 
-                  style: GoogleFonts.jua(fontSize: 15, color: const Color(0xFF795548), height: 1.5),
 
-                ),
 
-                const SizedBox(height: 8),
+        child: Row(
 
-                Text(
 
-                  entry.createdAt.substring(0, 10), // Just date part
 
-                  style: GoogleFonts.jua(fontSize: 12, color: Colors.grey[400]),
+          crossAxisAlignment: CrossAxisAlignment.start,
 
-                ),
 
-              ],
+
+          children: [
+
+
+
+            CuteAvatar(petType: entry.authorPetType ?? 'dog', size: 44),
+
+
+
+            const SizedBox(width: 16),
+
+
+
+            Expanded(
+
+
+
+              child: Column(
+
+
+
+                crossAxisAlignment: CrossAxisAlignment.start,
+
+
+
+                children: [
+
+
+
+                  Row(
+
+
+
+                    children: [
+
+
+
+                      Text(
+
+
+
+                        entry.authorNickname,
+
+
+
+                        style: GoogleFonts.jua(fontSize: 16, color: const Color(0xFF4E342E), fontWeight: FontWeight.bold),
+
+
+
+                      ),
+
+
+
+                      if (entry.isSecret)
+
+
+
+                        const Padding(
+
+
+
+                          padding: EdgeInsets.only(left: 6.0),
+
+
+
+                          child: Icon(Icons.lock, size: 14, color: Color(0xFF8D6E63)),
+
+
+
+                        ),
+
+
+
+                    ],
+
+
+
+                  ),
+
+
+
+                  const SizedBox(height: 8),
+
+
+
+                  Text(
+
+
+
+                    entry.content,
+
+
+
+                    style: GoogleFonts.jua(fontSize: 15, color: const Color(0xFF795548), height: 1.5),
+
+
+
+                  ),
+
+
+
+                  const SizedBox(height: 8),
+
+
+
+                  Text(
+
+
+
+                    entry.createdAt.substring(0, 10), // Just date part
+
+
+
+                    style: GoogleFonts.jua(fontSize: 12, color: Colors.grey[400]),
+
+
+
+                  ),
+
+
+
+                ],
+
+
+
+              ),
+
+
 
             ),
 
-          ),
 
-        ],
 
-      ),
+          ],
 
-    );
 
-  }
+
+        ),
+
+
+
+      );
+
+
+
+    }
 
 
 
@@ -1982,25 +2094,53 @@ class _AddGuestbookEntrySheet extends StatefulWidget {
 
 class _AddGuestbookEntrySheetState extends State<_AddGuestbookEntrySheet> {
 
+
+
   final TextEditingController _contentController = TextEditingController();
+
+
 
   bool _isSubmitting = false;
 
 
 
+  bool _isSecret = false; // 비밀글 여부 상태
+
+
+
+
+
+
+
   Future<void> _submit() async {
+
+
 
     if (_contentController.text.trim().isEmpty) {
 
+
+
       ScaffoldMessenger.of(context).showSnackBar(
+
+
 
         const SnackBar(content: Text("내용을 입력해주세요.")),
 
+
+
       );
+
+
 
       return;
 
+
+
     }
+
+
+
+
 
 
 
@@ -2008,213 +2148,561 @@ class _AddGuestbookEntrySheetState extends State<_AddGuestbookEntrySheet> {
 
 
 
+
+
+
+
     try {
+
+
 
       final token = await AuthService().getToken();
 
+
+
       final response = await http.post(
+
+
 
         Uri.parse('${AppConfig.baseUrl}/guestbook/user/${widget.userId}'),
 
+
+
         headers: {
+
+
 
           'Authorization': 'Bearer $token',
 
+
+
           'Content-Type': 'application/json; charset=UTF-8',
+
+
 
         },
 
-        body: jsonEncode({'content': _contentController.text.trim()}),
+
+
+        body: jsonEncode({
+
+
+
+          'content': _contentController.text.trim(),
+
+
+
+          'is_secret': _isSecret, // 비밀글 여부 전송
+
+
+
+        }),
+
+
 
       );
 
 
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
 
-        final newEntry = GuestbookEntry.fromJson(jsonDecode(utf8.decode(response.bodyBytes)));
 
-        widget.onSave(newEntry);
 
-        if (mounted) {
 
-          Navigator.pop(context);
+            if (response.statusCode >= 200 && response.statusCode < 300) {
 
-          ScaffoldMessenger.of(context).showSnackBar(
 
-            const SnackBar(content: Text("방명록이 저장되었습니다!")),
 
-          );
 
-        }
+
+
+
+              final responseBody = utf8.decode(response.bodyBytes);
+
+
+
+
+
+
+
+              print("----------- SERVER RESPONSE START -----------");
+
+
+
+
+
+
+
+              print(responseBody);
+
+
+
+
+
+
+
+              print("------------ SERVER RESPONSE END ------------");
+
+
+
+
+
+
+
+              final newEntry = GuestbookEntry.fromJson(jsonDecode(responseBody));
+
+
+
+
+
+
+
+      
+
+
+
+
+
+
+
+              widget.onSave(newEntry);
+
+
+
+
+
+
+
+              if (mounted) {
+
+
+
+
+
+
+
+                Navigator.pop(context);
+
+
+
+
+
+
+
+                ScaffoldMessenger.of(context).showSnackBar(
+
+
+
+
+
+
+
+                  const SnackBar(content: Text("방명록이 저장되었습니다!")),
+
+
+
+
+
+
+
+                );
+
+
+
+
+
+
+
+              }
+
+
 
       } else {
 
+
+
         if (mounted) {
+
+
 
           ScaffoldMessenger.of(context).showSnackBar(
 
+
+
             SnackBar(content: Text("저장에 실패했습니다. (${response.statusCode})")),
+
+
 
           );
 
+
+
         }
 
+
+
       }
+
+
 
     } catch (e) {
 
+
+
       if (mounted) {
+
+
 
         ScaffoldMessenger.of(context).showSnackBar(
 
+
+
           SnackBar(content: Text("에러가 발생했습니다: $e")),
+
+
 
         );
 
+
+
       }
+
+
 
     } finally {
 
+
+
       if (mounted) {
+
+
 
         setState(() => _isSubmitting = false);
 
+
+
       }
+
+
 
     }
 
+
+
   }
+
+
+
+
 
 
 
   @override
 
+
+
   Widget build(BuildContext context) {
+
+
 
     return Container(
 
+
+
       decoration: const BoxDecoration(
+
+
 
         color: Color(0xFFFFF9E6),
 
+
+
         borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
 
+
+
       ),
+
+
 
       padding: EdgeInsets.only(
 
+
+
         bottom: MediaQuery.of(context).viewInsets.bottom,
+
+
 
         left: 20,
 
+
+
         right: 20,
+
+
 
         top: 24,
 
+
+
       ),
+
+
 
       child: SingleChildScrollView(
 
+
+
         child: Column(
+
+
 
           mainAxisSize: MainAxisSize.min,
 
+
+
           crossAxisAlignment: CrossAxisAlignment.stretch,
+
+
 
           children: [
 
+
+
             Text(
+
+
 
               "방명록 남기기",
 
+
+
               style: GoogleFonts.jua(fontSize: 20, color: const Color(0xFF5D4037)),
+
+
 
             ),
 
+
+
             const SizedBox(height: 24),
+
+
 
             TextField(
 
+
+
               controller: _contentController,
+
+
 
               autofocus: true,
 
+
+
               style: GoogleFonts.jua(color: const Color(0xFF5D4037)),
+
+
 
               decoration: InputDecoration(
 
+
+
                 hintText: "따뜻한 응원의 메시지를 남겨주세요...",
+
+
 
                 hintStyle: GoogleFonts.jua(color: const Color(0xFFBCAAA4)),
 
+
+
                 filled: true,
+
+
 
                 fillColor: const Color(0xFFF5EFE6),
 
+
+
                 border: OutlineInputBorder(
+
+
 
                   borderRadius: BorderRadius.circular(15),
 
+
+
                   borderSide: BorderSide.none,
+
+
 
                 ),
 
+
+
               ),
+
+
 
               maxLines: 5,
 
+
+
             ),
 
-            const SizedBox(height: 24),
+
+
+            const SizedBox(height: 8),
+
+
+
+            CheckboxListTile(
+
+
+
+              value: _isSecret,
+
+
+
+              onChanged: (bool? value) {
+
+
+
+                setState(() {
+
+
+
+                  _isSecret = value ?? false;
+
+
+
+                });
+
+
+
+              },
+
+
+
+              title: Text("비밀글로 남기기", style: GoogleFonts.jua(color: const Color(0xFF795548))),
+
+
+
+              controlAffinity: ListTileControlAffinity.leading,
+
+
+
+              activeColor: const Color(0xFF5D4037),
+
+
+
+              contentPadding: EdgeInsets.zero,
+
+
+
+            ),
+
+
+
+            const SizedBox(height: 8),
+
+
 
             ElevatedButton(
 
+
+
               onPressed: _isSubmitting ? null : _submit,
+
+
 
               style: ElevatedButton.styleFrom(
 
+
+
                 backgroundColor: const Color(0xFF5D4037),
+
+
 
                 padding: const EdgeInsets.symmetric(vertical: 16),
 
+
+
                 shape: const StadiumBorder(),
+
+
 
               ),
 
+
+
               child: _isSubmitting
+
+
 
                   ? const SizedBox(
 
+
+
                       width: 24,
+
+
 
                       height: 24,
 
+
+
                       child: CircularProgressIndicator(color: Colors.white),
+
+
 
                     )
 
+
+
                   : Text(
+
+
 
                       "남기기",
 
+
+
                       style: GoogleFonts.jua(color: Colors.white, fontSize: 18),
+
+
 
                     ),
 
+
+
             ),
+
+
 
             const SizedBox(height: 20),
 
+
+
           ],
+
+
 
         ),
 
+
+
       ),
+
+
 
     );
 
+
+
   }
+
+
 
 }
 

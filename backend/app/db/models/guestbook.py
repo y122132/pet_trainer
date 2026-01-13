@@ -21,6 +21,9 @@ class GuestbookEntry(Base):
     # 방명록 내용
     content: Mapped[str] = mapped_column(Text, nullable=False)
     
+    # 비밀글 여부
+    is_secret: Mapped[bool] = mapped_column(default=False, nullable=False)
+
     # 메타데이터
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
