@@ -43,6 +43,7 @@ class TrainingController extends ChangeNotifier {
   int tInference = 0;
   int tFlatten = 0;
   int tNms = 0;
+  bool isGpu = false; // [NEW]
 
   // Detection Data
   List<dynamic> bbox = [];
@@ -195,6 +196,7 @@ class TrainingController extends ChangeNotifier {
                    tInference = debugInfo['t_inference'] ?? 0;
                    tFlatten = debugInfo['t_flatten'] ?? 0;
                    tNms = debugInfo['t_nms'] ?? 0;
+                   isGpu = debugInfo['use_gpu'] ?? false; // [NEW]
                 }
                 
                 // [DEBUG] Log only on key frames to avoid spam

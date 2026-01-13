@@ -225,6 +225,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                         Text("Lat: ${trainingCtrl.inferenceMs}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                         Text("Pre:${trainingCtrl.tPreprocess} Inf:${trainingCtrl.tInference}", style: const TextStyle(color: Colors.yellowAccent, fontSize: 10)),
                                         Text("Flat:${trainingCtrl.tFlatten} NMS:${trainingCtrl.tNms}", style: const TextStyle(color: Colors.yellowAccent, fontSize: 10)),
+                                        Text("GPU: ${trainingCtrl.isGpu ? 'ON' : 'OFF'}", style: TextStyle(color: trainingCtrl.isGpu ? Colors.greenAccent : Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
                                      ])
                                   )),
                                   

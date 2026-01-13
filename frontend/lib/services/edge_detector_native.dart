@@ -256,6 +256,9 @@ class _IsolateInitData {
 
 // --- Isolate Entry Point ---
 // --- Isolate Entry Point ---
+// [State] Global GPU Status
+bool _gpuEnabled = false;
+
 void _isolateEntry(_IsolateInitData initData) async {
   // Helper for logging to main thread
   void log(String msg) {
@@ -352,6 +355,30 @@ void _isolateEntry(_IsolateInitData initData) async {
         // We get actual shape from tensor.
         var outShape = interpreterPet!.getOutputTensor(0).shape;
         _petOutput3D = List.generate(outShape[0], (_) => List.generate(outShape[1], (_) => List.filled(outShape[2], 0.0)));
+        // Initialize Interpreters
+        bool gpuUsed = false;
+        try {
+            log("Loading Pet Model...");
+            // Try GPU First
+            interpreterPet = safeInit("Pet", petBytes, useGpu: true);
+            gpuUsed = true; // [Fix] If safeInit returns, GPU succeeded. (It throws on failure)
+        } catch (e) {
+            log("GPU Failed. Fallback to CPU. $e");
+            interpreterPet = safeInit("Pet", petBytes, useGpu: false);
+            gpuUsed = false;
+        }
+        
+        // ... (Load other models with same gpuUsed flag preference if possible, or just re-try safeInit logic)
+        // Actually safeInit already handles fallback internally for single calls, but we want to know global state.
+        // Let's refine the loading to capture the status.
+        
+        // Refined Loading:
+        interpreterObj = safeInit("Obj", objBytes, useGpu: gpuUsed); // Respect first choice or fallback
+        interpreterHuman = safeInit("Human", humanBytes, useGpu: gpuUsed);
+        
+        // Store GPU Status in a global var or send back?
+        // We can't send back in Init. We need to store it in a static/global to send in Detect.
+        _gpuEnabled = gpuUsed;
         log("Pet OK. Input: $_petInputShape Output: $outShape");
 
         log("Loading Obj Model...");
@@ -391,7 +418,8 @@ void _isolateEntry(_IsolateInitData initData) async {
         'conf_score': 0.0,
         'debug_info': <String, dynamic>{
            'detections_found': 0, 
-           'inference_ms': 0
+           'inference_ms': 0,
+           'use_gpu': _gpuEnabled, // [NEW] Status
         } 
       };
       
