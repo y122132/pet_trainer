@@ -317,7 +317,8 @@ async def analysis_endpoint(
                                 "base_reward": result.get("base_reward", {}),
                                 "bonus_points": result.get("bonus_points", 0),
                                 "count": service_result.get("daily_count", 0),
-                                "bbox": []
+                                "bbox": [],
+                                "level_up_info": service_result.get("level_up_info", {}) # [New] Pass Level Up Info
                             }
                         else:
                              raise Exception("DB Error")

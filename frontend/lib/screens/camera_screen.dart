@@ -8,6 +8,7 @@ import 'package:pet_trainer_frontend/widgets/stat_distribution_dialog.dart';
 import 'package:pet_trainer_frontend/widgets/camera/camera_painters.dart';
 import 'package:pet_trainer_frontend/api_config.dart'; // [Fix] Import AppConfig
 import 'my_room_page.dart'; // For navigation context if needed
+import 'skill_management_screen.dart';
 
 class CameraScreen extends StatelessWidget {
   final List<CameraDescription> cameras;
@@ -82,7 +83,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     final ctrl = Provider.of<TrainingController>(context, listen: false);
     final reward = ctrl.lastReward;
     if (reward != null) {
-       _showSuccessDialog(reward['base'], reward['bonus']);
+       _showSuccessDialog(reward['base'], reward['bonus'], reward['level_up_info']);
     }
   }
 
@@ -254,7 +255,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     }
   }
 
-  void _showSuccessDialog(Map<String, dynamic> baseReward, int bonus) {
+  Future<void> _showSuccessDialog(Map<String, dynamic> baseReward, int bonus, dynamic levelUpInfo) async {
     if (!mounted) return;
     final charProvider = Provider.of<CharProvider>(context, listen: false);
     final trainingCtrl = Provider.of<TrainingController>(context, listen: false);
@@ -267,7 +268,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
       "luck": charProvider.luck,
     };
     
-    showDialog(
+    await showDialog(
        context: context, barrierDismissible: false,
        builder: (ctx) => StatDistributionDialog(
           availablePoints: charProvider.unusedStatPoints,
@@ -275,25 +276,85 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
           title: "🎉 훈련 성공!",
           earnedReward: baseReward,
           earnedBonus: bonus,
+          // No specialMessage
           confirmLabel: "마이룸으로 이동",
           skipLabel: "나중에 하기",
           onConfirm: (allocated, remaining) {
              ['strength','intelligence','agility','defense','luck'].forEach((key) {
                 for(int i=0; i < (allocated[key]??0); i++) charProvider.allocateStatSpecific(key);
              });
-             _goToMyRoom();
+             Navigator.pop(ctx); // Close Stat Dialog
           },
-          onSkip: _goToMyRoom,
+          onSkip: () => Navigator.pop(ctx), // Close Stat Dialog
           onContinue: () {
              Navigator.pop(ctx);
              _toggleTraining(); // Restart
           },
        )
     );
+
+    // Check Skills & Navigate
+    _handleSkillAndExit(levelUpInfo);
+  }
+
+  void _handleSkillAndExit(dynamic levelUpInfo) {
+      if (!mounted) return;
+      final skills = levelUpInfo?['acquired_skills_details'];
+      
+      if (skills != null && (skills as List).isNotEmpty) {
+          String msg = "";
+          for (var s in skills) {
+             msg += "'${s['name']}' ";
+          }
+          msg += "스킬을 획득했습니다!\n스킬 창으로 이동하시겠습니까?";
+          
+          showDialog(
+             context: context,
+             barrierDismissible: false,
+             builder: (context) => AlertDialog(
+                 title: const Text("스킬 획득!"),
+                 content: Text(msg),
+                 actions: [
+                    TextButton(
+                       onPressed: () { 
+                          Navigator.pop(context); 
+                          _goToMyRoom();
+                       },
+                       child: const Text("아니오 (마이룸)"),
+                    ),
+                    TextButton(
+                       onPressed: () {
+                          Navigator.pop(context); // Close Alert
+                          // Navigate to MyRoom first then SkillScreen? 
+                          // Or directly Push SkillScreen?
+                          // If we push CheckSkill, we should eventually go back to MyRoom.
+                          Navigator.pop(context); // Close Camera
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const SkillManagementScreen()));
+                       },
+                       child: const Text("예 (이동)"),
+                    ),
+                 ]
+             )
+          );
+      } else {
+          _goToMyRoom();
+      }
   }
   
   void _goToMyRoom() {
      Navigator.pop(context); // Dialog
      Navigator.pop(context); // Camera Screen
+  }
+  String? _buildSkillMessage(dynamic levelUpInfo) {
+      if (levelUpInfo == null) return null;
+      final skills = levelUpInfo['acquired_skills_details'];
+      if (skills != null && (skills as List).isNotEmpty) {
+          String msg = "";
+          for (var s in skills) {
+             msg += "\n[${s['level']}]레벨 달성! '${s['name']}' 스킬 획득!";
+          }
+          return msg;
+      }
+      return null;
   }
 }

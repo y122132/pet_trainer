@@ -16,6 +16,8 @@ import 'package:pet_trainer_frontend/widgets/battle/battle_log_widget.dart';
 import 'package:pet_trainer_frontend/widgets/battle/skill_panel_widget.dart';
 import 'package:pet_trainer_frontend/widgets/battle/floating_text_overlay.dart';
 import 'package:pet_trainer_frontend/widgets/battle/battle_character_widget.dart';
+import 'package:pet_trainer_frontend/widgets/stat_distribution_dialog.dart';
+import 'skill_management_screen.dart';
 
 class BattlePage extends StatelessWidget {
   const BattlePage({super.key});
@@ -356,16 +358,87 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     } catch (e) { _showGameOverDialog(iWon); }
   }
 
-  void _showRewardDialog(Map<String, dynamic> reward) {
-    showDialog(
+  Future<void> _showRewardDialog(Map<String, dynamic> reward) async {
+    final charProvider = Provider.of<CharProvider>(context, listen: false);
+    
+    // 1. Show Level Up / Reward Stat Dialog
+    // Battle rewards might not have specific stat types like training, usually just EXP.
+    // If 'exp_gained' is present, we assume it's added.
+    // We utilize StatDistributionDialog to show current status and allow point distribution if level up happened.
+    
+    final currentStats = {
+      "strength": charProvider.strength,
+      "intelligence": charProvider.intelligence,
+      "agility": charProvider.agility,
+      "defense": charProvider.defense,
+      "luck": charProvider.luck,
+    };
+
+    await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text("전투 승리!"),
-        content: Text("경험치 ${reward['exp_gained']}를 획득했습니다."),
-        actions: [TextButton(onPressed: () { Navigator.pop(context); Navigator.pop(context); }, child: const Text("확인"))],
+      builder: (ctx) => StatDistributionDialog(
+        availablePoints: charProvider.unusedStatPoints,
+        currentStats: currentStats,
+        title: "전투 승리!",
+        // Pass a simple map for earned reward message if needed, or just rely on title/exp
+        // The dialog builds reward info based on 'earnedReward'. 
+        // We can create a dummy one or pass null if only EXP matters.
+        earnedReward: {'stat_type': 'EXP', 'value': reward['exp_gained']}, 
+        earnedBonus: 0, 
+        confirmLabel: "확인",
+        skipLabel: "닫기",
+        onConfirm: (allocated, remaining) {
+             ['strength','intelligence','agility','defense','luck'].forEach((key) {
+                for(int i=0; i < (allocated[key]??0); i++) charProvider.allocateStatSpecific(key);
+             });
+             Navigator.pop(ctx);
+        },
+        onSkip: () => Navigator.pop(ctx),
       ),
     );
+
+    // 2. Check Skills & Navigate
+    if (reward['acquired_skills_details'] != null) {
+      final skills = reward['acquired_skills_details'] as List;
+      if (skills.isNotEmpty) {
+          String msg = "";
+          for (var s in skills) {
+             msg += "'${s['name']}' ";
+          }
+          msg += "스킬을 획득했습니다!\n스킬 창으로 이동하시겠습니까?";
+
+          showDialog(
+             context: context,
+             barrierDismissible: false,
+             builder: (context) => AlertDialog(
+                 title: const Text("스킬 획득!"),
+                 content: Text(msg),
+                 actions: [
+                    TextButton(
+                       onPressed: () { 
+                          Navigator.pop(context); 
+                          Navigator.pop(context); // Exit Battle
+                       },
+                       child: const Text("아니오 (나가기)"),
+                    ),
+                    TextButton(
+                       onPressed: () {
+                          Navigator.pop(context); 
+                          Navigator.pop(context); // Exit Battle
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const SkillManagementScreen()));
+                       },
+                       child: const Text("예 (이동)"),
+                    ),
+                 ]
+             )
+          );
+          return;
+      }
+    }
+    
+    // If no skills, just exit
+    Navigator.pop(context); 
   }
 
   void _showGameOverDialog(bool iWon, {String? specialMessage}) {

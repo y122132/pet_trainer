@@ -17,6 +17,7 @@ class CreationNameScreen extends StatefulWidget {
 
 class _CreationNameScreenState extends State<CreationNameScreen> {
   final _nameController = TextEditingController();
+  String _selectedPetType = "dog"; // [New] 기본선택: 강아지
 
   @override
   void dispose() {
@@ -28,11 +29,14 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
 
-    // 2단계(사진 등록)로 이름 데이터 전달
+    // 2단계(사진 등록)로 이름과 펫 종류 전달
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => CreationImageScreen(characterName: name),
+        builder: (context) => CreationImageScreen(
+          characterName: name, 
+          petType: _selectedPetType, // [Modified] Pass selected type
+        ),
       ),
     );
   }
@@ -46,11 +50,11 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        automaticallyImplyLeading: false, // 첫 화면이므로 뒤로가기 없음 (로그아웃 등 필요 시 추가)
+        automaticallyImplyLeading: false, 
       ),
       body: Stack(
         children: [
-          // 배경 장식 (동물 친구들)
+          // 배경 장식
           Align(
             alignment: Alignment.bottomCenter,
             child: Opacity(
@@ -67,17 +71,17 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.start, // [Modified] 위에서 시작
+                mainAxisAlignment: MainAxisAlignment.start, 
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Spacer(flex: 1), // [Modified] 상단 여백 (1/3 지점 배치를 위해)
+                  const Spacer(flex: 1), 
                   
                   Text(
                     "반려동물의 이름을\n지어주세요!",
                     textAlign: TextAlign.center,
                     style: GoogleFonts.jua(fontSize: 28, color: kDarkBrown),
                   ),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 30),
                   
                   TextField(
                     controller: _nameController,
@@ -99,6 +103,26 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
                     ),
                     onSubmitted: (_) => _onNext(),
                   ),
+                  const SizedBox(height: 30),
+
+                  // [New] 펫 종류 선택 섹션
+                  Text(
+                    "어떤 친구와 함께할까요?",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.jua(fontSize: 18, color: kDarkBrown.withOpacity(0.8)),
+                  ),
+                  const SizedBox(height: 15),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildPetTypeButton("dog", "🐶 강아지"),
+                      const SizedBox(width: 10),
+                      _buildPetTypeButton("cat", "🐱 고양이"),
+                      const SizedBox(width: 10),
+                      _buildPetTypeButton("bird", "🐦 새"),
+                    ],
+                  ),
+                  
                   const SizedBox(height: 40),
 
                   ElevatedButton(
@@ -118,12 +142,45 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
                     ),
                   ),
 
-                  const Spacer(flex: 2), // [Modified] 하단 여백 (상단보다 2배 더 주어 위로 올림)
+                  const Spacer(flex: 2), 
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPetTypeButton(String type, String label) {
+    bool isSelected = _selectedPetType == type;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedPetType = type;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? kDarkBrown : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: kDarkBrown,
+            width: 2,
+          ),
+          boxShadow: isSelected ? [
+            BoxShadow(color: kDarkBrown.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))
+          ] : [],
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.jua(
+            fontSize: 16,
+            color: isSelected ? Colors.white : kDarkBrown,
+          ),
+        ),
       ),
     );
   }

@@ -221,9 +221,15 @@ class CharProvider with ChangeNotifier {
     bool leveledUp = false;
     int earnedPoints = 0;
 
-    while (_character!.stat!.exp >= maxExp) {
+    while (_character!.stat!.level < 100 && _character!.stat!.exp >= maxExp) {
       _character!.stat!.exp -= maxExp;
       _character!.stat!.level += 1;
+      
+      // [Added] Cap at 100
+      if (_character!.stat!.level >= 100) {
+        _character!.stat!.level = 100;
+        _character!.stat!.exp = 0;
+      }
       _unusedStatPoints += 5;
       earnedPoints += 5;
       leveledUp = true;
@@ -339,8 +345,8 @@ class CharProvider with ChangeNotifier {
   }
 
   //  강제 레벨업 요청 (테스트용)
-  Future<void> manualLevelUp() async {
-    if (_character == null) return;
+  Future<Map<String, dynamic>?> manualLevelUp() async {
+    if (_character == null) return null;
 
     try {
       final token = await AuthService().getToken();
@@ -356,9 +362,12 @@ class CharProvider with ChangeNotifier {
         _character = Character.fromJson(data);
         _statusMessage = "레벨업 성공! 🎉";
         notifyListeners();
+        return data; 
       }
+      return null;
     } catch (e) {
       print("manualLevelUp error: $e");
+      return null;
     }
   }
 
@@ -400,7 +409,7 @@ class CharProvider with ChangeNotifier {
     if (_character!.stat!.happiness > 100) _character!.stat!.happiness = 100;
   }
 
-  Future<bool> createCharacterWithImages(String name, Map<String, XFile?> images) async {
+  Future<bool> createCharacterWithImages(String name, String petType, Map<String, XFile?> images) async {
     _isLoading = true;
     _statusMessage = "캐릭터 생성 중 (사진 전송)...";
     notifyListeners();
@@ -417,7 +426,10 @@ class CharProvider with ChangeNotifier {
       });
       
       request.fields['name'] = name;
-      request.fields['pet_type'] = "dog"; // 기본값
+      request.fields['pet_type'] = petType; // [Modified] Pass selected type
+
+      print("--- [DEBUG] CharProvider: Sending MultipartRequest ---");
+      print("--- [DEBUG] Fields: ${request.fields} ---");
 
       // 파일 추가
       for (var entry in images.entries) {
