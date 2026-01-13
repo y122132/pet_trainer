@@ -167,6 +167,31 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                         isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
                                         imgRatio: _cameraController.value.aspectRatio,
                                      )),
+                                   
+                                   // [NEW] Model Input Image Thumbnail
+                                   if (trainingCtrl.debugInputImage != null)
+                                      Positioned(top: 10, right: 10, child: Container(
+                                         decoration: BoxDecoration(
+                                            border: Border.all(color: Colors.yellowAccent, width: 2),
+                                            borderRadius: BorderRadius.circular(8),
+                                         ),
+                                         child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                               Container(
+                                                  padding: const EdgeInsets.all(4),
+                                                  color: Colors.black87,
+                                                  child: const Text("모델 입력", style: TextStyle(color: Colors.yellowAccent, fontSize: 10, fontWeight: FontWeight.bold))
+                                               ),
+                                               Image.memory(
+                                                  trainingCtrl.debugInputImage!,
+                                                  width: 120,
+                                                  height: 120,
+                                                  fit: BoxFit.cover,
+                                               ),
+                                            ],
+                                         ),
+                                      )),
                                      
                                   // Human Skeleton (Legacy or New)
                                   if (trainingCtrl.humanKeypoints.isNotEmpty || trainingCtrl.keypoints.isNotEmpty)
@@ -197,15 +222,21 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                         Text("Status: ${trainingCtrl.trainingState.name.toUpperCase()}", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                         Text("Score: ${(trainingCtrl.confScore * 100).toStringAsFixed(1)}%", style: const TextStyle(color: Colors.greenAccent, fontSize: 10)),
+                                        // [Restored] Latency Display
+                                        Text("Latency: ${trainingCtrl.inferenceMs}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                      ])
                                   )),
                                   
-                                  // [DEBUG] On-Screen Log Overlay
-                                  Positioned(bottom: 120, left: 10, right: 10, child: Container(
+                                  // [DEBUG] On-Screen Log Overlay (Expanded)
+                                  Positioned(bottom: 20, left: 10, right: 10, child: Container(
+                                     height: 300, // Fixed height for visibility
                                      padding: const EdgeInsets.all(8),
                                      color: Colors.black45,
-                                     child: Text(trainingCtrl.debugLog, 
-                                        style: const TextStyle(color: Colors.yellowAccent, fontSize: 12, fontFamily: 'monospace')
+                                     child: SingleChildScrollView( // Allow scrolling
+                                        reverse: true, // Auto-scroll to bottom
+                                        child: Text(trainingCtrl.debugLog, 
+                                           style: const TextStyle(color: Colors.yellowAccent, fontSize: 11, fontFamily: 'monospace')
+                                        )
                                      )
                                   ))
                             ]

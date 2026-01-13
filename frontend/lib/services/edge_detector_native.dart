@@ -1,14 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:pet_trainer_frontend/services/edge_utils.dart';
+import 'package:image/image.dart' as img;
 
 // --- Commands ---
 enum Cmd { init, detect, close, ping }
+
+// --- Global Variables for Isolate ---
+int _pngFrameCounter = 0; // For PNG generation throttling
 
 class EdgeDetector {
   static final EdgeDetector _instance = EdgeDetector._internal();
@@ -32,71 +37,98 @@ class EdgeDetector {
   // [Fix] Init Lock to prevent Race Conditions (Double Tap)
   bool _isInitializing = false;
 
-  Future<void> initialize() async {
-    // 1. Initialization Lock
+  Future<void> initV3() async {
+    print("Probe: Init Start (Main Thread Asset Loading)");
     if (_isInitializing) {
-       print("EdgeDetector: Already initializing, waiting for existing future...");
+       print("Probe: Already Initializing");
        return _initCompleter?.future ?? Future.value();
     }
     
-    // 2. Already Loaded Check
     if (isLoaded) {
-       // Deep Health Check
        bool isHealthy = await _checkHealth();
-       if (isHealthy) {
-          print("EdgeDetector: Already loaded and healthy. Skipping init.");
-          return; 
-       }
-       print("EdgeDetector: Stale isolate detected. Restarting...");
+       if (isHealthy) return;
        _kill();
     } else {
-       // Partial state cleanup
        _kill();
     }
     
     _isInitializing = true;
 
     try {
-        _initCompleter = Completer<void>();
-        _receivePort = ReceivePort();
+        final initCompleter = Completer<void>();
+        final receivePort = ReceivePort();
         
-        // Pass RootIsolateToken for asset loading in background
+        _initCompleter = initCompleter; 
+        _receivePort = receivePort;
+        
+        // [Main Thread] Load Assets Here!
+        // ServicesBinding is guaranteed availability here.
+        print("Probe: Loading Asset Bytes on Main Thread...");
+        final petData = await rootBundle.load('assets/models/pet_pose_float32.tflite');
+        final objData = await rootBundle.load('assets/models/yolo11n_int8.tflite');
+        final humanData = await rootBundle.load('assets/models/yolo11n-pose_int8.tflite');
+        
+        final petBytes = Uint8List.fromList(petData.buffer.asUint8List(petData.offsetInBytes, petData.lengthInBytes));
+        final objBytes = Uint8List.fromList(objData.buffer.asUint8List(objData.offsetInBytes, objData.lengthInBytes));
+        final humanBytes = Uint8List.fromList(humanData.buffer.asUint8List(humanData.offsetInBytes, humanData.lengthInBytes));
+        print("Probe: Assets Extracted Safely. Pet=${petBytes.length}, Obj=${objBytes.length}, Human=${humanBytes.length}");
+        
+        print("Probe: Spawning Isolate...");
         final rootToken = RootIsolateToken.instance;
-        if (rootToken == null) {
-           throw Exception("RootIsolateToken is NULL. Cannot spawn background isolate.");
-        }
+        if (rootToken == null) throw Exception("RootToken Null");
         
         _isolate = await Isolate.spawn(
           _isolateEntry, 
-          _IsolateInitData(_receivePort!.sendPort, rootToken),
+          _IsolateInitData(receivePort.sendPort, rootToken),
         );
+        print("Probe: Isolate Spawned");
     
-        _receivePort!.listen((message) {
+        receivePort.listen((message) {
+          // [Listening for LOGS]
+          if (message is Map<String, dynamic> && message.containsKey('log')) {
+             print("Probe [ISO]: ${message['log']}");
+             return;
+          }
+
           if (message is SendPort) {
-            _sendPort = message;
-            _sendPort!.send({'cmd': Cmd.init}); // Load Models (Only sent once per isolate)
-          } else if (message is Map<String, dynamic>) {
+            _sendPort = message; 
+            // [Fix] Send BYTES to Isolate
+            _sendPort?.send({
+                'cmd': Cmd.init,
+                'petBytes': petBytes,
+                'objBytes': objBytes,
+                'humanBytes': humanBytes
+            }); 
+            print("Probe: Init Cmd Sent (With Bytes)");
+          } 
+          // ... (Rest of listener same as before)
+          else if (message is Map<String, dynamic>) {
             if (message.containsKey('init_done')) {
-              if (message['init_done'] == true) {
-                 if (!_initCompleter!.isCompleted) _initCompleter?.complete();
-              } else {
-                 if (!_initCompleter!.isCompleted) _initCompleter?.completeError(message['error'] ?? "Unknown Init Error");
-              }
+               if (message['init_done'] == true) {
+                  if (!initCompleter.isCompleted) initCompleter.complete();
+               } else {
+                  String err = message['error'] ?? "Unknown Init Error";
+                  String stack = message['stack'] ?? ""; 
+                  if (!initCompleter.isCompleted) initCompleter.completeError("$err\n$stack");
+               }
             } else if (message.containsKey('pong')) {
               _pingCompleter?.complete(message['pong'] == true);
             } else if (message.containsKey('req_id')) {
               final id = message['req_id'];
-              final completer = _requests.remove(id);
-              completer?.complete(message);
+              final reqCompleter = _requests.remove(id);
+              reqCompleter?.complete(message);
             }
           }
         });
 
-        await _initCompleter!.future.timeout(const Duration(seconds: 5), onTimeout: () {
-           _kill();
-           throw TimeoutException("Edge Detector Init Timeout (Isolate unresponsive)");
+        await initCompleter.future.timeout(const Duration(seconds: 10), onTimeout: () { // Increased timeout for heavy transfer
+           _kill(); 
+           throw TimeoutException("Init Timeout");
         });
     
+    } catch (e) {
+        _kill(); 
+        rethrow;
     } finally {
        _isInitializing = false;
     }
@@ -104,11 +136,15 @@ class EdgeDetector {
   
   // [NEW] Health Check
   Future<bool> _checkHealth() async {
-      _pingCompleter = Completer<bool>();
+      final pingCompleter = Completer<bool>();
+      _pingCompleter = pingCompleter; // Assign to global for listener
+      
       _sendPort?.send({'cmd': Cmd.ping});
+      
       try {
-        final result = await _pingCompleter!.future.timeout(const Duration(milliseconds: 200));
-        return result; // result is now bool from 'pong' message
+        // [Fix] Await local variable
+        final result = await pingCompleter.future.timeout(const Duration(milliseconds: 200));
+        return result; 
       } catch (e) {
         return false;
       }
@@ -129,12 +165,21 @@ class EdgeDetector {
     }
     _requests.clear();
     
-    // Reset completers
+    // [Fix] Cancel pending init
+    // Note: Local completers in initialize() handle their own timeout/state,
+    // but we clear the global ref to signal "Reset".
     if (_initCompleter != null && !_initCompleter!.isCompleted) {
-       _initCompleter!.completeError("Isolate Killed during Init");
-       _initCompleter = null;
+       _initCompleter!.completeError("Isolate Killed (Reset)");
     }
+    _initCompleter = null;
+    
+    // [Fix] Cancel pending ping
+    if (_pingCompleter != null && !_pingCompleter!.isCompleted) {
+       _pingCompleter!.complete(false); 
+    }
+    _pingCompleter = null;
   }
+
   
   // Manual Close
   void close() {
@@ -184,7 +229,7 @@ class EdgeDetector {
   // [Fix] Add explicit re-init trigger for hot-restart scenarios
   Future<void> ensureInitialized() async {
      if (!isLoaded) {
-        await initialize();
+        await initV3();
      }
   }
 }
@@ -196,11 +241,20 @@ class _IsolateInitData {
 }
 
 // --- Isolate Entry Point ---
+// --- Isolate Entry Point ---
 void _isolateEntry(_IsolateInitData initData) async {
+  // Helper for logging to main thread
+  void log(String msg) {
+     initData.sendPort.send({'log': msg});
+  }
+
   // Initialize Background Channel
   try {
     BackgroundIsolateBinaryMessenger.ensureInitialized(initData.rootToken);
-  } catch (_) {}
+    log("BinaryMessenger Initialized");
+  } catch (e) {
+    log("BinaryMessenger Fail: $e");
+  }
   
   final receivePort = ReceivePort();
   initData.sendPort.send(receivePort.sendPort);
@@ -209,30 +263,60 @@ void _isolateEntry(_IsolateInitData initData) async {
   Interpreter? interpreterObj;
   Interpreter? interpreterHuman;
   
+  // [GC Safety & Optim] Keep references to buffers to prevent GC during Isolate life
+  final List<Uint8List> _buffers = []; 
+  
+  // [Smart Init] Store resolved input shapes
+  List<int> _petInputShape = [1, 640, 640, 3]; 
+  
   receivePort.listen((message) async {
     final cmd = message['cmd'] as Cmd;
     
     if (cmd == Cmd.init) {
+      log("Cmd.init [STRICT MODE]");
       try {
-        final options = InterpreterOptions();
-        // [Safety] Disable delegates for debugging crashes (Int8 CPU fallback is safest)
-        // if (Platform.isAndroid) options.addDelegate(XNNPackDelegate());
+        InterpreterOptions? options; 
         
-        // 1. Pet Pose Model
-        interpreterPet = await Interpreter.fromAsset('assets/models/pet_pose_int8.tflite', options: options);
+        // --- 1. Pet Model ---
+        log("Loading Pet Model...");
+        final petBytes = message['petBytes'] as Uint8List;
+        _buffers.add(petBytes);
+        interpreterPet = Interpreter.fromBuffer(petBytes, options: options);
         
-        // 2. Object Detection Model
-        interpreterObj = await Interpreter.fromAsset('assets/models/yolo11n_int8.tflite', options: options);
+        // [Strict Init] Force 640x640x3 to ensure 4D Tensor for Conv2D
+        // Without this, TFLite defaults to Flat 1D [1228800], causing crashes.
+        log("Forcing Resize to [1, 640, 640, 3]...");
+        interpreterPet!.resizeInputTensor(0, [1, 640, 640, 3]);
+        interpreterPet!.allocateTensors();
         
-        // 3. Human Pose Model
-        interpreterHuman = await Interpreter.fromAsset('assets/models/yolo11n-pose_int8.tflite', options: options);
+        _petInputShape = interpreterPet!.getInputTensor(0).shape;
+        log("Pet Allocated. Input: $_petInputShape"); // Should be [1, 640, 640, 3]
 
-        print("Edge Isolate: All 3 Models Loaded");
+        // --- 2. Object Model ---
+        log("Loading Obj Model...");
+        final objBytes = message['objBytes'] as Uint8List;
+        _buffers.add(objBytes);
+        interpreterObj = Interpreter.fromBuffer(objBytes, options: options);
+        interpreterObj?.resizeInputTensor(0, [1, 640, 640, 3]); // Force consistency
+        interpreterObj?.allocateTensors();
+        log("Obj OK.");
+        
+        // --- 3. Human Model ---
+        log("Loading Human Model...");
+        final humanBytes = message['humanBytes'] as Uint8List;
+        _buffers.add(humanBytes);
+        interpreterHuman = Interpreter.fromBuffer(humanBytes, options: options);
+        interpreterHuman?.resizeInputTensor(0, [1, 640, 640, 3]); 
+        interpreterHuman?.allocateTensors(); 
+        log("Human OK.");
+
+        log("All Models Ready (Strict Mode).");
         initData.sendPort.send({'init_done': true});
         
       } catch (e, stack) {
-        print("Edge Isolate Init Error: $e");
-        initData.sendPort.send({'init_done': false, 'error': e.toString()});
+        log("Init Error: $e");
+        log("Stack: $stack");
+        initData.sendPort.send({'init_done': false, 'error': e.toString(), 'stack': stack.toString()});
       }
     } 
     else if (cmd == Cmd.detect) {
@@ -270,39 +354,182 @@ void _isolateEntry(_IsolateInitData initData) async {
           const int targetH = 640;
           
           final inputTensor = interpreterPet!.getInputTensor(0);
-          
-          // [DEBUG] Check Quantization Params
-          print("Input Type: ${inputTensor.type}, Params: ${inputTensor.params}");
-
-          // [Optimization] Use Float32 Flat Buffer (Safe Fallback)
-          // 1280x1280 Float32 is supported by TFLite (via auto-quantization or float input) and worked previously.
-          // We bypass `_prepareInputTensor` to avoid `reshape()` crash.
-          final floatInput = convertYUVToFloat32Tensor(rawData, targetW, targetH, rotation);
-          
           final outputTensor = interpreterPet!.getOutputTensor(0);
+          
+          // [CRITICAL] Extract quantization parameters
+          final inputType = inputTensor.type.toString();
+          final outputType = outputTensor.type.toString();
+          final inputShape = inputTensor.shape.toString();
+          final outputShapeList = outputTensor.shape;
+          
+          // Quantization parameters (if exists)
+          String inputQuantInfo = "None";
+          String outputQuantInfo = "None";
+          
+          try {
+            final inputParams = inputTensor.params;
+            if (inputParams != null) {
+              inputQuantInfo = "Scale: ${inputParams.scale}, Zero: ${inputParams.zeroPoint}";
+            }
+          } catch (e) {
+            inputQuantInfo = "N/A";
+          }
+          
+          try {
+            final outputParams = outputTensor.params;
+            if (outputParams != null) {
+              outputQuantInfo = "Scale: ${outputParams.scale}, Zero: ${outputParams.zeroPoint}";
+            }
+          } catch (e) {
+            outputQuantInfo = "N/A";
+          }
+          
+          print("[ISO-DEBUG] Pet Model - Input Shape: $inputShape, Type: $inputType");
+          print("[ISO-DEBUG] Input Quantization: $inputQuantInfo");
+          print("[ISO-DEBUG] Output Shape: $outputShapeList, Type: $outputType");
+          print("[ISO-DEBUG] Output Quantization: $outputQuantInfo");
+          
+          // [DEBUG] Populate result info for UI log
+          result['debug_info']['shape'] = inputShape;
+          result['debug_info']['input_type'] = inputType;
+          result['debug_info']['output_type'] = outputType;
+          result['debug_info']['input_quant'] = inputQuantInfo;
+          result['debug_info']['output_quant'] = outputQuantInfo;
+
+          // [Restored] Model Expects Float32 (Confirmed by User Screenshot)
+          // We must provide Float32 input. TFLite handles quantization internally if needed.
+          
+          final swPreprocess = Stopwatch()..start();
+          final floatInput = convertYUVToFloat32Tensor(rawData, targetW, targetH, rotation);
+          swPreprocess.stop();
+          print("[ISO-PERF] Preprocessing (YUV→RGB+Normalize): ${swPreprocess.elapsedMilliseconds}ms");
+          
+          // [CRITICAL] Validate input data
+          final inputSample = floatInput.sublist(0, min(30, floatInput.length)).map((v) => v.toStringAsFixed(4)).join(', ');
+          final inputMin = floatInput.reduce((a, b) => a < b ? a : b);
+          final inputMax = floatInput.reduce((a, b) => a > b ? a : b);
+          
+          result['debug_info']['input_sample'] = inputSample;
+          result['debug_info']['input_min'] = inputMin;
+          result['debug_info']['input_max'] = inputMax;
+          
+          print("[ISO-DEBUG] Input Sample (first 30 values): $inputSample");
+          print("[ISO-DEBUG] Input Range: Min=$inputMin, Max=$inputMax (Expected: 0.0-1.0)");
+          
+          if (floatInput.length != targetW * targetH * 3) {
+             throw Exception("Input Size Mismatch! Got ${floatInput.length}, Need ${targetW*targetH*3}");
+          }
+          
+          // [FIX] Reshape to 4D tensor [1, 640, 640, 3]
+          final swReshape = Stopwatch()..start();
+          final inputTensor4D = floatInput.reshape([1, targetW, targetH, 3]);
+          swReshape.stop();
+          print("[ISO-PERF] Reshape Input: ${swReshape.elapsedMilliseconds}ms");
+          
+          // [DEBUG] Validate input data range
+          final sampleSize = floatInput.length < 9 ? floatInput.length : 9;
+          final sampleValues = floatInput.sublist(0, sampleSize);
+          final minVal = sampleValues.reduce((a, b) => a < b ? a : b);
+          final maxVal = sampleValues.reduce((a, b) => a > b ? a : b);
+          print("[ISO-DEBUG] Input Sample (first 3 pixels RGB): ${sampleValues.map((v) => v.toStringAsFixed(3)).join(', ')}");
+          print("[ISO-DEBUG] Input Range: Min=$minVal, Max=$maxVal (Expected: 0.0-1.0)");
+          
+          // [NEW] Convert Float32 input to PNG for visualization
+          // [CRITICAL PERF] PNG encoding is VERY SLOW (~900ms)
+          // Only generate every 30 frames to maintain performance
+          _pngFrameCounter++;
+          
+          if (_pngFrameCounter % 30 == 1) { // Only every 30 frames
+             try {
+                // Convert Float32 (0-1) to Uint8 (0-255)
+                final uint8Data = Uint8List(floatInput.length);
+                for (int i = 0; i < floatInput.length; i++) {
+                   uint8Data[i] = (floatInput[i] * 255).clamp(0, 255).toInt();
+                }
+                
+                // Encode as PNG (640x640 RGB)
+                final image = img.Image.fromBytes(
+                   width: targetW,
+                   height: targetH,
+                   bytes: uint8Data.buffer,
+                   numChannels: 3,
+                );
+                final pngBytes = img.encodePng(image);
+                result['debug_info']['input_image_png'] = pngBytes;
+             } catch (e) {
+                print("[ISO-ERROR] Failed to encode input image: $e");
+             }
+          }
+           
           final outputShape = outputTensor.shape; 
-          
-          result['debug_info']['shape'] = outputShape.toString();
-          result['debug_info']['inputType'] = inputTensor.type.toString();
-          
           final outputBuffer = Float32List(outputShape.reduce((a, b) => a * b));
-          final outputMap = {0: outputBuffer}; 
           
-          // Pass Flat Float32 List directly.
-          interpreterPet!.runForMultipleInputs([floatInput], outputMap);
+          // [FIX] Reshape output buffer to match expected shape
+          // TFLite run() requires exact shape matching
+          final outputTensor3D = outputBuffer.reshape(outputShape);
+          
+          // [FIX] Remove unnecessary allocateTensors() - already allocated in init
+          // Calling this every frame causes overhead and instability
+          
+          // [CRITICAL] Measure ONLY inference time
+          final swInference = Stopwatch()..start();
+          interpreterPet!.run(inputTensor4D, outputTensor3D);
+          swInference.stop();
+          final pureInferenceMs = swInference.elapsedMilliseconds;
+          print("[ISO-PERF] *** Pure Inference: ${pureInferenceMs}ms ***");
+          
+          // Store pure inference time for UI
+          result['debug_info']['pure_inference_ms'] = pureInferenceMs;
 
           List<DetectionResult> detections = [];
 
-          // [Fix] Check for NMS Output (Batch, 300, Features)
-          if (outputShape.length == 3 && outputShape[1] == 300) {
+          // [CRITICAL] Parse Model Output
+          // Output Shape: [1, 300, 57] for pet_pose_int8.tflite
+          // Format: 57 = 4(bbox) + 1(conf) + 1(cls) + 51(17 keypoints * 3)
+          
+          final swParsing = Stopwatch()..start();
+          
+          // Sample output for debugging
+          final outputSample = outputBuffer.sublist(0, min(20, outputBuffer.length)).map((v) => v.toStringAsFixed(4)).join(', ');
+          
+          // [CRITICAL] Check if output has ANY non-zero values
+          final outputMin = outputBuffer.reduce((a, b) => a < b ? a : b);
+          final outputMax = outputBuffer.reduce((a, b) => a > b ? a : b);
+          final nonZeroCount = outputBuffer.where((v) => v.abs() > 0.0001).length;
+          
+          result['debug_info']['output_sample'] = outputSample;
+          result['debug_info']['output_shape'] = outputShape.toString();
+          result['debug_info']['output_total'] = outputBuffer.length;
+          result['debug_info']['output_min'] = outputMin;
+          result['debug_info']['output_max'] = outputMax;
+          result['debug_info']['output_nonzero'] = nonZeroCount;
+          
+          print("[ISO-DEBUG] Output Min: $outputMin, Max: $outputMax, NonZero: $nonZeroCount/${outputBuffer.length}");
+          
+          // Check if this is NMS output (sorted by conf) or Raw output
+          // NMS Mode: First few detections have highest confidence
+          // Raw Mode: Need to scan all 300 anchors
+          
+          bool isNMSMode = false;
+          if (outputShape[1] <= 300) {
+             // Likely NMS output (e.g., 300 detections, pre-sorted)
+             isNMSMode = true;
+             result['debug_info']['parsing_mode'] = 'NMS';
+          } else {
+             result['debug_info']['parsing_mode'] = 'Raw';
+          }
+          
+          if (isNMSMode) {
               // Pre-processed NMS mode
+              print("[ISO-DEBUG] Parsing NMS output mode...");
               detections = parseNMSOutput(
                 outputBuffer, 
-                0.15, // Threshold
+                0.001, // [TEST] Minimum threshold to detect ANY output
                 keypointNum: 17
               );
           } else {
               // Raw Output (Batch, Features, Anchors)
+              print("[ISO-DEBUG] Parsing Raw output mode...");
               detections = nonMaxSuppression(
                 outputBuffer,  
                 3, 
@@ -311,8 +538,14 @@ void _isolateEntry(_IsolateInitData initData) async {
                 shape: outputShape 
               );
           }
+          swParsing.stop();
           
-           result['debug_info']['pet_count'] = detections.length;
+          // [CRITICAL] Log detection results for UI
+          result['debug_info']['detections_found'] = detections.length;
+          result['debug_info']['parsing_time_ms'] = swParsing.elapsedMilliseconds;
+          
+          print("[ISO-RESULT] Pet detections found: ${detections.length}");
+           print("[ISO-RESULT] Pet detections found: ${detections.length}");
 
           for (var det in detections) {
              int mappedCls = 16; 
@@ -354,15 +587,18 @@ void _isolateEntry(_IsolateInitData initData) async {
             const int targetW = 640;
             const int targetH = 640;
             
-            final uint8Input = convertYUVToRGBBytes(rawData, targetW, targetH, rotation);
+            // [FIX] Use Float32 input (model expects Float32, not Uint8)
+            final floatInput = convertYUVToFloat32Tensor(rawData, targetW, targetH, rotation);
+            final inputTensor4D = floatInput.reshape([1, targetW, targetH, 3]);
             
             final outputTensor = interpreterObj!.getOutputTensor(0);
             final shape = outputTensor.shape;
             
             final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-            final outputMap = {0: outputBuffer}; 
+            final outputTensor3D = outputBuffer.reshape(shape);
             
-            interpreterObj!.runForMultipleInputs([uint8Input], outputMap);
+            // [FIX] Use run() with reshaped tensors
+            interpreterObj!.run(inputTensor4D, outputTensor3D);
   
             final detections = nonMaxSuppression(
                outputBuffer,
@@ -389,20 +625,22 @@ void _isolateEntry(_IsolateInitData initData) async {
         if (mode == 'interaction' && interpreterHuman != null) {
           try {
             const targetSize = 640;
-            final uint8Input = convertYUVToRGBBytes(rawData, targetSize, targetSize, rotation);
+            
+            // [FIX] Use Float32 input (model expects Float32, not Uint8)
+            final floatInput = convertYUVToFloat32Tensor(rawData, targetSize, targetSize, rotation);
+            final inputTensor4D = floatInput.reshape([1, targetSize, targetSize, 3]);
             
             final outputTensor = interpreterHuman!.getOutputTensor(0);
             final shape = outputTensor.shape;
             final outputBuffer = Float32List(shape.reduce((a, b) => a * b));
-            final outputMap = {0: outputBuffer}; // Flat buffer
+            final outputTensor3D = outputBuffer.reshape(shape);
             
-            interpreterHuman!.runForMultipleInputs([uint8Input], outputMap);
+            // [FIX] Use run() with reshaped tensors
+            interpreterHuman!.run(inputTensor4D, outputTensor3D);
             
-            final rawOutput = outputMap[0] as List;
-            final batch0 = rawOutput[0] as List;
-  
+            // Parse output (still need to handle shape properly)
             final detections = nonMaxSuppression(
-               batch0,
+               outputBuffer,
                1, // Person Class
                0.30, 0.45,
                keypointNum: 17 // [NEW] Human Pose
@@ -449,13 +687,18 @@ void _isolateEntry(_IsolateInitData initData) async {
 
       } catch (e, stack) {
         print("Edge Inference Error: $e");
+        print("Stack: $stack");
         result['error'] = "Inference Error: $e"; // [DEBUG] Propagate error
         result['stack'] = stack.toString();
       }
       
       sw.stop();
-      print("Edge Inference took: ${sw.elapsedMilliseconds}ms");
-      result['debug_info']['inference_ms'] = sw.elapsedMilliseconds;
+      print("[ISO-PERF] === TOTAL Time (all steps): ${sw.elapsedMilliseconds}ms ===");
+      
+      // [FIX] Report ONLY pure inference time to UI (not total processing time)
+      // Total time includes YUV conversion (~1500ms), which inflates the number
+      // Pure inference should be 100-300ms
+      result['debug_info']['inference_ms'] = result['debug_info']['pure_inference_ms'] ?? sw.elapsedMilliseconds;
       
       initData.sendPort.send(result);
     }

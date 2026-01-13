@@ -9,6 +9,7 @@ import 'package:pet_trainer_frontend/utils/camera_utils.dart';
 import 'package:pet_trainer_frontend/utils/camera_utils.dart';
 import 'package:pet_trainer_frontend/providers/char_provider.dart';
 import 'package:pet_trainer_frontend/services/edge_detector.dart'; // [Edge AI]
+import 'package:pet_trainer_frontend/services/edge_game_logic.dart'; // [Edge AI Game Logic]
 import 'package:pet_trainer_frontend/config/global_settings.dart'; // [Edge AI]
 
 
@@ -32,13 +33,17 @@ class TrainingController extends ChangeNotifier {
   void addLog(String msg) {
      print(msg);
      debugLog += "$msg\n";
-     if (debugLog.split('\n').length > 10) { // Keep last 10 lines
-        debugLog = debugLog.split('\n').sublist(debugLog.split('\n').length - 10).join('\n');
+     if (debugLog.split('\n').length > 100) { // Keep last 100 lines
+        debugLog = debugLog.split('\n').sublist(debugLog.split('\n').length - 100).join('\n');
      }
      notifyListeners();
   }
   String feedback = "";
   double confScore = 0.0;
+  int inferenceMs = 0; // [NEW] Latency tracking
+  
+  // [NEW] Debug: Model input image for visualization
+  Uint8List? debugInputImage;
   
   // For Overlay
   List<dynamic> bbox = [];
@@ -97,19 +102,19 @@ class TrainingController extends ChangeNotifier {
 
     // [Edge AI] Initialize Detector if enabled
     if (GlobalSettings.useEdgeAI) {
-      addLog("⭕ [PROBE 2] StartTraining: Edge AI is ENABLED. Initializing...");
+      addLog("⭕ [V3-FINAL] StartTraining: Edge AI is ENABLED. Initializing...");
       try {
-        await EdgeDetector().initialize();
-        addLog("⭕ [PROBE 2-OK] EdgeDetector init SUCCESS");
+        await EdgeDetector().initV3();
+        addLog("⭕ [V3-FINAL] EdgeDetector init SUCCESS");
       } catch (e) {
-        addLog("❌ [PROBE 2-FAIL] EdgeDetector init failed: $e");
+        addLog("❌ [V3-FINAL] EdgeDetector init failed: $e");
         errorMessage = "AI Init Failed: $e";
         isAnalyzing = false; // [Fix] Reset state
         notifyListeners();
         return;
       }
     } else {
-      addLog("⭕ [PROBE 2] StartTraining: Edge AI is DISABLED (Server Mode).");
+      addLog("⭕ [V3-FINAL] StartTraining: Edge AI is DISABLED (Server Mode).");
     }
 
     await _socketClient.connect(petType, difficulty, mode);
@@ -198,10 +203,11 @@ class TrainingController extends ChangeNotifier {
                 // Try to init on the fly (might cause lag for 1 frame but better than failure)
                 print("EdgeAI enabled but not loaded. Initializing...");
                 try {
-                   await EdgeDetector().initialize();
+                   await EdgeDetector().initV3();
                 } catch (e) {
-                   print("EdgeAI Init Failed: $e");
-                   errorMessage = "AI Init Exception: $e";
+                   // [V3] Version Tag to confirm fresh build
+                   print("[V3-FINAL] Edge Init Failed: $e");
+                   errorMessage = "[V3] Init Err: $e";
                    feedback = "AI Init Failed: $e";
                    notifyListeners(); // Update UI
                    return; // Stop processing
@@ -217,52 +223,157 @@ class TrainingController extends ChangeNotifier {
                 
                 final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
                 
+                // [FIX] Update Latency for EVERY frame (not just frame 1 or multiples of 5)
+                if (edgeResult.containsKey('debug_info') && edgeResult['debug_info'] != null) {
+                   final debugInfo = edgeResult['debug_info'];
+                   if (debugInfo.containsKey('inference_ms')) {
+                      latency = debugInfo['inference_ms'];
+                      inferenceMs = latency; // Keep both in sync
+                   }
+                }
+                
+                // [DEBUG] Log only on key frames to avoid spam
                 if (thisFrameId % 5 == 0 || thisFrameId == 1) {
                    final shapeStr = edgeResult['debug_info'] != null ? edgeResult['debug_info']['shape'] : "N/A";
                    final errStr = edgeResult['error'] ?? "No Error";
-                   addLog("Frame $thisFrameId: Success:${edgeResult['success']} Shape:$shapeStr Err:$errStr"); 
+                   addLog("Frame $thisFrameId: Success:${edgeResult['success']} Shape:$shapeStr Err:$errStr Latency:${latency}ms"); 
                 }
                 
-                // [Fix] Inject Frame ID and Dimensions for Server Logic Compatibility
-            edgeResult['frame_id'] = thisFrameId;
-            
-            // [DEBUG] Check for Edge Errors IMMEDIATELY
-            if (edgeResult.containsKey('error')) {
-                final err = edgeResult['error'];
-                print("Edge Error Local Catch: $err");
-                errorMessage = "Edge Error: $err";
-                feedback = "Edge Error: $err";
-                notifyListeners();
-                // Don't send to server if critical error, just return to visual feedback
-                if (edgeResult.containsKey('stack')) {
-                    print(edgeResult['stack']);
+                // [DEBUG] Check for Edge Errors IMMEDIATELY
+                if (edgeResult.containsKey('error')) {
+                   final err = edgeResult['error'];
+                   print("Edge Error Local Catch: $err");
+                   errorMessage = "Edge Error: $err";
+                   feedback = "Edge Error: $err";
+                   notifyListeners();
+                   // Don't send to server if critical error, just return to visual feedback
+                   if (edgeResult.containsKey('stack')) {
+                       print(edgeResult['stack']);
+                   }
+                   return; 
                 }
-                return; 
-            }
-            
-            // Handle Orientation for Logic Aspect Ratio
-                // CameraImage is usually Landscape (sensor). If UI is Portrait, we swap.
+                
+                // [FIX] ===== IMMEDIATELY UPDATE UI WITH EDGE RESULTS =====
+                // Don't wait for server response! Edge AI is LOCAL.
+                
+                // Update Detection Data
+                if (edgeResult.containsKey('bbox')) bbox = edgeResult['bbox'];
+                if (edgeResult.containsKey('pet_keypoints')) petKeypoints = edgeResult['pet_keypoints'];
+                if (edgeResult.containsKey('human_keypoints')) humanKeypoints = edgeResult['human_keypoints'];
+                
+                // Handle Orientation for Image Dimensions
                 int logicW = image.width;
                 int logicH = image.height;
                 if (rotationAngle == 90 || rotationAngle == 270) {
                    logicW = image.height;
                    logicH = image.width;
                 }
-                edgeResult['width'] = logicW;
-                edgeResult['height'] = logicH; 
+                imageWidth = logicW.toDouble();
+                imageHeight = logicH.toDouble();
                 
-                // [DEBUG] Check and Update Latency Immediately
-                if (edgeResult.containsKey('debug_info')) {
-                    final debugInfo = edgeResult['debug_info'];
-                    if (debugInfo.containsKey('inference_ms')) {
-                       // Use actual inference time for Edge Latency
-                       latency = debugInfo['inference_ms'];
-                       notifyListeners(); 
-                    }
+                // Update Confidence Score
+                if (edgeResult.containsKey('conf_score')) {
+                   confScore = (edgeResult['conf_score'] as num?)?.toDouble() ?? 0.0;
                 }
+                
+                // [NEW] Update debug input image for visualization
+                if (edgeResult.containsKey('debug_info') && edgeResult['debug_info'] != null) {
+                   final debugInfo = edgeResult['debug_info'] as Map?;
+                   if (debugInfo != null && debugInfo.containsKey('input_image_png')) {
+                      debugInputImage = debugInfo['input_image_png'] as Uint8List?;
+                   }
+                }
+                
+                // [DEBUG] Log Edge Results to SCREEN
+                if (thisFrameId % 5 == 0 || thisFrameId == 1) {
+                   final bboxLen = (edgeResult['bbox'] as List?)?.length ?? 0;
+                   final debugInfo = edgeResult['debug_info'] as Map?;
+                   
+                   addLog("[EDGE] Frame $thisFrameId:");
+                   addLog("  BBox: $bboxLen detected");
+                   addLog("  Success: ${edgeResult['success']}");
+                   addLog("  Conf: ${(confScore * 100).toStringAsFixed(1)}%");
+                   addLog("  Latency: ${latency}ms");
+                   
+                   // [CRITICAL] Display Isolate debug info
+                   if (debugInfo != null) {
+                      addLog("[ISO-DEBUG]:");
+                      
+                      // Model info
+                      addLog("  Input Type: ${debugInfo['input_type']}");
+                      addLog("  Output Type: ${debugInfo['output_type']}");
+                      addLog("  Input Quant: ${debugInfo['input_quant']}");
+                      addLog("  Output Quant: ${debugInfo['output_quant']}");
+                      
+                      // Input validation
+                      addLog("  Input Min: ${debugInfo['input_min']}");
+                      addLog("  Input Max: ${debugInfo['input_max']}");
+                      final inSample = debugInfo['input_sample'] as String?;
+                      if (inSample != null && inSample.length > 40) {
+                         addLog("  Input Sample: ${inSample.substring(0, 40)}...");
+                      } else {
+                         addLog("  Input Sample: ${inSample ?? 'N/A'}");
+                      }
+                      
+                      // Output info
+                      addLog("  Output Shape: ${debugInfo['output_shape']}");
+                      addLog("  Total Vals: ${debugInfo['output_total']}");
+                      addLog("  Output Min: ${debugInfo['output_min']}");
+                      addLog("  Output Max: ${debugInfo['output_max']}");
+                      addLog("  NonZero Count: ${debugInfo['output_nonzero']}");
+                      addLog("  Parse Mode: ${debugInfo['parsing_mode']}");
+                      addLog("  Detections: ${debugInfo['detections_found'] ?? 'N/A'}");
+                      addLog("  Parse Time: ${debugInfo['parsing_time_ms']}ms");
+                      
+                      // Sample output values (first few)
+                      final outSample = debugInfo['output_sample'] as String?;
+                      if (outSample != null && outSample.length > 50) {
+                         addLog("  Output Sample: ${outSample.substring(0, 50)}...");
+                      } else {
+                         addLog("  Output Sample: ${outSample ?? 'N/A'}");
+                      }
+                   }
+                }
+                
+                // [NEW] ===== LOCAL GAME LOGIC for Edge AI =====
+                // Process game logic locally (distance check, status determination)
+                final gameResult = EdgeGameLogic.processGameLogic(
+                   bbox: edgeResult['bbox'] ?? [],
+                   mode: _currentMode,
+                   targetClassId: 16, // TODO: Get from user settings (Dog for now)
+                   difficulty: 'easy', // TODO: Get from user settings
+                   imageWidth: imageWidth,
+                   imageHeight: imageHeight,
+                   petKeypoints: edgeResult['pet_keypoints'],
+                );
+                
+                // Update Status locally
+                final status = gameResult['status'] as String;
+                trainingState = _parseStatus(status);
+                feedback = gameResult['feedback'] as String? ?? '';
+                
+                // [FIX] Unlock frame lock IMMEDIATELY (don't wait for server)
+                _canSendFrame = true;
+                
+                // [FIX] Update UI IMMEDIATELY
+                notifyListeners();
+                
+                // [OPTIONAL] Send to server ONLY for SUCCESS (Reward/LLM processing)
+                // Server will handle: rewards, character messages, statistics
+                if (status == 'success') {
+                   edgeResult['frame_id'] = thisFrameId;
+                   edgeResult['width'] = logicW;
+                   edgeResult['height'] = logicH;
+                   edgeResult['status'] = 'success'; // Mark as success
+                   edgeResult['mode'] = _currentMode;
+                   edgeResult['difficulty'] = 'easy';
     
-                // Send JSON Result
-                _socketClient.sendMessage(jsonEncode(edgeResult));
+                   _socketClient.sendMessage(jsonEncode(edgeResult));
+                } else {
+                   // For non-success frames, optionally send detection data for monitoring
+                   // Or skip entirely to reduce server load
+                   // (Currently skipping to minimize traffic)
+                }
             } else {
                  print("EdgeAI Init Failed completely.");
             }
@@ -305,6 +416,7 @@ class TrainingController extends ChangeNotifier {
           final now = DateTime.now().millisecondsSinceEpoch;
           if (_frameStartTime > 0) {
             latency = now - _frameStartTime;
+            inferenceMs = latency; // [Fix] Update UI Latency from Server RTT
           }
        } else if (responseFrameId != -1 && responseFrameId != _pendingFrameId) {
           // Stale frame response (Old) -> DONT unlock, ignore latency

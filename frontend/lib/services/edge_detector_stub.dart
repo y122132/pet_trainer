@@ -13,6 +13,10 @@ class EdgeDetector {
     print("EdgeDetector: Not supported on this platform (Web).");
   }
 
+  Future<void> initV3() async {
+    print("EdgeDetector: initV3 not supported on this platform (Web).");
+  }
+
   Future<Map<String, dynamic>> processFrame(CameraImage image, String mode, int rotationAngle) async {
     return {};
   }

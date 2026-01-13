@@ -261,14 +261,18 @@ Float32List convertYUVToFloat32Tensor(
        final int uVal = uBytes[uvIndex];
        final int vVal = vBytes[uvIndex];
 
-       // YUV to RGB conversion
-       int r = (yVal + 1.402 * (vVal - 128)).round();
-       int g = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).round();
-       int b = (yVal + 1.772 * (uVal - 128)).round();
-       
-       buffer[pixelIndex++] = r.clamp(0, 255).toDouble();
-       buffer[pixelIndex++] = g.clamp(0, 255).toDouble();
-       buffer[pixelIndex++] = b.clamp(0, 255).toDouble();
+        // YUV to RGB conversion
+        int r = (yVal + 1.402 * (vVal - 128)).round();
+        int g = (yVal - 0.344136 * (uVal - 128) - 0.714136 * (vVal - 128)).round();
+        int b = (yVal + 1.772 * (uVal - 128)).round();
+        
+        // [ULTRALYTICS TFLITE SPEC] Int8 quantized model with float32 I/O
+        // According to Ultralytics docs: input should be normalized to [0, 1]
+        // Model performs internal quantization/dequantization
+        // int8=True only quantizes internal layers, input/output remain float32
+        buffer[pixelIndex++] = r.clamp(0, 255).toDouble() / 255.0;  // 0-1
+        buffer[pixelIndex++] = g.clamp(0, 255).toDouble() / 255.0;  // 0-1
+        buffer[pixelIndex++] = b.clamp(0, 255).toDouble() / 255.0;  // 0-1
     }
   }
   
