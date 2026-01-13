@@ -352,7 +352,7 @@ class CharProvider with ChangeNotifier {
     if (_character!.stat!.happiness > 100) _character!.stat!.happiness = 100;
   }
 
-  Future<bool> createCharacterWithImages(String name, Map<String, XFile?> images) async {
+  Future<bool> createCharacterWithImages(String name, String petType, Map<String, XFile?> images) async {
     _isLoading = true;
     _statusMessage = "캐릭터 생성 중 (사진 전송)...";
     notifyListeners();
@@ -369,7 +369,7 @@ class CharProvider with ChangeNotifier {
       });
       
       request.fields['name'] = name;
-      request.fields['pet_type'] = "dog"; // 기본값
+      request.fields['pet_type'] = petType;
 
       // 파일 추가
       for (var entry in images.entries) {
