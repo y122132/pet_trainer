@@ -170,7 +170,7 @@ class TrainingController extends ChangeNotifier {
                    await EdgeDetector().initV3();
                 } catch (e) {
                    print("[V3-FINAL] Edge Init Failed: $e");
-                   addLog("GPU FATAL: $e"); // [Fix] Show in overlay
+                   // addLog("GPU FATAL: $e"); 
                    errorMessage = "[V3] Init Err: $e";
                    feedback = "AI Init Failed: $e";
                    notifyListeners(); 
@@ -182,7 +182,7 @@ class TrainingController extends ChangeNotifier {
                 // 1. Edge Inference
                 // Log every 5 frames (~1 sec) to confirm liveness
                 if (thisFrameId % 5 == 0 || thisFrameId == 1) {
-                   addLog("Frame $thisFrameId: Calling AI..."); 
+                   // addLog("Frame $thisFrameId: Calling AI..."); 
                 }
                 
                 final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
@@ -208,14 +208,14 @@ class TrainingController extends ChangeNotifier {
                 if (thisFrameId % 5 == 0 || thisFrameId == 1) {
                    final shapeStr = edgeResult['debug_info'] != null ? edgeResult['debug_info']['shape'] : "N/A";
                    final errStr = edgeResult['error'] ?? "No Error";
-                   addLog("Frame $thisFrameId: Success:${edgeResult['success']} Shape:$shapeStr Err:$errStr Latency:${latency}ms"); 
+                   // addLog("Frame $thisFrameId: Success:${edgeResult['success']} Shape:$shapeStr Err:$errStr Latency:${latency}ms"); 
                 }
                 
                 // [DEBUG] Check for Edge Errors IMMEDIATELY
                 if (edgeResult.containsKey('error') && edgeResult['error'] != null) {
                    final err = edgeResult['error'];
                    // [User Request] Show error in Overlay Log
-                   addLog("⚠️ CRITICAL: $err");
+                   // addLog("⚠️ CRITICAL: $err");
                    errorMessage = "Edge Err: $err";
                    notifyListeners(); // Force UI Update
                    return; 

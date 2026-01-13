@@ -223,25 +223,9 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                         Text("Status: ${trainingCtrl.trainingState.name.toUpperCase()}", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                         Text("Score: ${(trainingCtrl.confScore * 100).toStringAsFixed(1)}%", style: const TextStyle(color: Colors.greenAccent, fontSize: 10)),
                                         Text("Lat: ${trainingCtrl.inferenceMs}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
-                                        Text("Pre:${trainingCtrl.tPreprocess} Inf:${trainingCtrl.tInference}", style: const TextStyle(color: Colors.yellowAccent, fontSize: 10)),
-                                        Text("Flat:${trainingCtrl.tFlatten} NMS:${trainingCtrl.tNms}", style: const TextStyle(color: Colors.yellowAccent, fontSize: 10)),
-                                        Text("Ser:${trainingCtrl.tSerial} Tr:${trainingCtrl.tTransfer}", style: const TextStyle(color: Colors.orangeAccent, fontSize: 10)), // [NEW]
-                                        Text("GPU: ${trainingCtrl.isGpu ? 'ON' : 'OFF'}", style: TextStyle(color: trainingCtrl.isGpu ? Colors.greenAccent : Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
                                      ])
                                   )),
                                   
-                                  // [DEBUG] On-Screen Log Overlay (Expanded)
-                                  Positioned(bottom: 20, left: 10, right: 10, child: Container(
-                                     height: 300, // Fixed height for visibility
-                                     padding: const EdgeInsets.all(8),
-                                     color: Colors.black45,
-                                     child: SingleChildScrollView( // Allow scrolling
-                                        reverse: true, // Auto-scroll to bottom
-                                        child: Text(trainingCtrl.debugLog, 
-                                           style: const TextStyle(color: Colors.yellowAccent, fontSize: 11, fontFamily: 'monospace')
-                                        )
-                                     )
-                                  ))
                             ]
                          )),
                          // Character Area
