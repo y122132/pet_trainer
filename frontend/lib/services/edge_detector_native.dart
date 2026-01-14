@@ -507,10 +507,29 @@ void _isolateEntry(_IsolateInitData initData) async {
             result['debug_info']['t_nms'] = swNMS.elapsedMilliseconds;
             result['debug_info']['detections_found'] = detections.length;
 
+            // [NEW] Top-1 Filtering for Pets
+            dynamic bestPetDet;
+            double bestPetScore = -1.0;
+
             for (var det in detections) {
                int mappedCls = 16; 
                if (det.classIndex == 1) mappedCls = 15; 
                if (det.classIndex == 2) mappedCls = 14; 
+               
+               // Check confidence
+               if (det.score > bestPetScore) {
+                   bestPetScore = det.score;
+                   bestPetDet = {
+                       'det': det,
+                       'mappedCls': mappedCls
+                   };
+               }
+            }
+
+            if (bestPetDet != null) {
+               final det = bestPetDet['det'];
+               final mappedCls = bestPetDet['mappedCls'];
+               
                allDetections.add([det.box[0], det.box[1], det.box[2], det.box[3], det.score, mappedCls.toDouble()]);
                if (det.keypoints != null) {
                   final List<double> normalizedKpts = [];
@@ -550,11 +569,22 @@ void _isolateEntry(_IsolateInitData initData) async {
             );
             
             const Set<int> allowedProps = {29, 32, 39, 41, 45, 46, 47, 48, 49, 50, 51, 77};
+            
+            // [NEW] Top-1 Per Class Filtering for Props
+            final Map<int, dynamic> bestProps = {};
+            
             for (var det in detections) {
                final clsId = det.classIndex;
                if (clsId == 0 || clsId == 14 || clsId == 15 || clsId == 16) continue;
                if (!allowedProps.contains(clsId)) continue; 
-               allDetections.add([det.box[0], det.box[1], det.box[2], det.box[3], det.score, clsId.toDouble()]);
+
+               if (!bestProps.containsKey(clsId) || det.score > bestProps[clsId].score) {
+                   bestProps[clsId] = det;
+               }
+            }
+            
+            for (var det in bestProps.values) {
+               allDetections.add([det.box[0], det.box[1], det.box[2], det.box[3], det.score, det.classIndex.toDouble()]);
             }
            } catch (e) { 
               result['error'] = (result['error'] ?? "") + "[ObjErr] $e\n";
@@ -577,7 +607,12 @@ void _isolateEntry(_IsolateInitData initData) async {
             final detections = nonMaxSuppression(
                _outputBufferHuman!, 1, 0.55, 0.40, keypointNum: 17, shape: outputShape
             );
-            for (var det in detections) {
+            
+            // [NEW] Top-1 Filtering for Human (Already NMS limit 1, but reinforcing)
+            if (detections.isNotEmpty) {
+               // Only take the first one (Best Score)
+               var det = detections[0];
+               
                allDetections.add([det.box[0], det.box[1], det.box[2], det.box[3], det.score, 0.0]);
                if (det.keypoints != null) {
                   final List<double> normalizedKpts = [];

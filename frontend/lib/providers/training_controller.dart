@@ -76,7 +76,7 @@ class TrainingController extends ChangeNotifier {
   
   // [NEW] Local Timer State
   int _stayStartTime = 0;
-  static const int _stayDuration = 3000; // 3 seconds
+  static const int _stayDuration = 2000; // 2 seconds
   
   // [NEW] One Euro Filter State
   List<OneEuroFilter>? _boxFilters;
@@ -576,10 +576,16 @@ class TrainingController extends ChangeNotifier {
             inferenceMs = latency; 
           }
        } else if (responseFrameId != -1 && responseFrameId != _pendingFrameId) {
-          // Stale frame response
-          print("Ignored Stale Frame: Resp($responseFrameId) != Pending($_pendingFrameId)");
-          return; 
-       }
+           // [Fix] 성공 메시지라면 프레임 ID가 달라도 무시하지 않고 처리
+           if (jsonMap['status'] == 'success') {
+              print("Processing Stale Frame for Success: Resp($responseFrameId) != Pending($_pendingFrameId)");
+              // 계속 진행 (return 안함)
+           } else {
+              // Stale frame response
+              print("Ignored Stale Frame: Resp($responseFrameId) != Pending($_pendingFrameId)");
+              return; 
+           }
+        }
        
        if (!GlobalSettings.useEdgeAI) {
            // Only update state from server if NOT using Edge AI (or if it's a success confirmation)
@@ -593,8 +599,8 @@ class TrainingController extends ChangeNotifier {
               final msg = jsonMap['message'] as String? ?? '';
               final match = RegExp(r'(\d+\.\d+)').firstMatch(msg);
               if (match != null) {
-                  final remaining = double.tryParse(match.group(1) ?? '3.0') ?? 3.0;
-                  stayProgress = (3.0 - remaining) / 3.0;
+                  final remaining = double.tryParse(match.group(1) ?? '2.0') ?? 2.0;
+                  stayProgress = (2.0 - remaining) / 2.0;
                   progressText = "${remaining.toStringAsFixed(1)}초 유지 중...";
               }
            } else if (trainingState != TrainingStatus.success) {
