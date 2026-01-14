@@ -75,6 +75,36 @@ class Character {
     this.faceUrl = "",
   });
 
+  Character copyWith({
+    int? id,
+    int? userId,
+    String? name,
+    String? petType,
+    List<int>? learnedSkills,
+    List<int>? equippedSkills,
+    Stat? stat,
+    String? imagePath,
+    String? frontUrl,
+    String? backUrl,
+    String? sideUrl,
+    String? faceUrl,
+  }) {
+    return Character(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      name: name ?? this.name,
+      petType: petType ?? this.petType,
+      learnedSkills: learnedSkills ?? this.learnedSkills,
+      equippedSkills: equippedSkills ?? this.equippedSkills,
+      stat: stat ?? this.stat,
+      imagePath: imagePath ?? this.imagePath,
+      frontUrl: frontUrl ?? this.frontUrl,
+      backUrl: backUrl ?? this.backUrl,
+      sideUrl: sideUrl ?? this.sideUrl,
+      faceUrl: faceUrl ?? this.faceUrl,
+    );
+  }
+
   // JSON 파싱 (서버 -> 앱)
   factory Character.fromJson(Map<String, dynamic> json) {
     return Character(
