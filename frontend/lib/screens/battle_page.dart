@@ -2,11 +2,11 @@ import 'dart:ui';
 import 'dart:async';
 import 'dart:convert';
 import '../../config/theme.dart';
+import '../../config/design_system.dart'; // Import Design System
 import '../game/game_assets.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-// [필수 확인] 프로젝트 구조에 맞는 임포트 경로
 import 'package:pet_trainer_frontend/api_config.dart'; 
 import 'package:pet_trainer_frontend/models/battle_state.dart'; 
 import 'package:pet_trainer_frontend/providers/char_provider.dart';
@@ -41,7 +41,7 @@ class BattleView extends StatefulWidget {
 class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   late BattleProvider _controller;
 
-  // 애니메이션 컨트롤러
+  // Anim Controllers
   late AnimationController _shakeController;
   late Animation<double> _shakeAnimation;
   late AnimationController _dashController;
@@ -51,7 +51,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   late AnimationController _flashController;
   late Animation<double> _flashAnimation;
 
-  // 배틀 상태 관리
+  // Battle State
   final List<FloatingTextItem> _floatingTexts = [];
   int _floatingTextIdCounter = 0;
   int? _attackerId;
@@ -114,18 +114,23 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     });
   }
 
+  // Simplified Dash Logic 
   void _triggerDash(int attackerId) async {
     final myId = Provider.of<CharProvider>(context, listen: false).character?.userId;
     setState(() => _attackerId = attackerId);
 
-    const double moveX = 160.0; 
-    const double moveY = 80.0;
+    // Note: Dash distance is now relative to visual perception, but for Animation<Offset>, 
+    // it's usually pixel based or size based. Keeping simple fixed value for now or 
+    // improving to be screen-relative would require deeper refactor of BattleAvatarWidget.
+    // Keeping logic similar but potentially adjustable.
+    const double moveX = 120.0; 
+    const double moveY = 60.0;
 
     _dashAnimation = Tween<Offset>(
       begin: Offset.zero,
       end: attackerId == myId 
-        ? const Offset(moveX, -moveY)   // 나: 오른쪽 위로 돌진 (X+, Y-)
-        : const Offset(-moveX, moveY),  // 상대: 왼쪽 아래로 돌진 (X-, Y+)
+        ? const Offset(moveX, -moveY)
+        : const Offset(-moveX, moveY),
     ).animate(CurvedAnimation(
       parent: _dashController,
       curve: Curves.easeOutBack
@@ -159,6 +164,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
         final char = charProvider.character;
         final myId = char?.userId ?? 0;
 
+        // Skills Preparation
         List<Map<String, dynamic>?> displaySkills = [];
         if (char != null) {
           displaySkills = char.equippedSkills.map((id) {
@@ -177,26 +183,62 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
           },
           child: Scaffold(
             extendBodyBehindAppBar: true,
-            backgroundColor: Colors.black,
+            backgroundColor: Colors.black, // Fallback
             appBar: AppBar(
               title: const Text("PET BATTLE", style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0, color: AppColors.softCharcoal)),
               centerTitle: true,
               backgroundColor: Colors.transparent,
               elevation: 0,
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.softCharcoal),
-                onPressed: () async { if (await _showExitConfirmationDialog(context)) Navigator.of(context).pop(); },
+              leading: Container(
+                margin: const EdgeInsets.only(left: 8),
+                decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), shape: BoxShape.circle),
+                child: IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.softCharcoal, size: 20),
+                  onPressed: () async { if (await _showExitConfirmationDialog(context)) Navigator.of(context).pop(); },
+                ),
               ),
             ),
-            body: Stack(
-              children: [
-                _buildBackground(),
-                _buildOpponentArea(state, myId),
-                _buildPlayerArea(state, myId, charProvider),
-                _buildBattleLogArea(state.logs),
-                _buildSkillPanel(displaySkills, state, controller),
-                _buildEffects(myId, state),
-              ],
+            body: LayoutBuilder(
+              builder: (context, constraints) {
+                return Stack(
+                  children: [
+                    _buildBackground(),
+                    
+                    // --- Opponent Area (Top Right) ---
+                    Positioned(
+                      top: constraints.maxHeight * 0.15,
+                      right: constraints.maxWidth * 0.1,
+                      child: _buildAvatarWithHud(
+                        isMe: false, 
+                        state: state, 
+                        myId: myId, 
+                        charProvider: charProvider
+                      ),
+                    ),
+
+                    // --- Player Area (Bottom Left) ---
+                    Positioned(
+                      bottom: constraints.maxHeight * 0.35, // Give room for skills
+                      left: constraints.maxWidth * 0.1,
+                      child: _buildAvatarWithHud(
+                        isMe: true, 
+                        state: state, 
+                        myId: myId, 
+                        charProvider: charProvider
+                      ),
+                    ),
+
+                    // Logs
+                    _buildBattleLogArea(state.logs, constraints.maxHeight),
+                    
+                    // Skills
+                    _buildSkillPanel(displaySkills, state, controller),
+                    
+                    // Effects Overlay
+                    _buildEffects(myId, state),
+                  ],
+                );
+              }
             ),
           ),
         );
@@ -204,89 +246,56 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     );
   }
 
-  // --- UI 컴포넌트 헬퍼 함수들 (클래스 내부) ---
+  // --- Components ---
 
   Widget _buildBackground() {
     return Stack(
       children: [
         Positioned.fill(child: Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFD4EAC8), Color(0xFFE8F6F3)], stops: [0.3, 1.0])))),
-        Positioned(top: 50, left: 30, child: Icon(Icons.cloud, size: 60, color: Colors.white.withOpacity(0.6))),
+        Positioned(top: 50, left: 30, child: Icon(Icons.cloud, size: 80, color: Colors.white.withOpacity(0.6))),
         Positioned(bottom: -50, left: 0, right: 0, height: 200, child: Container(decoration: BoxDecoration(color: const Color(0xFFC1DFC4).withOpacity(0.6), borderRadius: const BorderRadius.vertical(top: Radius.circular(100))))),
       ],
     );
   }
 
-  Widget _buildOpponentArea(dynamic state, int myId) {
-    return Stack(
+  Widget _buildAvatarWithHud({
+    required bool isMe,
+    required dynamic state,
+    required int myId,
+    required CharProvider charProvider,
+  }) {
+    // Extract Data
+    final String name = isMe ? "ME" : state.oppName;
+    final int hp = isMe ? state.myHp : state.oppHp;
+    final int maxHp = isMe ? state.myMaxHp : state.oppMaxHp;
+    final List<dynamic> statuses = isMe ? state.myStatuses : state.oppStatuses;
+    final String? faceUrl = isMe ? charProvider.character?.faceUrl : state.oppFaceUrl;
+    
+    // Avatar Logic
+    final String petType = isMe ? charProvider.currentPetType : state.oppPetType;
+    final String? sideUrl = isMe ? charProvider.character?.sideUrl : state.oppSideUrl;
+    
+    // Reverse layout for opponent? No, keeping consistent HUD above/below might be better.
+    // Let's stack HUD above Avatar for Opponent, and HUD below Avatar for Player?
+    // Or simpler: HUD always "outside" the center.
+    // Opponent: HUD top-right relative to avatar
+    // Player: HUD bottom-left relative to avatar
+    
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: isMe ? CrossAxisAlignment.start : CrossAxisAlignment.end,
       children: [
-        Positioned(
-          top: 250, 
-          right: 40, 
-          child: Transform.scale(
-            scale: 0.9, 
-            child: _buildAnimatedAvatar(
-              state.oppPetType, 
-              state.oppSideUrl, 
-              false, 
-              myId,
-              state
-            )
-          )
+        if (!isMe) _buildGlassHud(name: name, hp: hp, maxHp: maxHp, statuses: statuses, faceUrl: faceUrl),
+        if (!isMe) const SizedBox(height: 10),
+        
+        // Avatar Wrapper
+        Transform.scale(
+          scale: isMe ? 1.2 : 0.9,
+          child: _buildAnimatedAvatar(petType, sideUrl, isMe, myId, state),
         ),
-        Positioned(
-          top: 140, 
-          left: 20, 
-          right: 20, 
-          child: SafeArea(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end, 
-              children: [
-                _buildGlassHud(
-                  name: state.oppName, 
-                  hp: state.oppHp, 
-                  maxHp: state.oppMaxHp, 
-                  statuses: state.oppStatuses,
-                  faceUrl: state.oppFaceUrl,
-                )
-              ]
-            )
-          )
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPlayerArea(dynamic state, int myId, CharProvider charProvider) {
-    return Stack(
-      children: [
-        Positioned(
-          bottom: 430, 
-          left: 20, 
-          child: Transform.scale(
-            scale: 1.1, 
-            child: _buildAnimatedAvatar(
-              charProvider.currentPetType, 
-              charProvider.character?.sideUrl, 
-              true, 
-              myId, 
-              state
-            )
-          )
-        ),
-        Positioned(
-          bottom: 340, left: 20, right: 20, 
-          child: Row(
-            children: [
-              _buildGlassHud(
-                name: "YOU", 
-                hp: state.myHp, 
-                maxHp: state.myMaxHp, 
-                statuses: state.myStatuses,
-                faceUrl: charProvider.character?.faceUrl,
-              )
-            ]
-          )
-        )
+        
+        if (isMe) const SizedBox(height: 10),
+        if (isMe) _buildGlassHud(name: name, hp: hp, maxHp: maxHp, statuses: statuses, faceUrl: faceUrl),
       ],
     );
   }
@@ -299,8 +308,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     return AnimatedBuilder(
       animation: Listenable.merge([_dashAnimation, _shakeAnimation]),
       builder: (ctx, child) {
-        final int targetId = isMe ? myId : (state.oppId ?? 0);
-
+        // final int targetId = isMe ? myId : (state.oppId ?? 0);
         Offset dashOff = (_attackerId == (isMe ? myId : state.oppId)) ? _dashAnimation.value : Offset.zero;
         double shakeX = (_shakeTargetId == (isMe ? myId : state.oppId)) ? _shakeAnimation.value : 0.0;
         
@@ -316,29 +324,46 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildBattleLogArea(List<String> logs) {
+  Widget _buildBattleLogArea(List<String> logs, double maxHeight) {
     return Positioned(
-      top: 160, 
-      left: 40, 
-      right: 40, 
-      height: 40, 
-      child: Center(child: BattleLogWidget(logs: logs)));
+      top: maxHeight * 0.12, 
+      left: 60, 
+      right: 60, 
+      height: 40,
+      child: Center(
+        child: GlassContainer(
+           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+           opacity: 0.8,
+           borderRadius: BorderRadius.circular(20),
+           child: BattleLogWidget(logs: logs)
+        )
+      )
+    );
   }
 
   Widget _buildSkillPanel(List<Map<String, dynamic>?> skills, dynamic state, BattleProvider controller) {
     return Positioned(
       bottom: 0, left: 0, right: 0,
-      child: SkillPanelWidget(
-        skills: skills,
-        isMyTurn: state.isMyTurn,
-        isConnected: state.isConnected,
-        statusMessage: state.statusMessage,
-        onSkillSelected: (dynamic skill) {
-          if (skill != null) {
-            final int skillId = (skill is Map) ? (skill['id'] as int) : (skill as int);
-            controller.sendMove(skillId);
-          }
-        },
+      child: Container(
+        padding: const EdgeInsets.only(bottom: 20, top: 10),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+             begin: Alignment.topCenter, end: Alignment.bottomCenter,
+             colors: [Colors.transparent, Colors.white.withOpacity(0.9)]
+          )
+        ),
+        child: SkillPanelWidget(
+          skills: skills,
+          isMyTurn: state.isMyTurn,
+          isConnected: state.isConnected,
+          statusMessage: state.statusMessage,
+          onSkillSelected: (dynamic skill) {
+            if (skill != null) {
+              final int skillId = (skill is Map) ? (skill['id'] as int) : (skill as int);
+              controller.sendMove(skillId);
+            }
+          },
+        ),
       ),
     );
   }
@@ -352,34 +377,36 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
           builder: (context, child) => IgnorePointer(child: Container(color: Colors.white.withOpacity(_flashAnimation.value < 0.5 ? _flashAnimation.value : (1.0 - _flashAnimation.value)))),
         ),
         if (state.isOpponentThinking && state.isConnected)
-          Positioned(bottom: 310, right: 20, child: _buildThinkingIndicator()),
+          Align(
+            alignment: const Alignment(0.6, 0.4),
+            child: _buildThinkingIndicator()
+          ),
       ],
     );
   }
 
-  // --- [핵심] 캐릭터 얼굴 이미지가 포함된 HUD 위젯 ---
   Widget _buildGlassHud({required String name, required int hp, required int maxHp, required List<dynamic> statuses, String? faceUrl}) {
     double hpPercent = (maxHp > 0) ? (hp / maxHp).clamp(0.0, 1.0) : 0.0;
-    Color barColor = hpPercent > 0.5 ? AppColors.success : (hpPercent > 0.2 ? Colors.orange : AppColors.danger);
+    Color barColor = hpPercent > 0.5 ? AppColors.success : (hpPercent > 0.2 ? AppColors.warning : AppColors.danger);
     
-    // 이미지 주소 생성
     final String fullImageUrl = faceUrl != null && faceUrl.isNotEmpty
         ? "${AppConfig.baseUrl.replaceFirst('/v1', '')}$faceUrl"
         : "";
 
-    return Container(
-      width: 220, padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: Colors.white.withOpacity(0.9), borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)]),
+    return GlassContainer(
+      width: 200, padding: const EdgeInsets.all(10),
+      borderRadius: BorderRadius.circular(30),
+      opacity: 0.85,
       child: Row(
         children: [
-          // 동그란 얼굴 이미지
+          // Circle Avatar
           Container(
-            width: 45, height: 45,
-            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey[300]!, width: 2)),
+            width: 40, height: 40,
+            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2), color: Colors.grey[200]),
             child: ClipOval(
               child: fullImageUrl.isNotEmpty
                   ? Image.network(fullImageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.pets, size: 20))
-                  : const Icon(Icons.person, size: 20),
+                  : const Icon(Icons.person, size: 20, color: Colors.grey),
             ),
           ),
           const SizedBox(width: 10),
@@ -387,9 +414,12 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min,
               children: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)), Text("$hp/$maxHp", style: const TextStyle(fontSize: 10, color: Colors.grey))]),
-                const SizedBox(height: 5),
-                Stack(children: [Container(height: 8, decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(5))), AnimatedContainer(duration: const Duration(milliseconds: 300), height: 8, width: 140 * hpPercent, decoration: BoxDecoration(color: barColor, borderRadius: BorderRadius.circular(5)))]),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textMain)), Text("$hp/$maxHp", style: const TextStyle(fontSize: 10, color: AppColors.textSub))]),
+                const SizedBox(height: 6),
+                Stack(children: [
+                    Container(height: 6, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(5))), 
+                    AnimatedContainer(duration: const Duration(milliseconds: 300), height: 6, width: 120 * hpPercent, decoration: BoxDecoration(color: barColor, borderRadius: BorderRadius.circular(5)))
+                ]),
               ],
             ),
           ),
@@ -399,7 +429,18 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   }
 
   Widget _buildThinkingIndicator() {
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), decoration: BoxDecoration(color: Colors.white, borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20), bottomLeft: Radius.circular(20)), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(2, 2))]), child: const Row(children: [SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.secondaryPink)), SizedBox(width: 8), Text("고민 중...", style: TextStyle(color: AppColors.softCharcoal, fontSize: 12, fontWeight: FontWeight.bold))]));
+    return GlassContainer(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), 
+      borderRadius: BorderRadius.circular(20),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+           SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.secondaryPink)), 
+           SizedBox(width: 8), 
+           Text("고민 중...", style: TextStyle(color: AppColors.textMain, fontSize: 12, fontWeight: FontWeight.bold))
+        ]
+      )
+    );
   }
 
   void _handleGameOver(bool iWon, String? message) {
@@ -417,11 +458,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   Future<void> _showRewardDialog(Map<String, dynamic> reward) async {
     final charProvider = Provider.of<CharProvider>(context, listen: false);
     
-    // 1. Show Level Up / Reward Stat Dialog
-    // Battle rewards might not have specific stat types like training, usually just EXP.
-    // If 'exp_gained' is present, we assume it's added.
-    // We utilize StatDistributionDialog to show current status and allow point distribution if level up happened.
-    
+    // 1. Stat Dialog
     final currentStats = {
       "strength": charProvider.strength,
       "intelligence": charProvider.intelligence,
@@ -437,9 +474,6 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
         availablePoints: charProvider.unusedStatPoints,
         currentStats: currentStats,
         title: "전투 승리!",
-        // Pass a simple map for earned reward message if needed, or just rely on title/exp
-        // The dialog builds reward info based on 'earnedReward'. 
-        // We can create a dummy one or pass null if only EXP matters.
         earnedReward: {'stat_type': 'EXP', 'value': reward['exp_gained']}, 
         earnedBonus: 0, 
         confirmLabel: "확인",
@@ -454,7 +488,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       ),
     );
 
-    // 2. Check Skills & Navigate
+    // 2. Skills
     if (reward['acquired_skills_details'] != null) {
       final skills = reward['acquired_skills_details'] as List;
       if (skills.isNotEmpty) {
@@ -470,15 +504,18 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
              builder: (context) => AlertDialog(
                  title: const Text("스킬 획득!"),
                  content: Text(msg),
+                 
+                 // Apply Theme Style manually if needed or rely on Theme
+                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                  actions: [
                     TextButton(
                        onPressed: () { 
                           Navigator.pop(context); 
                           Navigator.pop(context); // Exit Battle
                        },
-                       child: const Text("아니오 (나가기)"),
+                       child: const Text("아니오 (나가기)", style: TextStyle(color: AppColors.textSub)),
                     ),
-                    TextButton(
+                    ElevatedButton(
                        onPressed: () {
                           Navigator.pop(context); 
                           Navigator.pop(context); // Exit Battle
@@ -493,7 +530,6 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       }
     }
     
-    // If no skills, just exit
     Navigator.pop(context); 
   }
 
@@ -504,12 +540,13 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       builder: (context) => AlertDialog(
         title: Text(iWon ? "승리" : "패배"),
         content: Text(specialMessage ?? (iWon ? "축하합니다!" : "아쉽네요.")),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         actions: [TextButton(
           onPressed: () {
             Navigator.of(context).pop();
             Navigator.of(context).pop();
           },
-          child: const Text("나가기")
+          child: const Text("나가기", style: TextStyle(color: AppColors.primaryMint))
         )],
       ),
     );
@@ -521,9 +558,10 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       builder: (context) => AlertDialog(
         title: const Text("배틀 종료"),
         content: const Text("대전에서 나가시겠습니까?\n지금 중단하면 패배로 기록됩니다."),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("아니오")),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("네")),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("아니오", style: TextStyle(color: AppColors.textMain))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("네", style: TextStyle(color: AppColors.danger))),
         ],
       ),
     ) ?? false;

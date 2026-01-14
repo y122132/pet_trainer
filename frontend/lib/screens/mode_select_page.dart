@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../config/theme.dart';
+import '../config/design_system.dart';
 import 'camera_screen.dart';
 
 class ModeSelectPage extends StatelessWidget {
@@ -9,77 +12,89 @@ class ModeSelectPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFFF9E6), // 1. 배경색
+      backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          // 1. 배경 패턴
+          // 1. [Background] Studio Atmosphere
+          // 1. [Background] Exact Friend Page Style
           Container(
             decoration: const BoxDecoration(
+              color: AppColors.background,
               image: DecorationImage(
                 image: AssetImage('assets/images/login_bg.png'),
                 fit: BoxFit.cover,
-                opacity: 0.2,
+                opacity: 0.3,
               ),
             ),
           ),
+          
           SafeArea(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 50.0),
-                child: Column(
-                  children: [
-                    // 2. 상단 타이틀
-                    Text(
-                      "훈련 모드를 선택하세요",
-                      style: GoogleFonts.jua(
-                        fontSize: 26,
-                        color: const Color(0xFF5D4037),
-                        fontWeight: FontWeight.bold,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 2. [Header]
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textMain),
+                        onPressed: () => Navigator.pop(context),
+                        style: IconButton.styleFrom(
+                           backgroundColor: Colors.white.withOpacity(0.5),
+                           padding: const EdgeInsets.all(12),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 40),
-
-                    // 3. 훈련 모드 카드들
-                    _buildModeCard(
-                      context,
-                      "놀이",
-                      "반려동물과 신나게 놀아주세요!",
-                      Icons.pets,
-                      const Color(0xFF82B1FF),
-                      "playing",
-                    ),
-                    const SizedBox(height: 20),
-                    _buildModeCard(
-                      context,
-                      "교감",
-                      "따뜻한 눈빛으로 마음을 나눠요.",
-                      Icons.favorite_border,
-                      const Color(0xFFFF8A80),
-                      "interaction",
-                    ),
-                    const SizedBox(height: 20),
-                    _buildModeCard(
-                      context,
-                      "식사",
-                      "맛있는 간식을 챙겨줄 시간!",
-                      Icons.restaurant_menu,
-                      const Color(0xFF8D6E63),
-                      "feeding",
-                    ),
-                    const SizedBox(height: 40), // 4. 하단 여백
-                  ],
+                      const SizedBox(height: 24),
+                      Text("오늘은 무엇을\n해볼까요?", style: GoogleFonts.jua(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.textMain, height: 1.2)),
+                      const SizedBox(height: 8),
+                      Text("반려동물과 함께할 활동을 선택해주세요.", style: GoogleFonts.jua(fontSize: 16, color: AppColors.textSub)),
+                    ],
+                  ),
                 ),
-              ),
-            ),
-          ),
-           // 커스텀 뒤로가기 버튼
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new, color: Color(0xFF5D4037)),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
+                
+                const SizedBox(height: 20),
+                
+                // 3. [Activity Cards]
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    children: [
+                      _buildActivityCard(
+                        context,
+                        title: "놀이 훈련",
+                        subtitle: "반려동물과 신나게 뛰어놀아요!",
+                        icon: FontAwesomeIcons.baseball,
+                        color: AppColors.secondary,
+                        mode: "playing",
+                        delay: 0,
+                      ),
+                      const SizedBox(height: 20),
+                      _buildActivityCard(
+                        context,
+                        title: "교감 하기",
+                        subtitle: "따뜻한 눈빛으로 마음을 나눠요.",
+                        icon: FontAwesomeIcons.solidHeart,
+                        color: Colors.pinkAccent,
+                        mode: "interaction",
+                        delay: 100,
+                      ),
+                      const SizedBox(height: 20),
+                      _buildActivityCard(
+                        context,
+                        title: "식사 예절",
+                        subtitle: "맛있는 간식을 챙겨줄 시간!",
+                        icon: FontAwesomeIcons.bone,
+                        color: AppColors.primary,
+                        mode: "feeding",
+                        delay: 200,
+                      ),
+                      const SizedBox(height: 40),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -87,79 +102,93 @@ class ModeSelectPage extends StatelessWidget {
     );
   }
 
-  // 모드 선택 카드 위젯
-  Widget _buildModeCard(BuildContext context, String title, String subtitle, IconData icon, Color color, String mode) {
+  Widget _buildActivityCard(BuildContext context, {
+    required String title, required String subtitle, required IconData icon, required Color color, required String mode, required int delay
+  }) {
+    // Simple entry animation simulation could be added here, 
+    // but simplified to static glass card for now.
     return GestureDetector(
-      onTap: () => _showDifficultyDialog(context, mode), // 기능 유지
+      onTap: () => _showDifficultyDialog(context, mode),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
+        height: 120,
         decoration: BoxDecoration(
-          color: Colors.white, // 흰색 배경
-          borderRadius: BorderRadius.circular(30.0), // 둥근 모서리
-          border: Border.all(color: const Color(0xFF5D4037), width: 2.0), // 갈색 테두리
+          color: Colors.white.withOpacity(0.8),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white, width: 2),
           boxShadow: [
             BoxShadow(
-              color: Colors.brown.withOpacity(0.15),
-              spreadRadius: 2,
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
+              color: color.withOpacity(0.15),
+              blurRadius: 15,
+              offset: const Offset(0, 8),
+            )
           ],
         ),
         child: Row(
           children: [
-            // 왼쪽 아이콘
+            // Left Accent Bar
             Container(
-              padding: const EdgeInsets.all(12),
+              width: 8,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                shape: BoxShape.circle,
+                color: color,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  bottomLeft: Radius.circular(24),
+                ),
               ),
-              child: Icon(icon, size: 32, color: color),
             ),
-            const SizedBox(width: 20),
-            // 중앙 텍스트 (Expanded 적용으로 overflow 방지)
+            
+            // Icon Area
+            Container(
+              width: 80,
+              alignment: Alignment.center,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: FaIcon(icon, color: color, size: 28),
+              ),
+            ),
+            
+            // Text Area
             Expanded(
               child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.jua(fontSize: 22, color: const Color(0xFF4E342E), fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.jua(fontSize: 14, color: Colors.grey[600]),
-                  ),
+                  Text(title, style: GoogleFonts.jua(fontSize: 20, color: AppColors.textMain, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text(subtitle, style: GoogleFonts.jua(fontSize: 13, color: AppColors.textSub)),
                 ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios, color: Color(0xFF5D4037), size: 20),
+            
+            // Arrow
+            Padding(
+              padding: const EdgeInsets.only(right: 20),
+              child: Icon(Icons.arrow_forward_ios_rounded, color: AppColors.textSub.withOpacity(0.5), size: 18),
+            )
           ],
         ),
       ),
     );
   }
 
-  // 난이도 선택 팝업 (테마에 맞게 스타일 수정)
   void _showDifficultyDialog(BuildContext parentContext, String mode) {
     showDialog(
       context: parentContext,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          backgroundColor: const Color(0xFFFFF9E6),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
-            side: const BorderSide(color: Color(0xFF5D4037), width: 2),
-          ),
-          title: Text("난이도 선택", textAlign: TextAlign.center, style: GoogleFonts.jua(color: const Color(0xFF4E342E), fontSize: 22)),
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Text("난이도 선택", textAlign: TextAlign.center, style: GoogleFonts.jua(fontWeight: FontWeight.bold, color: AppColors.textMain)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildDifficultyButton(dialogContext, parentContext, "Easy (쉬움)", Colors.green, mode, "easy"),
-              const SizedBox(height: 10),
-              _buildDifficultyButton(dialogContext, parentContext, "Hard (어려움)", Colors.redAccent, mode, "hard"),
+              _buildDifficultyButton(dialogContext, parentContext, "쉬움 (Easy)", AppColors.success, mode, "easy"),
+              const SizedBox(height: 12),
+              _buildDifficultyButton(dialogContext, parentContext, "어려움 (Hard)", AppColors.danger, mode, "hard"),
             ],
           ),
         );
@@ -167,30 +196,26 @@ class ModeSelectPage extends StatelessWidget {
     );
   }
 
-  // 난이도 버튼 (테마에 맞게 스타일 수정)
   Widget _buildDifficultyButton(BuildContext dialogContext, BuildContext parentContext, String label, Color color, String mode, String difficulty) {
     return SizedBox(
       width: double.infinity,
+      height: 50,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          elevation: 3,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          elevation: 2,
         ),
         onPressed: () {
-          Navigator.pop(dialogContext); // 다이얼로그 닫기
-          _navigateToCamera(parentContext, mode, difficulty); // 카메라 화면으로 이동 (기능 유지)
+          Navigator.pop(dialogContext);
+          _navigateToCamera(parentContext, mode, difficulty);
         },
-        child: Text(
-          label,
-          style: GoogleFonts.jua(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-        ),
+        child: Text(label, style: GoogleFonts.jua(fontSize: 16)),
       ),
     );
   }
 
-  // 카메라 화면으로 이동하는 로직 (수정하지 않음)
   void _navigateToCamera(BuildContext context, String mode, String difficulty) async {
     try {
       final cameras = await availableCameras();

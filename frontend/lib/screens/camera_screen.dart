@@ -7,6 +7,8 @@ import 'package:pet_trainer_frontend/widgets/char_message_bubble.dart';
 import 'package:pet_trainer_frontend/widgets/stat_distribution_dialog.dart';
 import 'package:pet_trainer_frontend/widgets/camera/camera_painters.dart';
 import 'package:pet_trainer_frontend/api_config.dart'; // [Fix] Import AppConfig
+import 'package:pet_trainer_frontend/config/theme.dart';
+import 'package:pet_trainer_frontend/config/design_system.dart';
 import 'my_room_page.dart'; // For navigation context if needed
 import 'skill_management_screen.dart';
 
@@ -127,157 +129,184 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        title: Text(_getTitle(), style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+    return ThemedBackground(
+      child: Scaffold(
         backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black87),
-          onPressed: () => Navigator.pop(context),
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          title: Text(_getTitle(), style: AppTextStyles.title.copyWith(fontSize: 20)),
+          backgroundColor: Colors.transparent, // Glass effect via flexibleSpace if needed, or simple transparent
+          elevation: 0,
+          centerTitle: true,
+          leading: Container(
+             margin: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
+             decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), shape: BoxShape.circle),
+             child: IconButton(
+               icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.textMain, size: 20),
+               onPressed: () => Navigator.pop(context),
+             ),
+          ),
         ),
-      ),
-      body: FutureBuilder<void>(
-        future: _initFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done) {
-             return Consumer2<TrainingController, CharProvider>(
-               builder: (context, trainingCtrl, charProvider, child) {
-                 return OrientationBuilder(
-                   builder: (context, orientation) {
-                      if (_currentOrientation != orientation) _currentOrientation = orientation;
-                      final isLandscape = orientation == Orientation.landscape;
-                      
-                      List<Widget> children = [
-                         Expanded(flex: 1, child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                               CameraPreview(_cameraController),
-                               if (trainingCtrl.isAnalyzing) ...[
-                                  CustomPaint(painter: DebugBoxPainter(
-                                     bbox: trainingCtrl.bbox, 
-                                     isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
-                                     imgRatio: _cameraController.value.aspectRatio,
-                                  )),
-                                  // Pet Skeleton
-                                  if (trainingCtrl.petKeypoints.isNotEmpty)
-                                     CustomPaint(painter: PetPosePainter(
-                                        keypoints: trainingCtrl.petKeypoints,
-                                        isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
-                                        imgRatio: _cameraController.value.aspectRatio,
-                                     )),
-                                   
-                                   // [NEW] Model Input Image Thumbnail
-                                   if (trainingCtrl.debugInputImage != null)
-                                      Positioned(top: 10, right: 10, child: Container(
-                                         decoration: BoxDecoration(
-                                            border: Border.all(color: Colors.yellowAccent, width: 2),
-                                            borderRadius: BorderRadius.circular(8),
-                                         ),
-                                         child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                               Container(
-                                                  padding: const EdgeInsets.all(4),
-                                                  color: Colors.black87,
-                                                  child: const Text("모델 입력", style: TextStyle(color: Colors.yellowAccent, fontSize: 10, fontWeight: FontWeight.bold))
-                                               ),
-                                               Image.memory(
-                                                  trainingCtrl.debugInputImage!,
-                                                  width: 120,
-                                                  height: 120,
-                                                  fit: BoxFit.cover,
-                                               ),
-                                            ],
-                                         ),
-                                      )),
+        body: FutureBuilder<void>(
+          future: _initFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.done) {
+               return Consumer2<TrainingController, CharProvider>(
+                 builder: (context, trainingCtrl, charProvider, child) {
+                   return OrientationBuilder(
+                     builder: (context, orientation) {
+                        if (_currentOrientation != orientation) _currentOrientation = orientation;
+                        final isLandscape = orientation == Orientation.landscape;
+                        
+                        List<Widget> children = [
+                           // --- Camera View Area ---
+                           Expanded(flex: 2, child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                 ClipRRect(
+                                    borderRadius: BorderRadius.circular(isLandscape ? 0 : 30),
+                                    child: CameraPreview(_cameraController)
+                                 ),
+                                 if (trainingCtrl.isAnalyzing) ...[
+                                    CustomPaint(painter: DebugBoxPainter(
+                                       bbox: trainingCtrl.bbox, 
+                                       isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
+                                       imgRatio: _cameraController.value.aspectRatio,
+                                    )),
+                                    // Pet Skeleton
+                                    if (trainingCtrl.petKeypoints.isNotEmpty)
+                                       CustomPaint(painter: PetPosePainter(
+                                          keypoints: trainingCtrl.petKeypoints,
+                                          isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
+                                          imgRatio: _cameraController.value.aspectRatio,
+                                       )),
                                      
-                                  // Human Skeleton (Legacy or New)
-                                  if (trainingCtrl.humanKeypoints.isNotEmpty || trainingCtrl.keypoints.isNotEmpty)
-                                     CustomPaint(painter: PosePainter(
-                                        keypoints: trainingCtrl.humanKeypoints.isNotEmpty ? trainingCtrl.humanKeypoints : trainingCtrl.keypoints,
-                                        feedback: trainingCtrl.feedback,
-                                        isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
-                                        imgRatio: _cameraController.value.aspectRatio,
-                                     ))
-                               ],
-                               
-                               // STAY Progress
-                               if (trainingCtrl.trainingState == TrainingStatus.stay)
-                                  Container(color: Colors.black38, child: Center(child: Column(
-                                     mainAxisSize: MainAxisSize.min,
-                                     children: [
-                                        CircularProgressIndicator(value: trainingCtrl.stayProgress, strokeWidth: 8, valueColor: const AlwaysStoppedAnimation(Colors.greenAccent)),
-                                        const SizedBox(height: 10),
-                                        Text(trainingCtrl.progressText, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
-                                     ]
-                                  ))),
-                                  
-                               // Debug Info
-                               if (trainingCtrl.isAnalyzing)
-                                  Positioned(top: 10, left: 10, child: Container(
-                                     padding: const EdgeInsets.all(8),
-                                     decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                        Text("Status: ${trainingCtrl.trainingState.name.toUpperCase()}", style: const TextStyle(color: Colors.white, fontSize: 10)),
-                                        Text("Score: ${(trainingCtrl.confScore * 100).toStringAsFixed(1)}%", style: const TextStyle(color: Colors.greenAccent, fontSize: 10)),
-                                        Text("Lat: ${trainingCtrl.inferenceMs}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
-                                     ])
-                                  )),
-                                  
-                            ]
-                         )),
-                         // Character Area
-                         Expanded(flex: 1, child: Container(
-                            width: double.infinity, color: Colors.white,
-                            child: Column(children: [
-                              Expanded(child: Builder(
-                                builder: (context) {
-                                  final char = charProvider.character;
-                                  String? imageUrl = char?.frontUrl;
-                                  
-                                  if (imageUrl != null && imageUrl.isNotEmpty) {
-                                       // [Fix] Handle Localhost & Relative Paths
-                                       if (imageUrl.startsWith('/')) {
-                                           imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
-                                       } else if (imageUrl.contains('localhost')) {
-                                           imageUrl = imageUrl.replaceFirst('localhost', AppConfig.serverIp);
-                                       }
-                                       return Image.network(imageUrl!, fit: BoxFit.contain);
-                                  } else {
-                                       // Fallback Asset
-                                       return Image.asset(char?.imagePath ?? "assets/images/characters/닌자옷.png", fit: BoxFit.contain);
+                                     // [NEW] Model Input Image Thumbnail (Debug)
+                                     /* // Hidden for aesthetic mode unless dev usage
+                                     if (trainingCtrl.debugInputImage != null)
+                                        Positioned(top: 10, right: 10, child: Container(
+                                           ...
+                                        )),
+                                     */
+                                       
+                                    // Human Skeleton (Legacy or New)
+                                    if (trainingCtrl.humanKeypoints.isNotEmpty || trainingCtrl.keypoints.isNotEmpty)
+                                       CustomPaint(painter: PosePainter(
+                                          keypoints: trainingCtrl.humanKeypoints.isNotEmpty ? trainingCtrl.humanKeypoints : trainingCtrl.keypoints,
+                                          feedback: trainingCtrl.feedback,
+                                          isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
+                                          imgRatio: _cameraController.value.aspectRatio,
+                                       ))
+                                 ],
+                                 
+                                 // STAY Progress
+                                 if (trainingCtrl.trainingState == TrainingStatus.stay)
+                                    Center(
+                                      child: GlassContainer(
+                                        borderRadius: BorderRadius.circular(100),
+                                        child: Column(
+                                         mainAxisSize: MainAxisSize.min,
+                                         children: [
+                                            SizedBox(
+                                              width: 60, height: 60,
+                                              child: CircularProgressIndicator(value: trainingCtrl.stayProgress, strokeWidth: 8, valueColor: const AlwaysStoppedAnimation(AppColors.primaryMint)),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            Text(trainingCtrl.progressText, style: AppTextStyles.title.copyWith(fontSize: 24, color: AppColors.textMain))
+                                         ]
+                                      ))
+                                    ),
+                                    
+                                 // Debug Info Overlay (Top Left)
+                                 if (trainingCtrl.isAnalyzing)
+                                    Positioned(
+                                      top: 10, left: 10, 
+                                      child: GlassContainer(
+                                        padding: const EdgeInsets.all(8),
+                                        borderRadius: BorderRadius.circular(12),
+                                        opacity: 0.7,
+                                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                          Text("Status: ${trainingCtrl.trainingState.name.toUpperCase()}", style: const TextStyle(color: AppColors.textMain, fontSize: 10, fontWeight: FontWeight.bold)),
+                                          Text("Score: ${(trainingCtrl.confScore * 100).toStringAsFixed(1)}%", style: const TextStyle(color: AppColors.success, fontSize: 10)),
+                                          Text("Lat: ${trainingCtrl.inferenceMs}ms", style: const TextStyle(color: AppColors.textSub, fontSize: 10)),
+                                       ])
+                                    )),
+                                    
+                              ]
+                           )),
+
+                           // --- Side/Bottom Panel with Character ---
+                           Expanded(flex: 1, child: Container(
+                              width: double.infinity, 
+                              decoration: BoxDecoration(
+                                color: AppColors.background,
+                                borderRadius: isLandscape ? const BorderRadius.horizontal(left: Radius.circular(30)) : const BorderRadius.vertical(top: Radius.circular(30)),
+                                boxShadow: AppDecorations.softShadow,
+                              ),
+                              child: Column(children: [
+                                const SizedBox(height: 10),
+                                Expanded(child: Builder(
+                                  builder: (context) {
+                                    final char = charProvider.character;
+                                    String? imageUrl = char?.frontUrl;
+                                    
+                                    if (imageUrl != null && imageUrl.isNotEmpty) {
+                                         if (imageUrl.startsWith('/')) {
+                                             imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
+                                         } else if (imageUrl.contains('localhost')) {
+                                             imageUrl = imageUrl.replaceFirst('localhost', AppConfig.serverIp);
+                                         }
+                                         return Image.network(imageUrl!, fit: BoxFit.contain);
+                                    } else {
+                                         // Fallback Asset
+                                         return Image.asset(char?.imagePath ?? "assets/images/characters/닌자옷.png", fit: BoxFit.contain);
+                                    }
                                   }
-                                }
-                              )),
-                              ChatBubble(message: charProvider.statusMessage, isAnalyzing: trainingCtrl.isAnalyzing)
-                            ])
-                         ))
-                      ];
-                      
-                      return Stack(children: [
-                         isLandscape ? Row(children: children) : Column(children: children),
-                         if (_particles.isNotEmpty) IgnorePointer(child: CustomPaint(painter: ConfettiPainter(_particles), size: Size.infinite)),
-                         Positioned(
-                            bottom: isLandscape ? 20 : 150, left: 0, right: 0,
-                            child: Center(child: FloatingActionButton.extended(
-                               onPressed: _toggleTraining,
-                               backgroundColor: trainingCtrl.isAnalyzing ? Colors.redAccent : Colors.indigo,
-                               icon: Icon(trainingCtrl.isAnalyzing ? Icons.stop : Icons.play_arrow),
-                               label: Text(trainingCtrl.isAnalyzing ? "STOP" : "START", style: const TextStyle(fontWeight: FontWeight.bold))
-                            ))
-                         )
-                      ]);
-                   }
-                 );
-               }
-             );
-          } else {
-             return const Center(child: CircularProgressIndicator());
+                                )),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                  child: CharMessageBubble(message: charProvider.statusMessage, isAnalyzing: trainingCtrl.isAnalyzing),
+                                ),
+                                const SizedBox(height: 20),
+                              ])
+                           ))
+                        ];
+                        
+                        return Stack(children: [
+                           isLandscape ? Row(children: children) : Column(children: children),
+                           
+                           if (_particles.isNotEmpty) IgnorePointer(child: CustomPaint(painter: ConfettiPainter(_particles), size: Size.infinite)),
+                           
+                           // Floating Action Button for Start/Stop (Global Overlay)
+                           Positioned(
+                              bottom: isLandscape ? 20 : 180, // Adjust position based on orientation
+                              left: 0, right: 0,
+                              child: Center(
+                                child: SizedBox(
+                                  height: 60, width: 140,
+                                  child: ElevatedButton.icon(
+                                     onPressed: _toggleTraining,
+                                     style: ElevatedButton.styleFrom(
+                                       backgroundColor: trainingCtrl.isAnalyzing ? AppColors.danger : AppColors.primaryMint,
+                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                       elevation: 6,
+                                     ),
+                                     icon: Icon(trainingCtrl.isAnalyzing ? Icons.stop_rounded : Icons.play_arrow_rounded, color: Colors.white, size: 30),
+                                     label: Text(trainingCtrl.isAnalyzing ? "STOP" : "START", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white))
+                                  ),
+                                )
+                              )
+                           )
+                        ]);
+                     }
+                   );
+                 }
+               );
+            } else {
+               return const Center(child: CircularProgressIndicator());
+            }
           }
-        }
+        ),
       ),
     );
   }
@@ -350,20 +379,18 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
              builder: (context) => AlertDialog(
                  title: const Text("스킬 획득!"),
                  content: Text(msg),
+                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                  actions: [
                     TextButton(
                        onPressed: () { 
                           Navigator.pop(context); 
                           _goToMyRoom();
                        },
-                       child: const Text("아니오 (마이룸)"),
+                       child: const Text("아니오 (마이룸)", style: TextStyle(color: AppColors.textSub)),
                     ),
-                    TextButton(
+                    ElevatedButton(
                        onPressed: () {
                           Navigator.pop(context); // Close Alert
-                          // Navigate to MyRoom first then SkillScreen? 
-                          // Or directly Push SkillScreen?
-                          // If we push CheckSkill, we should eventually go back to MyRoom.
                           Navigator.pop(context); // Close Camera
                           Navigator.push(context, MaterialPageRoute(builder: (context) => const SkillManagementScreen()));
                        },
