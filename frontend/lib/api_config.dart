@@ -1,3 +1,4 @@
+// frontend/lib/api_config.dart
 import 'package:flutter/foundation.dart';
 
 class AppConfig {
@@ -25,7 +26,7 @@ class AppConfig {
   static String get socketUrl => 'ws://$serverIp:$serverPort/ws/analysis';
   
   // 배틀 시스템 (develop 유지)
-  static String get battleSocketUrl => 'ws://$serverIp:$serverPort/ws/battle';
+  static String get battleSocketUrl => 'ws://$serverIp:$serverPort/v1/ws/battle';
 
   // 실시간 채팅 (network 신규 통합)
   // 백엔드 routers.py 설정에 따라 /v1/chat 경로를 포함합니다.
@@ -34,5 +35,5 @@ class AppConfig {
 
   // 배틀 매치메이킹
   static String matchMakingSocketUrl(int userId) => 
-      'ws://$serverIp:$serverPort/ws/battle/matchmaking/$userId';
+      'ws://$serverIp:$serverPort/v1/ws/battle/matchmaking/$userId';
 }

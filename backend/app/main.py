@@ -1,3 +1,4 @@
+# backend/app/main.py
 import os
 from pathlib import Path
 from fastapi import FastAPI
@@ -74,8 +75,8 @@ async def on_startup():
 # 라우터 등록
 # REST API와 WebSocket 엔드포인트를 메인 앱에 연결합니다.
 app.include_router(api_router)
-app.include_router(websocket_router)
-app.include_router(battle_router)
+app.include_router(websocket_router, prefix="/v1")
+app.include_router(battle_router, prefix="/v1")
 
 # Admin Panel Setup
 from app.admin_auth import authentication_backend
