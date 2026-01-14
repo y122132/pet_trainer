@@ -356,9 +356,10 @@ async def analysis_endpoint(
                     # Optional: Send "Ready" message
                 else:
                     # Still in cooldown - block other states
+                    # [FIX] 'stay' 대신 'keep'을 사용하여 클라이언트 UI가 뒤로 돌아가는 현상 방지
                     response = result.copy()
                     response.update({
-                        "status": "stay", 
+                        "status": "keep", 
                         "message": f"잠시 휴식... {3.0 - elapsed:.1f}초",
                         "is_specific_feedback": True
                     })

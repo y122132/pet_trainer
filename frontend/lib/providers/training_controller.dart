@@ -260,9 +260,6 @@ class TrainingController extends ChangeNotifier {
     // [NEW] Stop UI Loop
     _uiTimer?.cancel();
     _uiTimer = null;
-    bestShotUrl = null; // Reset
-    _successTriggered = false;
-    cachedCharMessage = null;
     
     notifyListeners();
   }
@@ -364,7 +361,8 @@ class TrainingController extends ChangeNotifier {
     if (!isAnalyzing || 
         isThrottled || 
         _isProcessingFrame || 
-        !_canSendFrame) {
+        !_canSendFrame ||
+        _successTriggered) { // [FIX] 성공 트리거 이후 추가 프레임 분석 완전 중단
       return;
     }
 
@@ -413,7 +411,12 @@ class TrainingController extends ChangeNotifier {
                 
                 final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
                 
-                // [FIX] Update Latency for EVERY frame
+                // [FIX] 비동기 작업 후 상태 재확인 (레이스 컨디션 방지)
+                if (!isAnalyzing || _successTriggered) {
+                   _isProcessingFrame = false;
+                   _canSendFrame = true;
+                   return;
+                }
                 if (edgeResult.containsKey('debug_info') && edgeResult['debug_info'] != null) {
                    final debugInfo = edgeResult['debug_info'];
                    if (debugInfo.containsKey('inference_ms')) {
@@ -532,14 +535,21 @@ class TrainingController extends ChangeNotifier {
                 // [DEBUG] Check for Edge Errors IMMEDIATELY
                 if (edgeResult.containsKey('error') && edgeResult['error'] != null) {
                    final err = edgeResult['error'];
-                   // [User Request] Show error in Overlay Log
-                   // addLog("⚠️ CRITICAL: $err");
                    errorMessage = "Edge Err: $err";
-                   notifyListeners(); // Force UI Update
+                   notifyListeners(); 
+                   _isProcessingFrame = false; // [FIX] Lock Recovery
+                   _canSendFrame = true;
                    return; 
                 }
                 
-                // [FIX] ===== IMMEDIATELY UPDATE TARGET STATE (AI Data) =====
+                // [FIX] 핵심 안정화: 이미 성공했거나 분석이 중지된 경우 이 프레임의 데이터로 상태를 오염시키지 않음
+                if (!isAnalyzing || _successTriggered) {
+                   _isProcessingFrame = false;
+                   _canSendFrame = true;
+                   return;
+                }
+                
+                // [FIX] ===== 이 시점부터만 상태 업데이트 가능 (성공 전까지만) =====
                 
                 // Update Detection Data (Target)
                 if (edgeResult.containsKey('bbox')) {
@@ -637,15 +647,24 @@ class TrainingController extends ChangeNotifier {
                         status = 'success';
                         stayProgress = 1.0;
                         progressText = "완료!";
-                        _stayStartTime = 0; // Reset
+                        // [FIX] 여기서 _stayStartTime = 0 리셋을 하지 않아야 다음 프레임이 'stay'로 역행하지 않음
                     }
                 } else {
-                   // Distance Bad or No Pet -> Reset Timer
-                   _stayStartTime = 0;
-                   stayProgress = 0.0;
-                   progressText = "";
+                   // [FIX] 이미 성공 트리거가 된 경우 타이머를 리셋하지 않음 (지터 방지)
+                   if (!_successTriggered) {
+                      _stayStartTime = 0;
+                      stayProgress = 0.0;
+                      progressText = "";
+                   }
                 }
                 
+                // [FINAL CHECK] 상태 업데이트 직전 한 번 더 성공 여부 확인
+                if (_successTriggered) {
+                    _isProcessingFrame = false;
+                    _canSendFrame = true;
+                    return;
+                }
+
                 trainingState = _parseStatus(status);
                 
                 // [FIX] Unlock frame lock IMMEDIATELY
