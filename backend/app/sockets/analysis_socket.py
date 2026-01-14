@@ -453,14 +453,39 @@ async def analysis_endpoint(
                         service_result = await char_service.update_stats_from_yolo_result(db, character_obj.id, result)
                         
                         if service_result:
-                            # LLM 호출을 위한 정보 준비 (여기서는 직접 호출하지 않고 trigger 함수 사용 권장하지만,
-                            # service_result가 필요하므로 인라인 혹은 trigger 함수 확장 필요)
-                            
-                            # 기존 구조 유지하되 LLM 부분만 교체
+                            # [NEW] 1. Best Shot Saving (Execute BEFORE LLM)
+                            best_shot_url = None
+                            if vision_state["best_frame_data"]:
+                                try:
+                                    import os
+                                    from datetime import datetime
+                                    
+                                    # Save Image to Local Disk
+                                    today_str = datetime.now().strftime("%Y%m%d")
+                                    upload_dir = f"uploads/{today_str}"
+                                    os.makedirs(upload_dir, exist_ok=True)
+                                    
+                                    filename = f"best_shot_{user_id}_{int(time.time())}.jpg"
+                                    filepath = f"{upload_dir}/{filename}"
+                                    
+                                    with open(filepath, "wb") as f:
+                                        f.write(vision_state["best_frame_data"])
+                                        
+                                    # Generate URL (Relative path for Frontend)
+                                    best_shot_url = f"/uploads/{today_str}/{filename}"
+                                    print(f"[BestShot] Saved: {filepath}")
+
+                                except Exception as e:
+                                    print(f"[BestShot] Save Error: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+
+                            # LLM 호출을 위한 정보 준비
                             updated_stat = service_result["stat"]
                             
+                            # [Changed] Pass best_shot_url to LLM
                             msg = await get_character_response(
-                                user_id=user_id, # [New] Context Memory Key
+                                user_id=user_id, 
                                 action_type=result.get("action_type", "action").replace("_", " ").title(),
                                 current_stats={
                                     "strength": updated_stat.strength,
@@ -472,70 +497,43 @@ async def analysis_endpoint(
                                 reward_info=result.get("base_reward", {}),
                                 feedback_detail=result.get("feedback_message", ""),
                                 daily_count=service_result.get("daily_count", 0),
-                                reward_info=result.get("base_reward", {}),
-                                feedback_detail=result.get("feedback_message", ""),
-                                daily_count=service_result.get("daily_count", 0),
                                 milestone_reached=service_result.get("milestone_reached"),
                                 best_shot_url=best_shot_url # [New] Pass Best Shot URL
                             )
                             
                             response_data = {
                                 "status": "success",
-                                "char_message": msg, # [Change] char_message
-                                "message": "훈련 성공!", # 시스템 메시지 고정
+                                "char_message": msg, 
+                                "message": "훈련 성공!", 
                                 "base_reward": result.get("base_reward", {}),
                                 "bonus_points": result.get("bonus_points", 0),
                                 "count": service_result.get("daily_count", 0),
                                 "bbox": [],
-                                "level_up_info": service_result.get("level_up_info", {}), # [New] Pass Level Up Info
+                                "level_up_info": service_result.get("level_up_info", {}), 
                                 "pet_keypoints": [],
-                                "human_keypoints": []
-                                "best_shot_url": None # Default
+                                "human_keypoints": [],
+                                "best_shot_url": best_shot_url # [New] Send URL to Client
                             }
                             
-                            # [NEW] Best Shot Saving & Diary Upload
-                            if vision_state["best_frame_data"]:
+                            # [NEW] 2. Create Diary Entry (After LLM)
+                            if best_shot_url:
                                 try:
-                                    import os
+                                    from app.db.models.diary import Diary
                                     from datetime import datetime
                                     
-                                    # 1. Save Image to Local Disk
-                                    today_str = datetime.now().strftime("%Y%m%d")
-                                    upload_dir = f"uploads/{today_str}"
-                                    os.makedirs(upload_dir, exist_ok=True)
-                                    
-                                    filename = f"best_shot_{user_id}_{int(time.time())}.jpg"
-                                    filepath = f"{upload_dir}/{filename}"
-                                    
-                                    with open(filepath, "wb") as f:
-                                        f.write(vision_state["best_frame_data"])
-                                        
-                                    # 2. Generate URL (Relative path for Frontend)
-                                    # Frontend should prepend Base URL
-                                    best_shot_url = f"/uploads/{today_str}/{filename}"
-                                    response_data["best_shot_url"] = best_shot_url
-                                    
-                                    # 3. Create Diary Entry automatically
-                                    from app.db.models.diary import Diary
-                                    
-                                    # LangGraph 메시지를 일기 내용으로 사용 (시스템 로그 제외)
-                                    # msg 변수에 LLM이 생성한 멘트가 들어있음
                                     diary_entry = Diary(
                                         user_id=user_id,
-                                        image_url=best_shot_url, # Local URL
-                                        content=msg, # Character's comment as diary content
+                                        image_url=best_shot_url, 
+                                        content=msg, # Character's comment (Image-Aware)
                                         tag="훈련인증",
                                         created_at=datetime.utcnow()
                                     )
                                     db.add(diary_entry)
-                                    await db.commit() # Commit Diary
-                                    
-                                    print(f"[BestShot] Saved & Uploaded: {filepath}")
+                                    await db.commit() 
+                                    print(f"[BestShot] Diary Uploaded with msg: {msg[:20]}...")
                                     
                                 except Exception as e:
-                                    print(f"[BestShot] Error: {e}")
-                                    import traceback
-                                    traceback.print_exc()
+                                    print(f"[BestShot] Diary Error: {e}")
                             
                             # Reset Best Shot State for next round
                             vision_state["best_frame_data"] = None
