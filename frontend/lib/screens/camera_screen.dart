@@ -11,6 +11,7 @@ import 'package:pet_trainer_frontend/config/theme.dart';
 import 'package:pet_trainer_frontend/config/design_system.dart';
 import 'my_room_page.dart'; // For navigation context if needed
 import 'skill_management_screen.dart';
+import 'package:pet_trainer_frontend/widgets/best_shot_overlay.dart'; // [NEW]
 
 class CameraScreen extends StatelessWidget {
   final List<CameraDescription> cameras;
@@ -80,21 +81,38 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     });
   }
 
-  void _handleSuccess() {
-    print("🎉 _handleSuccess Triggered!"); 
-    // Schedule dialog for AFTER the current build cycle (which might be triggered by stopTraining)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        print("🎉 Showing Success Dialog...");
-        _startConfetti();
-        final ctrl = Provider.of<TrainingController>(context, listen: false);
-        final reward = ctrl.lastReward;
-        if (reward != null) {
-           _showSuccessDialog(reward['base'], reward['bonus'], reward['level_up_info']);
-        } else {
-           print("⚠️ Last Reward is NULL!");
-        }
-    });
+  void _handleSuccess() async { // [Async] for sequential flow
+    _startConfetti();
+    final ctrl = Provider.of<TrainingController>(context, listen: false);
+    final reward = ctrl.lastReward;
+    
+    if (reward != null) {
+       // 1. Reward Popup (Wait for close)
+       final action = await _showSuccessDialog(reward['base'], reward['bonus'], reward['level_up_info']);
+       
+       // 2. Best Shot Overlay (Wait for close)
+       if (ctrl.bestShotUrl != null) {
+           await showGeneralDialog(
+              context: context,
+              barrierDismissible: false,
+              barrierColor: Colors.black87,
+              pageBuilder: (ctx, anim1, anim2) => FadeTransition(
+                  opacity: anim1,
+                  child: BestShotOverlay(
+                      imageUrl: ctrl.bestShotUrl!,
+                      onClose: () => Navigator.pop(ctx),
+                  )
+              )
+           );
+       }
+       
+       // 3. Next Action
+       if (action == 'restart') {
+           _toggleTraining();
+       } else {
+           _handleSkillAndExit(reward['level_up_info']);
+       }
+    }
   }
 
   void _startConfetti() {
@@ -338,10 +356,9 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     }
   }
 
-  Future<void> _showSuccessDialog(Map<String, dynamic> baseReward, int bonus, dynamic levelUpInfo) async {
-    if (!mounted) return;
+  Future<String?> _showSuccessDialog(Map<String, dynamic> baseReward, int bonus, dynamic levelUpInfo) async {
+    if (!mounted) return null;
     final charProvider = Provider.of<CharProvider>(context, listen: false);
-    final trainingCtrl = Provider.of<TrainingController>(context, listen: false);
     
     final currentStats = {
       "strength": charProvider.strength,
@@ -351,7 +368,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
       "luck": charProvider.luck,
     };
     
-    await showDialog(
+    return await showDialog<String>(
        context: context, barrierDismissible: false,
        builder: (ctx) => StatDistributionDialog(
           availablePoints: charProvider.unusedStatPoints,
@@ -359,25 +376,20 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
           title: "🎉 훈련 성공!",
           earnedReward: baseReward,
           earnedBonus: bonus,
-          // No specialMessage
-          confirmLabel: "마이룸으로 이동",
-          skipLabel: "나중에 하기",
+          confirmLabel: "확인", // "마이룸으로 이동" -> "확인" (베스트샷 or 종료로 이어짐)
+          skipLabel: "닫기",
           onConfirm: (allocated, remaining) {
              ['strength','intelligence','agility','defense','luck'].forEach((key) {
                 for(int i=0; i < (allocated[key]??0); i++) charProvider.allocateStatSpecific(key);
              });
-             Navigator.pop(ctx); // Close Stat Dialog
+             Navigator.pop(ctx, 'next'); // Return 'next' to proceed
           },
-          onSkip: () => Navigator.pop(ctx), // Close Stat Dialog
+          onSkip: () => Navigator.pop(ctx, 'next'), 
           onContinue: () {
-             Navigator.pop(ctx);
-             _toggleTraining(); // Restart
+             Navigator.pop(ctx, 'restart'); // Return 'restart'
           },
        )
     );
-
-    // Check Skills & Navigate
-    _handleSkillAndExit(levelUpInfo);
   }
 
   void _handleSkillAndExit(dynamic levelUpInfo) {
