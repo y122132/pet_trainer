@@ -207,7 +207,10 @@ async def analysis_endpoint(
                     
                     
                     # [Fix] Trust Client's Success Decision (Edge AI Timer Completion)
-                    if edge_result.get('status') == 'success':
+                    
+                    # [Fix] Trust Client's Success Decision (Edge AI Timer Completion)
+                    # BUT respect server-side COOLDOWN to prevent spam/looping
+                    if edge_result.get('status') == 'success' and state != "COOLDOWN":
                         state = "SUCCESS"
                         result["success"] = True # Align vision success with FSM state
                         
