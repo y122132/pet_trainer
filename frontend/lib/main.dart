@@ -9,10 +9,12 @@ import 'providers/char_provider.dart';
 import 'providers/chat_provider.dart';
 import 'screens/main_title_screen.dart';
 import 'config/global_settings.dart';
+import 'services/edge_game_logic.dart'; // [NEW] Config Sync
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GlobalSettings.load();
+  await EdgeGameConfig.loadFromBackend(); // [NEW] Sync Server Config
 
   
   runApp(

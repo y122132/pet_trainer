@@ -2,52 +2,83 @@
 // 백엔드의 거리 판정 및 게임 로직을 프론트엔드로 이식
 // Edge AI 모드에서 완전한 로컬 처리 구현
 
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:pet_trainer_frontend/api_config.dart';
+
 /// Pet별 Mode별 Target Props 정의
 class EdgeGameConfig {
-  // Mode별 거리 임계값 (화면 대각선 기준 비율)
-  static const Map<String, Map<String, double>> minDistance = {
+  // Mode별 거리 임계값
+  static Map<String, Map<String, double>> minDistance = {
     'playing': {'easy': 0.25, 'hard': 0.15},
     'feeding': {'easy': 0.15, 'hard': 0.10},
     'interaction': {'easy': 0.30, 'hard': 0.20},
   };
 
-  // Pet별 Mode별 Target Props (YOLO Class IDs)
-  static const Map<int, Map<String, List<int>>> petBehaviors = {
+  // Pet별 Mode별 Target Props
+  static Map<int, Map<String, List<int>>> petBehaviors = {
     16: { // Dog
-      'playing': [32, 29, 77, 39, 41], // Ball, Frisbee, Teddy Bear, Bottle, Cup
-      'feeding': [45, 41, 39, 46, 47, 48, 49, 50, 51], // Bowl, Cup, Bottle, Fruits
-      'interaction': [0], // Person
+      'playing': [32, 29, 77, 39, 41], 
+      'feeding': [45, 41, 39, 46, 47, 48, 49, 50, 51], 
+      'interaction': [0],
     },
-    15: { // Cat
-      'playing': [39, 41, 29], // Bottle, Cup, Frisbee
-      'feeding': [45, 41], // Bowl, Cup
-      'interaction': [0], // Person
-    },
-    14: { // Bird
-      'playing': [32, 39, 41, 29], // Ball, Bottle, Cup, Frisbee
-      'feeding': [45, 41], // Bowl, Cup
-      'interaction': [0], // Person
-    },
+    // Defaults... (will be overwritten by server)
+    15: { 'playing': [39, 41, 29], 'feeding': [45, 41], 'interaction': [0] },
+    14: { 'playing': [32, 39, 41], 'feeding': [45], 'interaction': [0] },
   };
 
-  // Mode별 Success/Fail 메시지
-  static const Map<String, Map<String, String>> messages = {
-    'playing': {
-      'success': '공놀이 중! 🎾',
-      'distance_fail': '장난감과 너무 멀어요',
-      'prop_missing': '장난감(공, 인형)을 보여주세요',
-    },
-    'feeding': {
-      'success': '맛있는 식사 시간 🥣',
-      'distance_fail': '그릇 가까이 가야 해요!',
-      'prop_missing': '그릇이나 간식을 보여주세요',
-    },
-    'interaction': {
-      'success': '주인과 교감 중 ❤️',
-      'distance_fail': '주인님과 더 가까이!',
-      'prop_missing': '반려동물과 함께 찍어주세요',
-    },
+  // Mode별 Messages
+  static Map<String, Map<String, String>> messages = {
+    'playing': { 'success': '공놀이 중! 🎾', 'distance_fail': '장난감과 너무 멀어요', 'prop_missing': '장난감을 보여주세요' },
+    'feeding': { 'success': '맛있는 식사 시간 🥣', 'distance_fail': '그릇 가까이 가야 해요!', 'prop_missing': '먹이를 보여주세요' },
+    'interaction': { 'success': '주인과 교감 중 ❤️', 'distance_fail': '주인님과 더 가까이!', 'prop_missing': '함께 찍어주세요' },
   };
+  
+  // [NEW] Config Loader
+  static Future<void> loadFromBackend() async {
+      try {
+        final url = Uri.parse("${AppConfig.apiUrl}/config/game_logic");
+        final response = await http.get(url).timeout(const Duration(seconds: 5));
+        
+        if (response.statusCode == 200) {
+            final data = jsonDecode(utf8.decode(response.bodyBytes));
+            
+            // 1. Min Distance
+            if (data['detection_settings'] != null && data['detection_settings']['min_distance'] != null) {
+                Map<String, dynamic> rawDist = data['detection_settings']['min_distance'];
+                // Need deep copy / type conversion
+                rawDist.forEach((mode, thresholds) {
+                    if (minDistance.containsKey(mode) && thresholds is Map) {
+                       minDistance[mode]!['easy'] = (thresholds['easy'] as num).toDouble();
+                       minDistance[mode]!['hard'] = (thresholds['hard'] as num).toDouble();
+                    }
+                });
+            }
+            
+            // 2. Pet Behaviors (Targets)
+            if (data['pet_behaviors'] != null) {
+                Map<String, dynamic> rawBeh = data['pet_behaviors'];
+                rawBeh.forEach((petIdStr, config) {
+                   int petId = int.tryParse(petIdStr) ?? 16;
+                   
+                   Map<String, List<int>> modeMap = {};
+                   if (config is Map) {
+                       config.forEach((mode, settings) {
+                           if (settings is Map && settings['targets'] != null) {
+                               modeMap[mode] = List<int>.from(settings['targets']);
+                           }
+                           // Messages could also be synced here if needed
+                       });
+                   }
+                   petBehaviors[petId] = modeMap;
+                });
+            }
+            print("[EdgeGameLogic] Config Synced with Server");
+        }
+      } catch (e) {
+          print("[EdgeGameLogic] Config Sync Failed (Using Defaults): $e");
+      }
+  }
 }
 
 /// Aspect ratio를 고려한 시각적 거리의 제곱을 계산
@@ -128,30 +159,29 @@ class EdgeGameLogic {
 
     // 2. Extract Pet Keypoints (Nose, Paws)
     if (petKeypoints != null && petKeypoints.isNotEmpty) {
-      // petKeypoints: [[x,y,c, x,y,c, ...], ...] (per pet)
-      // Assume first one is primary pet
-      final kpts = petKeypoints[0];
-      if (kpts is List && kpts.length >= 3) {
-        // Nose (index 0)
-        final nx = (kpts[0] as num).toDouble();
-        final ny = (kpts[1] as num).toDouble();
-        final nc = (kpts[2] as num).toDouble();
-        if (nc > 0.5) {
-          petNose = [nx, ny];
-        }
-
-        // Paws (indices 9, 10 - Front Left, Front Right)
-        for (int idx in [9, 10]) {
-          final ki = idx * 3;
-          if (kpts.length > ki + 2) {
-            final px = (kpts[ki] as num).toDouble();
-            final py = (kpts[ki + 1] as num).toDouble();
-            final pc = (kpts[ki + 2] as num).toDouble();
-            if (pc > 0.3) {
-              petPaws.add([px, py]);
-            }
+      // TrainingController now provides STRUCTURED keypoints: [[x,y,c], [x,y,c], ...] (17 points)
+      // We process only the provided points (already filtered for primary pet)
+      
+      final kpts = petKeypoints; // List<List<dynamic>>
+      
+      if (kpts.length >= 17) { // Ensure we have enough points
+          // Nose (Index 0 in COCO)
+          if (kpts[0].length >= 3) {
+             final nx = (kpts[0][0] as num).toDouble();
+             final ny = (kpts[0][1] as num).toDouble();
+             final nc = (kpts[0][2] as num).toDouble();
+             if (nc > 0.5) petNose = [nx, ny];
           }
-        }
+          
+          // Paws (Indices 9, 10 - Front Left, Front Right)
+          for (int idx in [9, 10]) {
+             if (kpts[idx].length >= 3) {
+                 final px = (kpts[idx][0] as num).toDouble();
+                 final py = (kpts[idx][1] as num).toDouble();
+                 final pc = (kpts[idx][2] as num).toDouble();
+                 if (pc > 0.3) petPaws.add([px, py]);
+             }
+          }
       }
     }
 

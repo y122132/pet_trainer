@@ -69,6 +69,14 @@ class TrainingController extends ChangeNotifier {
   int maxConfCls = -1;
   Uint8List? debugInputImage;
 
+  // [NEW] Persistence State
+  Map<String, dynamic>? lastEdgeResult;
+  int missingCount = 0;
+  
+  // [NEW] Local Timer State
+  int _stayStartTime = 0;
+  static const int _stayDuration = 3000; // 3 seconds
+
   // --- Internal Flags & Flow Control ---
   bool _isProcessingFrame = false;
   bool _canSendFrame = true; // Lock mechanism
@@ -134,9 +142,14 @@ class TrainingController extends ChangeNotifier {
   Future<void> processFrame(CameraImage image, int sensorOrientation, Orientation currentOrientation) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Flow Control Check
+    // Flow Control Check_frameInterval
+    // [Optimization] If Edge AI is used, disable artificial throttling (_frameInterval) 
+    // to achieve Max FPS limited only by inference time (_isProcessingFrame lock).
+    final bool isThrottled = !GlobalSettings.useEdgeAI && 
+                             (now - _lastFrameSentTimestamp <= _frameInterval);
+
     if (!isAnalyzing || 
-        now - _lastFrameSentTimestamp <= _frameInterval || 
+        isThrottled || 
         _isProcessingFrame || 
         !_canSendFrame) {
       return;
@@ -204,6 +217,36 @@ class TrainingController extends ChangeNotifier {
                    isGpu = debugInfo['use_gpu'] ?? false; // [NEW]
                 }
                 
+                // [NEW] Anti-Flickering (Persistence) Logic
+                // If detection failed (no bbox), check if we can reuse last result
+                bool isValidDetection = false;
+                if (edgeResult['bbox'] != null && (edgeResult['bbox'] as List).isNotEmpty) {
+                    isValidDetection = true;
+                }
+                
+                if (isValidDetection) {
+                    // Success -> Save State
+                    lastEdgeResult = Map<String, dynamic>.from(edgeResult);
+                    missingCount = 0;
+                } else {
+                    // Failure -> Attempt Recovery
+                    // [UX Fix] Increased buffer from 5 to 20 because FPS is now higher (Optimized)
+                    // 20 frames @ 20fps ~= 1.0 sec persistence
+                    if (lastEdgeResult != null && missingCount < 20) {
+                        // RECOVER: Use last successful result
+                        edgeResult['bbox'] = lastEdgeResult!['bbox'];
+                        edgeResult['pet_keypoints'] = lastEdgeResult!['pet_keypoints'];
+                        edgeResult['human_keypoints'] = lastEdgeResult!['human_keypoints'];
+                        edgeResult['conf_score'] = lastEdgeResult!['conf_score']; // Restore score too
+                        
+                        missingCount++;
+                    } else {
+                        // Too many misses -> Clear State
+                        lastEdgeResult = null;
+                        missingCount = 0;
+                    }
+                }
+                
                 // [DEBUG] Log only on key frames to avoid spam
                 if (thisFrameId % 5 == 0 || thisFrameId == 1) {
                    final shapeStr = edgeResult['debug_info'] != null ? edgeResult['debug_info']['shape'] : "N/A";
@@ -225,8 +268,37 @@ class TrainingController extends ChangeNotifier {
                 
                 // Update Detection Data
                 if (edgeResult.containsKey('bbox')) bbox = edgeResult['bbox'] ?? [];
-                if (edgeResult.containsKey('pet_keypoints')) petKeypoints = edgeResult['pet_keypoints'] ?? [];
-                if (edgeResult.containsKey('human_keypoints')) humanKeypoints = edgeResult['human_keypoints'] ?? [];
+                if (edgeResult.containsKey('pet_keypoints')) {
+                    var rawPets = edgeResult['pet_keypoints'];
+                    // Edge sends List of List (per pet). Server checks 1 pet.
+                    // Flatten the first pet's keypoints to [[x,y,c], [x,y,c]...]
+                    if (rawPets is List && rawPets.isNotEmpty && rawPets[0] is List) {
+                        var flat = rawPets[0] as List; 
+                        List<List<dynamic>> structured = [];
+                        int count = flat.length ~/ 3;
+                        for(int i=0; i<count; i++) {
+                            structured.add([flat[i*3], flat[i*3+1], flat[i*3+2]]);
+                        }
+                        petKeypoints = structured;
+                    } else {
+                        petKeypoints = [];
+                    }
+                }
+                if (edgeResult.containsKey('human_keypoints')) { 
+                    // Same logic for human
+                     var rawHumans = edgeResult['human_keypoints'];
+                     if (rawHumans is List && rawHumans.isNotEmpty && rawHumans[0] is List) {
+                        var flat = rawHumans[0] as List;
+                        List<List<dynamic>> structured = [];
+                        int count = flat.length ~/ 3;
+                        for(int i=0; i<count; i++) {
+                            structured.add([flat[i*3], flat[i*3+1], flat[i*3+2]]);
+                        }
+                        humanKeypoints = structured;
+                     } else {
+                        humanKeypoints = [];
+                     }
+                }
                 
                 // Handle Orientation for Image Dimensions
                 int logicW = image.width;
@@ -256,7 +328,7 @@ class TrainingController extends ChangeNotifier {
                 final gameResult = EdgeGameLogic.processGameLogic(
                    bbox: bbox,
                    mode: _currentMode,
-                   targetClassId: 16, // TODO: Get from user settings 
+                   targetClassId: -1, // [Fix] Support All Pets (Dog, Cat, Bird)
                    difficulty: 'easy', // TODO: Get from user settings
                    imageWidth: imageWidth,
                    imageHeight: imageHeight,
@@ -264,9 +336,39 @@ class TrainingController extends ChangeNotifier {
                 );
                 
                 // Update Status locally
-                final status = gameResult['status'] as String;
-                trainingState = _parseStatus(status);
+                var status = gameResult['status'] as String;
                 feedback = gameResult['feedback'] as String? ?? '';
+                
+                // [NEW] Local Timer Logic for 'Success' State
+                // If Edge logic says 'success' (Distance OK), we must enforce 3 sec wait
+                if (status == 'success') {
+                    if (_stayStartTime == 0) {
+                        _stayStartTime = DateTime.now().millisecondsSinceEpoch;
+                    }
+                    
+                    final elapsed = DateTime.now().millisecondsSinceEpoch - _stayStartTime;
+                    
+                    if (elapsed < _stayDuration) {
+                        // Still Waiting -> Override status to 'stay'
+                        status = 'stay';
+                        final remaining = (_stayDuration - elapsed) / 1000.0;
+                        stayProgress = elapsed / _stayDuration.toDouble();
+                        progressText = "${remaining.toStringAsFixed(1)}초 유지 중...";
+                    } else {
+                        // Timer Done -> Real Success
+                        status = 'success';
+                        stayProgress = 1.0;
+                        progressText = "완료!";
+                        _stayStartTime = 0; // Reset
+                    }
+                } else {
+                   // Distance Bad or No Pet -> Reset Timer
+                   _stayStartTime = 0;
+                   stayProgress = 0.0;
+                   progressText = "";
+                }
+                
+                trainingState = _parseStatus(status);
                 
                 // [FIX] Unlock frame lock IMMEDIATELY
                 _canSendFrame = true;
