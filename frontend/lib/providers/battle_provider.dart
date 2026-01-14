@@ -1,3 +1,4 @@
+// frontend/lib/providers/battle_provider.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -30,6 +31,7 @@ class BattleProvider extends ChangeNotifier {
   // Getters
   BattleUIState get state => _state;
   Stream<BattleEvent> get eventStream => _animationManager.eventStream;
+  Map<String, dynamic> get skillData => _skillData;
 
   BattleProvider() {
     _animationManager = BattleAnimationManager(skillData: _skillData);
@@ -187,13 +189,21 @@ class BattleProvider extends ChangeNotifier {
 
   void _handleBattleStart(Map<String, dynamic> data) {
     final players = data['players'] as Map<String, dynamic>;
+    final int serverOppId = data['opponent_id'] ?? 0;
+    _opponentId = serverOppId;
+
     players.forEach((key, value) {
-      int uid = int.parse(key);
+      final int uid = int.tryParse(key.toString()) ?? 0;
       if (uid != _myId) {
-        _opponentId = uid;
         _state = _state.copyWith(
-          oppName: value['name'], oppHp: value['hp'], oppMaxHp: value['max_hp'],
-          oppPetType: value['pet_type'] ?? 'dog', oppSideUrl: value['side_url'],
+          oppId: uid,
+          oppName: value['name'], 
+          oppHp: value['hp'], 
+          oppMaxHp: value['max_hp'],
+          oppPetType: value['pet_type'] ?? 'dog', 
+          oppSideUrl: value['side_url'],
+          oppFaceUrl: value['face_url'],
+          oppFrontUrl: value['front_url'],
         );
       } else {
         _state = _state.copyWith(
@@ -202,7 +212,12 @@ class BattleProvider extends ChangeNotifier {
         );
       }
     });
-    _state = _state.copyWith(statusMessage: "전투 시작!", isMyTurn: true);
+    _state = _state.copyWith(
+      oppId: data['opponent_id'],
+      oppName: data['opponent_name'],
+      statusMessage: "전투 시작!",
+      isMyTurn: true
+      );
     notifyListeners();
   }
 

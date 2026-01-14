@@ -154,7 +154,7 @@ async def analysis_endpoint(
     
     # [Optimization] 프레임 스킵 카운터
     frame_count = 0
-    PROCESS_INTERVAL = 1  # 3프레임마다 1번 처리
+    PROCESS_INTERVAL = 1  # 3프레임마다 1번 처리 # [Tuning] 1로 변경하여 반응성 최우선
 
     try:
         while True:
@@ -215,6 +215,42 @@ async def analysis_endpoint(
             except Exception:
                 break
             
+            image_bytes = None
+            
+            # A. Control Message Handling
+            if "text" in message:
+                try:
+                    data = json.loads(message["text"])
+                    if data.get("type") == "change_mode":
+                        new_mode = data.get("mode")
+                        if new_mode in ["playing", "feeding", "interaction"]:
+                            mode = new_mode
+                            # Reset State
+                            state = "READY"
+                            state_start_time = None
+                            last_detected_time = None
+                            vision_state["is_tracking"] = False # Vision state reset
+                            
+                            print(f"[FSM_WS] User {user_id} switched to mode: {mode}")
+                            
+                            await websocket.send_json({
+                                "status": "info",
+                                "message": f"모드가 '{mode}'로 변경되었습니다."
+                            })
+                            
+                    elif data.get("type") == "ping":
+                        # Keep-alive
+                        pass
+                except:
+                    pass
+                continue # Skip vision processing for control messages
+
+            # B. Image Data Handling
+            if "bytes" in message:
+                image_bytes = message["bytes"]
+            else:
+                continue
+
             frame_count += 1
 
             # 1. Idle 체크 (매 프레임마다 시간 비교)
@@ -258,9 +294,29 @@ async def analysis_endpoint(
             # [Common] Post-Inference FSM Logic
 
 
+
             if result.get("skipped", False):
                 continue
             is_success_vision = result.get("success", False)
+
+            # --- COOLDOWN Logic ---
+            if state == "COOLDOWN":
+                elapsed = current_time - state_start_time
+                if elapsed >= 3.0:
+                    state = "READY"
+                    state_start_time = None
+                    # Transition to READY allows immediate re-detection in next lines
+                    # Optional: Send "Ready" message
+                else:
+                    # Still in cooldown - block other states
+                    response = result.copy()
+                    response.update({
+                        "status": "stay", 
+                        "message": f"잠시 휴식... {3.0 - elapsed:.1f}초",
+                        "is_specific_feedback": True
+                    })
+                    await websocket.send_json(response)
+                    continue
 
             # --- FSM 로직 ---
             response = result.copy()
@@ -291,8 +347,8 @@ async def analysis_endpoint(
             else: # is_success_vision is False
                 if state == "STAY":
                     # 유예 시간 (Grace Period) 체크
-                    # [Fix] 0.5초 -> 1.5초 늘려주어 잠깐의 인식 실패나 흔들림에 관대해짐
-                    if current_time - last_detected_time > 1.5:
+                    # [UX Improvement] 1.5초 -> 0.8초 단축 (반응성 향상)
+                    if current_time - last_detected_time > 0.8:
                         # [실패 전환]
                         state = "READY"
                         state_start_time = None
@@ -301,7 +357,7 @@ async def analysis_endpoint(
                         
                         last_interaction_time = current_time # 상호작용(실패) 발생
                         
-                        # [NEW] 실패 시 격려 메시지 (Semantic Compression: 단순 실패가 아니라 '자세 무너짐'으로 전달)
+                        # [NEW] 실패 시 격려 메시지
                         await trigger_llm(mode, is_success=False, feedback="pose_unstable")
                         
                     else:
@@ -320,9 +376,6 @@ async def analysis_endpoint(
                 # READY 상태 반복 전송 방지 (클라이언트 부하 감소)
                 if state == "READY":
                     # [Fix] 단순 "찾는 중" 메시지는 보내지 않음 (캐릭터 대화 방해 방지)
-                    # response는 result.copy()이므로 이미 'message'가 들어있음.
-                    # 따라서 중요하지 않으면 'message' 키를 제거해야 함.
-                    
                     if not result.get("is_specific_feedback", False):
                         response.pop("message", None)
                     
@@ -381,13 +434,16 @@ async def analysis_endpoint(
                                 "base_reward": result.get("base_reward", {}),
                                 "bonus_points": result.get("bonus_points", 0),
                                 "count": service_result.get("daily_count", 0),
-                                "bbox": []
+                                "bbox": [],
+                                "level_up_info": service_result.get("level_up_info", {}) # [New] Pass Level Up Info
                             }
                         else:
                              raise Exception("DB Error")
                              
                 except Exception as e:
                     print(f"Error: {e}")
+                    import traceback
+                    traceback.print_exc()
                     response_data = {
                         "status": "success",
                         "message": "훈련 성공! (보상 오류)",
@@ -398,8 +454,9 @@ async def analysis_endpoint(
                 
                 await websocket.send_json(response_data)
                 
-                state = "READY"
-                state_start_time = None
+                # [UX Improvement] Switch to COOLDOWN instead of READY
+                state = "COOLDOWN"
+                state_start_time = current_time # Reset for cooldown timer
                 last_detected_time = None
 
     except WebSocketDisconnect:

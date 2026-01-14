@@ -46,6 +46,7 @@ flutter:
     - assets/images/characters/
     - assets/images/
     - assets/data/
+    - assets/data/skills.json
     - assets/models/ # TFLite Models
 
 

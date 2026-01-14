@@ -2,7 +2,6 @@
 import json
 import asyncio
 from typing import Dict
-from datetime import datetime
 from app.db.database import get_db
 from app.services import user_service
 from app.db.models.chat_data import ChatMessage
@@ -31,8 +30,11 @@ class ChatManager:
         self.notification_tasks: Dict[int, asyncio.Task] = {}
 
     async def send_personal_message(self, payload: dict, user_id: int):
-        await RedisManager.publish_chat_notification(user_id, payload)
-        print(f"[SIGNAL] 유저 {user_id}에게 {payload['type']} 전송됨.")
+        """특정 유저에게 알림을 전송, 전송 성공 여부 반환"""
+        # RedisManager.publish_chat_notification이 리스너 수를 반환한다고 가정
+        receiver_count = await RedisManager.publish_chat_notification(user_id, payload)
+        print(f"[SIGNAL] 유저 {user_id}에게 {payload['type']} 전송됨. (수신자 수: {receiver_count})")
+        return receiver_count > 0
 
     async def connect(self, user_id: int, nickname: str, websocket: WebSocket):
         await websocket.accept()
@@ -64,16 +66,15 @@ class ChatManager:
         print(f"[CHAT] 유저 {user_id}의 새 알림 리스너 등록됨.")
 
     async def cancel_notification_task(self, user_id: int):
-        if user_id in self.notification_tasks:
-            task = self.notification_tasks[user_id]
+        task = self.notification_tasks.pop(user_id, None) 
+        if task:
             if not task.done():
                 task.cancel()
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
-            del self.notification_tasks[user_id]
-            print(f"[CHAT] 유저 {user_id}의 이전 알림 리스너 제거됨.")
+            print(f"[CHAT] 유저 {user_id}의 알림 리스너가 안전하게 제거되었습니다.")
 
     async def broadcast(self, payload: dict):
         message = json.dumps(payload, ensure_ascii=False)

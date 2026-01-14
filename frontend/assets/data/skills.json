@@ -75,5 +75,75 @@
         "accuracy": 100,
         "type": "dragon",
         "description": "짐승의 왕으로서 모든 것을 짓밟는다."
+    },
+    "105": {
+        "name": "그루밍",
+        "power": 0,
+        "accuracy": 100,
+        "type": "normal",
+        "description": "털을 고르며 마음을 진정시킨다. (회복 + 상태이상 제거)"
+    },
+    "110": {
+        "name": "냥냥 펀치",
+        "power": 40,
+        "accuracy": 100,
+        "type": "normal",
+        "description": "빠르게 앞발로 때린다. 선공 확률이 있다."
+    },
+    "115": {
+        "name": "살금살금",
+        "power": 0,
+        "accuracy": 100,
+        "type": "dark",
+        "description": "기척을 숨겨 회피율을 크게 높인다."
+    },
+    "125": {
+        "name": "할퀴기",
+        "power": 55,
+        "accuracy": 95,
+        "type": "normal",
+        "description": "날카로운 발톱으로 할퀸다. (출혈 확률)"
+    },
+    "130": {
+        "name": "야옹이의 분노",
+        "power": 90,
+        "accuracy": 90,
+        "type": "dark",
+        "description": "화난 고양이의 무서움을 보여준다. 치명타 확률이 높다."
+    },
+    "205": {
+        "name": "쪼기",
+        "power": 40,
+        "accuracy": 100,
+        "type": "flying",
+        "description": "부리로 콕콕 쪼아 공격한다."
+    },
+    "210": {
+        "name": "날개치기",
+        "power": 0,
+        "accuracy": 95,
+        "type": "flying",
+        "description": "날개를 퍼덕여 모래바람을 일으켜 상대 명중률을 낮춘다."
+    },
+    "215": {
+        "name": "순풍",
+        "power": 0,
+        "accuracy": 100,
+        "type": "flying",
+        "description": "바람을 타고 속도를 높인다."
+    },
+    "225": {
+        "name": "공중제비",
+        "power": 60,
+        "accuracy": 100,
+        "type": "flying",
+        "description": "빠르게 공중을 돌아 상대의 허를 찌른다. (반드시 명중)"
+    },
+    "230": {
+        "name": "폭풍우",
+        "power": 110,
+        "accuracy": 70,
+        "type": "flying",
+        "description": "거대한 폭풍을 일으킨다. 명중률은 낮지만 강력하다."
     }
 }

@@ -1,14 +1,16 @@
 // frontend/lib/screens/my_room_page.dart
+import 'dart:io';
+import '../api_config.dart';
+import '../config/theme.dart';
+import 'skill_management_screen.dart';
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
-
 import '../providers/char_provider.dart';
 import '../providers/chat_provider.dart';
-import '../services/auth_service.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../widgets/common/stat_widgets.dart';
 import '../widgets/char_message_bubble.dart';
@@ -53,6 +55,12 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
   }
 
   void _onCharacterTap(CharProvider provider) {
+    if (provider.hasNewSkillAlert) {
+      provider.updateStatusMessage("배울 수 있는 스킬이 있습니다! (터치해서 확인)");
+      setState(() => _showBubble = true);
+      return; // 스킬 알림이 최우선이므로 아래 랜덤 메시지는 실행 안 함
+    }
+
     List<String> messages = [
       "오늘 운동은 언제 하시나요?",
       "간식이 먹고 싶어요! 멍!",
@@ -289,7 +297,14 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                 
                 // 2. Character Frame
                 GestureDetector(
-                  onTap: () => _onCharacterTap(charProvider),
+                  onTap: () {
+                    if (charProvider.statusMessage.contains("배울 수 있는 스킬")) {
+                      charProvider.clearSkillAlert();
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const SkillManagementScreen()));
+                    } else {
+                      _onCharacterTap(charProvider);
+                    }
+                  },
                   child: AnimatedBuilder(
                     animation: _breathingAnimation,
                     builder: (context, child) => Transform.scale(scale: _breathingAnimation.value, child: child),
@@ -350,11 +365,70 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                                 icon: const Icon(Icons.upgrade, color: Color(0xFFE91E63)),
                                 tooltip: "레벨업 (테스트)",
                                 onPressed: () async {
-                                   await charProvider.manualLevelUp();
-                                   if (context.mounted) {
-                                     ScaffoldMessenger.of(context).showSnackBar(
-                                       const SnackBar(content: Text("레벨업되었습니다!"))
-                                     );
+                                   final result = await charProvider.manualLevelUp();
+                                   if (context.mounted && result != null) {
+                                      // 1. Show Level Up Message
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text("🎉 레벨업을 축하합니다!"))
+                                      );
+
+                                      // 2. Show Stat Distribution Dialog (Await it)
+                                      await showDialog(
+                                        context: context,
+                                        builder: (context) => StatDistributionDialog(
+                                          availablePoints: charProvider.unusedStatPoints,
+                                          currentStats: statsMap, 
+                                          title: "레벨업!",
+                                          confirmLabel: "확인",
+                                          skipLabel: "닫기",
+                                          // No specialMessage here
+                                          onConfirm: (allocated, remaining) {
+                                             _applyAllocated(charProvider, 'strength', allocated['strength']!);
+                                             _applyAllocated(charProvider, 'intelligence', allocated['intelligence']!);
+                                             _applyAllocated(charProvider, 'agility', allocated['agility']!);
+                                             _applyAllocated(charProvider, 'defense', allocated['defense']!);
+                                             _applyAllocated(charProvider, 'luck', allocated['luck']!);
+                                             Navigator.pop(context);
+                                          },
+                                          onSkip: () => Navigator.pop(context),
+                                        ),
+                                      );
+
+                                      // 3. Check for Skills & Navigate
+                                      if (context.mounted && result.containsKey('level_up_result')) {
+                                         final levelUpRes = result['level_up_result'];
+                                         final acquiredSkills = levelUpRes['acquired_skills_details'];
+                                         
+                                         if (acquiredSkills != null && (acquiredSkills as List).isNotEmpty) {
+                                            String msg = "";
+                                            for (var s in acquiredSkills) {
+                                               msg += "'${s['name']}' ";
+                                            }
+                                            msg += "스킬을 획득했습니다!\n스킬 창으로 이동하시겠습니까?";
+
+                                            showDialog(
+                                              context: context,
+                                              builder: (context) => AlertDialog(
+                                                title: const Text("스킬 획득!"),
+                                                content: Text(msg),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () => Navigator.pop(context),
+                                                    child: const Text("아니오"),
+                                                  ),
+                                                  TextButton(
+                                                    onPressed: () {
+                                                      Navigator.pop(context);
+                                                      charProvider.clearSkillAlert();
+                                                      Navigator.push(context, MaterialPageRoute(builder: (context) => const SkillManagementScreen()));
+                                                    },
+                                                    child: const Text("예 (이동)"),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                         }
+                                      }
                                    }
                                 },
                               ),
@@ -454,7 +528,7 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
 
                           // Right: Stats List (must be in Expanded)
                           Expanded(
-                            flex: 5,
+                            flex: 6,
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -463,8 +537,19 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                                 statBar("DEX", stat?.agility ?? 0, Colors.green.shade400),
                                 statBar("DEF", stat?.defense ?? 0, Colors.brown.shade400),
                                 statBar("LUK", stat?.luck ?? 0, Colors.amber.shade400),
-                                const Divider(height: 10, color: Colors.transparent),
-                                statBar("HP", stat?.health ?? 0, Colors.pink.shade300, maxValue: 100), // ERROR FIXED
+                                const Divider(height: 20, color: Colors.transparent),
+                                statBar("HP", stat?.health ?? 0, Colors.pink.shade300, maxValue: 100),
+                                
+                                const SizedBox(height: 16),
+                                SizedBox(width: double.infinity, child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    charProvider.clearSkillAlert();
+                                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SkillManagementScreen()));
+                                  },
+                                  icon: const Icon(Icons.auto_fix_high, size: 18),
+                                  label: const Text("기술 관리 및 도감", style: TextStyle(fontWeight: FontWeight.bold)),
+                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryMint, foregroundColor: AppColors.softCharcoal),
+                                )),
                               ],
                             ),
                           ),

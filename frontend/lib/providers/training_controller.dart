@@ -636,7 +636,12 @@ class TrainingController extends ChangeNotifier {
              final base = jsonMap['base_reward'];
              final bonus = jsonMap['bonus_points'] ?? 0;
              
-             lastReward = {'base': base, 'bonus': bonus};
+             // [Fix] Store reward data BEFORE notifying the view
+             lastReward = {
+               'base': base, 
+               'bonus': bonus,
+               'level_up_info': data['level_up_info'] // [New]
+             };
 
              _charProvider?.gainReward(base, bonus); 
              
