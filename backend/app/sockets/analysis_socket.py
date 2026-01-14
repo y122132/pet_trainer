@@ -148,7 +148,10 @@ async def analysis_endpoint(
         "last_pet_box": None,
         "missing_count": 0,
         "is_tracking": False,
-        "last_response": None # [NEW] Zero-Order Hold (프레임 스킵용 캐시)
+        "last_response": None, # [NEW] Zero-Order Hold (프레임 스킵용 캐시)
+        "best_frame_data": None, # [NEW] Best Shot (Binary)
+        "best_conf": 0.0,        # [NEW] Best Shot Confidence
+        "best_bbox": []          # [NEW] Best Shot BBox for cropping (Optional)
     }
 
     
@@ -205,6 +208,47 @@ async def analysis_endpoint(
                     if 'frame_id' in edge_result:
                         result['frame_id'] = edge_result['frame_id']
                     
+                    # [NEW] Edge Mode Best Shot Handling
+                    # Client sends best shot as Base64 because Server can't see the stream
+                    if 'best_shot_base64' in edge_result and edge_result['best_shot_base64']:
+                        try:
+                            import base64
+                            # Decode Base64 to Bytes
+                            img_data = base64.b64decode(edge_result['best_shot_base64'])
+                            vision_state["best_frame_data"] = img_data
+                            vision_state["best_conf"] = edge_result.get('conf_score', 1.0) # Use current conf as best
+                            # print(f"[Edge BestShot] Received {len(img_data)} bytes", flush=True)
+                        except Exception as e:
+                            print(f"[Edge BestShot] Decode Error: {e}")
+
+                    
+                    # [Fix] Trust Client's Success Decision (Edge AI Timer Completion)
+                    
+                    # [Fix] Trust Client's Success Decision (Edge AI Timer Completion)
+                    # BUT respect server-side COOLDOWN to prevent spam/looping
+                    if edge_result.get('status') == 'success' and state not in ["SUCCESS", "COOLDOWN"]:
+                        state = "SUCCESS"
+                        result["success"] = True # Align vision success with FSM state
+                        
+                        # [Fix] Force Generate Reward if Server Logic didn't trigger 'is_interacting'
+                        if not result.get("base_reward"):
+                            import numpy as np
+                            # Fallback Reward Generation (Same logic as detector.py)
+                            if mode == "playing":
+                                action_type = "playing_fetch"
+                                result["base_reward"] = {"stat_type": "strength", "value": 3} if np.random.rand() < 0.7 else {"stat_type": "agility", "value": 3}
+                                result["bonus_points"] = 2
+                            elif mode == "feeding":
+                                action_type = "feeding"
+                                result["base_reward"] = {"stat_type": "health", "value": 3} if np.random.rand() < 0.7 else {"stat_type": "defense", "value": 3}
+                                result["bonus_points"] = 1
+                            elif mode == "interaction":
+                                action_type = "interaction_owner"
+                                result["base_reward"] = {"stat_type": "happiness", "value": 4} if np.random.rand() < 0.7 else {"stat_type": "intelligence", "value": 3}
+                                result["bonus_points"] = 3
+                            
+                            result["action_type"] = action_type
+                    
                     # Pass through to FSM Logic below (Skip 'run_in_threadpool(detector...)')
                     image_bytes = None # Skip decoding
                     
@@ -215,10 +259,11 @@ async def analysis_endpoint(
             except Exception:
                 break
             
-            image_bytes = None
-            
+            # image_bytes = None # [Fix] Removed redundant reset that might cause issues
+
             # A. Control Message Handling
             if "text" in message:
+                is_control = False
                 try:
                     data = json.loads(message["text"])
                     if data.get("type") == "change_mode":
@@ -230,6 +275,8 @@ async def analysis_endpoint(
                             state_start_time = None
                             last_detected_time = None
                             vision_state["is_tracking"] = False # Vision state reset
+                            vision_state["best_frame_data"] = None # Reset Best Shot
+                            vision_state["best_conf"] = 0.0
                             
                             print(f"[FSM_WS] User {user_id} switched to mode: {mode}")
                             
@@ -237,19 +284,21 @@ async def analysis_endpoint(
                                 "status": "info",
                                 "message": f"모드가 '{mode}'로 변경되었습니다."
                             })
+                            is_control = True
                             
                     elif data.get("type") == "ping":
                         # Keep-alive
+                        is_control = True
                         pass
                 except:
                     pass
-                continue # Skip vision processing for control messages
+                
+                if is_control:
+                    continue # Skip vision processing for control messages
 
             # B. Image Data Handling
             if "bytes" in message:
                 image_bytes = message["bytes"]
-            else:
-                continue
 
             frame_count += 1
 
@@ -293,8 +342,6 @@ async def analysis_endpoint(
             
             # [Common] Post-Inference FSM Logic
 
-
-
             if result.get("skipped", False):
                 continue
             is_success_vision = result.get("success", False)
@@ -309,9 +356,10 @@ async def analysis_endpoint(
                     # Optional: Send "Ready" message
                 else:
                     # Still in cooldown - block other states
+                    # [FIX] 'stay' 대신 'keep'을 사용하여 클라이언트 UI가 뒤로 돌아가는 현상 방지
                     response = result.copy()
                     response.update({
-                        "status": "stay", 
+                        "status": "keep", 
                         "message": f"잠시 휴식... {3.0 - elapsed:.1f}초",
                         "is_specific_feedback": True
                     })
@@ -342,6 +390,17 @@ async def analysis_endpoint(
                         state = "SUCCESS"
                     else:
                         response.update({"status": "stay", "message": f"자세 유지... {3 - hold_duration:.1f}초"})
+                        
+                        # [NEW] Best Shot Selection
+                        current_conf = result.get("conf_score", 0.0)
+                        
+                        # [Fix] Capture FIRST frame or BETTER frame
+                        if image_bytes and (vision_state["best_frame_data"] is None or current_conf > vision_state["best_conf"]):
+                            vision_state["best_conf"] = current_conf
+                            vision_state["best_frame_data"] = image_bytes
+                            vision_state["best_bbox"] = result.get("bbox", [])
+                            print(f"[BestShot] Updated! Conf: {current_conf:.4f}", flush=True)
+
                         await websocket.send_json(response)
             
             else: # is_success_vision is False
@@ -352,6 +411,8 @@ async def analysis_endpoint(
                         # [실패 전환]
                         state = "READY"
                         state_start_time = None
+                        vision_state["best_frame_data"] = None # Reset on Fail
+                        vision_state["best_conf"] = 0.0
                         response.update({"status": "fail", "message": "동작이 끊겼습니다."})
                         await websocket.send_json(response)
                         
@@ -405,14 +466,39 @@ async def analysis_endpoint(
                         service_result = await char_service.update_stats_from_yolo_result(db, character_obj.id, result)
                         
                         if service_result:
-                            # LLM 호출을 위한 정보 준비 (여기서는 직접 호출하지 않고 trigger 함수 사용 권장하지만,
-                            # service_result가 필요하므로 인라인 혹은 trigger 함수 확장 필요)
-                            
-                            # 기존 구조 유지하되 LLM 부분만 교체
+                            # [NEW] 1. Best Shot Saving (Execute BEFORE LLM)
+                            best_shot_url = None
+                            if vision_state["best_frame_data"]:
+                                try:
+                                    import os
+                                    from datetime import datetime
+                                    
+                                    # Save Image to Local Disk
+                                    today_str = datetime.now().strftime("%Y%m%d")
+                                    upload_dir = f"uploads/{today_str}"
+                                    os.makedirs(upload_dir, exist_ok=True)
+                                    
+                                    filename = f"best_shot_{user_id}_{int(time.time())}.jpg"
+                                    filepath = f"{upload_dir}/{filename}"
+                                    
+                                    with open(filepath, "wb") as f:
+                                        f.write(vision_state["best_frame_data"])
+                                        
+                                    # Generate URL (Relative path for Frontend)
+                                    best_shot_url = f"/uploads/{today_str}/{filename}"
+                                    print(f"[BestShot] Saved: {filepath}")
+
+                                except Exception as e:
+                                    print(f"[BestShot] Save Error: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+
+                            # LLM 호출을 위한 정보 준비
                             updated_stat = service_result["stat"]
                             
+                            # [Changed] Pass best_shot_url to LLM
                             msg = await get_character_response(
-                                user_id=user_id, # [New] Context Memory Key
+                                user_id=user_id, 
                                 action_type=result.get("action_type", "action").replace("_", " ").title(),
                                 current_stats={
                                     "strength": updated_stat.strength,
@@ -424,19 +510,47 @@ async def analysis_endpoint(
                                 reward_info=result.get("base_reward", {}),
                                 feedback_detail=result.get("feedback_message", ""),
                                 daily_count=service_result.get("daily_count", 0),
-                                milestone_reached=service_result.get("milestone_reached")
+                                milestone_reached=service_result.get("milestone_reached"),
+                                best_shot_url=best_shot_url # [New] Pass Best Shot URL
                             )
                             
                             response_data = {
                                 "status": "success",
-                                "char_message": msg, # [Change] char_message
-                                "message": "훈련 성공!", # 시스템 메시지 고정
+                                "char_message": msg, 
+                                "message": "훈련 성공!", 
                                 "base_reward": result.get("base_reward", {}),
                                 "bonus_points": result.get("bonus_points", 0),
                                 "count": service_result.get("daily_count", 0),
                                 "bbox": [],
-                                "level_up_info": service_result.get("level_up_info", {}) # [New] Pass Level Up Info
+                                "level_up_info": service_result.get("level_up_info", {}), 
+                                "pet_keypoints": [],
+                                "human_keypoints": [],
+                                "best_shot_url": best_shot_url # [New] Send URL to Client
                             }
+                            
+                            # [NEW] 2. Create Diary Entry (After LLM)
+                            if best_shot_url:
+                                try:
+                                    from app.db.models.diary import Diary
+                                    from datetime import datetime
+                                    
+                                    diary_entry = Diary(
+                                        user_id=user_id,
+                                        image_url=best_shot_url, 
+                                        content=msg, # Character's comment (Image-Aware)
+                                        tag="훈련인증",
+                                        created_at=datetime.utcnow()
+                                    )
+                                    db.add(diary_entry)
+                                    await db.commit() 
+                                    print(f"[BestShot] Diary Uploaded with msg: {msg[:20]}...")
+                                    
+                                except Exception as e:
+                                    print(f"[BestShot] Diary Error: {e}")
+                            
+                            # Reset Best Shot State for next round
+                            vision_state["best_frame_data"] = None
+                            vision_state["best_conf"] = 0.0
                         else:
                              raise Exception("DB Error")
                              

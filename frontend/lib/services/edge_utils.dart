@@ -147,14 +147,9 @@ List<DetectionResult> nonMaxSuppression(
       result.add(current);
       
       detections.removeWhere((other) {
-          // Check IoU only for same class (or cross-class? usually same class for detection)
-          // User didn't specify class-agnostic, but YOLO usually does class-specific NMS.
-          // However, simple NMS often filters everything overlapping.
-          // Let's assume standard NMS (filtering high overlapping boxes mostly).
-          // But if we have Multi-Class (Dog, Cat), we shouldn't suppress Cat if Dog is on top?
-          // Actually, 'nonMaxSuppression' usually suppresses overlapping boxes regardless of class 
-          // if using 'agnostic=True'. Standard YOLO defaults to class-specific.
-          // Let's do simple suppression for now.
+          // [Fix] Class-Specific NMS
+          // 다른 클래스(예: 개 vs 공)라면 겹쳐도 절대 제거하지 않음
+          if (current.classIndex != other.classIndex) return false;
           
           return calculateIoU(current.box, other.box) > iouThreshold;
       });
