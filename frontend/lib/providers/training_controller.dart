@@ -9,6 +9,7 @@ import 'package:pet_trainer_frontend/utils/camera_utils.dart';
 import 'package:pet_trainer_frontend/providers/char_provider.dart';
 import 'package:pet_trainer_frontend/services/edge_detector.dart'; // [Edge AI]
 import 'package:pet_trainer_frontend/services/edge_game_logic.dart'; // [Edge AI Game Logic]
+import 'package:pet_trainer_frontend/services/edge_utils.dart'; // [NEW] Utils & Filters
 import 'package:pet_trainer_frontend/config/global_settings.dart'; // [Edge AI]
 
 
@@ -76,6 +77,9 @@ class TrainingController extends ChangeNotifier {
   // [NEW] Local Timer State
   int _stayStartTime = 0;
   static const int _stayDuration = 3000; // 3 seconds
+  
+  // [NEW] One Euro Filter State
+  List<OneEuroFilter>? _boxFilters;
 
   // --- Internal Flags & Flow Control ---
   bool _isProcessingFrame = false;
@@ -221,10 +225,29 @@ class TrainingController extends ChangeNotifier {
                 // If detection failed (no bbox), check if we can reuse last result
                 bool isValidDetection = false;
                 if (edgeResult['bbox'] != null && (edgeResult['bbox'] as List).isNotEmpty) {
-                    isValidDetection = true;
+                   isValidDetection = true;
+                   // --- One Euro Filter (UX Smoothing) ---
+                // [NEW] Define filters if not exists (Lazy Load)
+                _boxFilters ??= [
+                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // x1
+                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // y1
+                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // x2
+                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // y2
+                ];
                 }
                 
                 if (isValidDetection) {
+                    // [Smoothing] Apply One Euro Filter to Pet Box
+                    // edgeResult['bbox'] is List<dynamic> (List of Boxes)
+                    // We need to find the "Primary Pet" box and smooth it.
+                    // EdgeGameLogic usually picks the best one. 
+                    // But here we are BEFORE EdgeGameLogic.
+                    
+                    if (edgeResult['bbox'] != null) {
+                         // [Smoothing] Use Helper
+                         _applySmoothing(edgeResult['bbox']);
+                    }
+
                     // Success -> Save State
                     lastEdgeResult = Map<String, dynamic>.from(edgeResult);
                     missingCount = 0;
@@ -234,6 +257,7 @@ class TrainingController extends ChangeNotifier {
                     // 20 frames @ 20fps ~= 1.0 sec persistence
                     if (lastEdgeResult != null && missingCount < 20) {
                         // RECOVER: Use last successful result
+                        // Note: BBox in lastEdgeResult is ALREADY filtered from previous frame.
                         edgeResult['bbox'] = lastEdgeResult!['bbox'];
                         edgeResult['pet_keypoints'] = lastEdgeResult!['pet_keypoints'];
                         edgeResult['human_keypoints'] = lastEdgeResult!['human_keypoints'];
@@ -241,9 +265,14 @@ class TrainingController extends ChangeNotifier {
                         
                         missingCount++;
                     } else {
-                        // Too many misses -> Clear State
+                        // Too many misses -> Clear State & Reset Filters
                         lastEdgeResult = null;
                         missingCount = 0;
+                        
+                        // [Reset] Filters to prevent jump on next detection
+                        if (_boxFilters != null) {
+                             for(var f in _boxFilters!) f.reset();
+                        }
                     }
                 }
                 
@@ -474,7 +503,11 @@ class TrainingController extends ChangeNotifier {
               progressText = "";
            }
 
-           if (jsonMap.containsKey('bbox')) bbox = jsonMap['bbox'];
+           if (jsonMap.containsKey('bbox')) {
+               bbox = jsonMap['bbox'];
+               // [UX] Apply Smoothing to Server Results too
+               _applySmoothing(bbox);
+           }
            if (jsonMap.containsKey('pet_keypoints')) petKeypoints = jsonMap['pet_keypoints'];
            if (jsonMap.containsKey('human_keypoints')) humanKeypoints = jsonMap['human_keypoints'];
            
@@ -551,4 +584,48 @@ class TrainingController extends ChangeNotifier {
   
   // Helper for JSON decode
   dynamic typeof(dynamic obj) => obj.runtimeType.toString();
+  
+  // [NEW] Unified Smoothing Helper
+  void _applySmoothing(List<dynamic> targetBboxList) {
+      if (_boxFilters == null) {
+          _boxFilters = [
+             OneEuroFilter(minCutoff: 1.0, beta: 0.1),
+             OneEuroFilter(minCutoff: 1.0, beta: 0.1),
+             OneEuroFilter(minCutoff: 1.0, beta: 0.1),
+             OneEuroFilter(minCutoff: 1.0, beta: 0.1),
+          ];
+      }
+      
+      int bestIdx = -1;
+      double maxConf = -1.0;
+      
+      for(int i=0; i<targetBboxList.length; i++) {
+          var box = targetBboxList[i]; 
+          if (box.length > 5) {
+              int cls = (box[5] as num).toInt();
+              double conf = (box[4] as num).toDouble();
+              // [Fix] Smooth ANY Pet (Dog, Cat, Bird)
+              if ([14, 15, 16].contains(cls) && conf > maxConf) {
+                  maxConf = conf;
+                  bestIdx = i;
+              }
+          }
+      }
+      
+      if (bestIdx != -1) {
+           var rawBox = targetBboxList[bestIdx];
+           int now = DateTime.now().millisecondsSinceEpoch;
+           
+           double fx1 = _boxFilters![0].filter((rawBox[0] as num).toDouble(), now);
+           double fy1 = _boxFilters![1].filter((rawBox[1] as num).toDouble(), now);
+           double fx2 = _boxFilters![2].filter((rawBox[2] as num).toDouble(), now);
+           double fy2 = _boxFilters![3].filter((rawBox[3] as num).toDouble(), now);
+           
+           // Update In-Place
+           targetBboxList[bestIdx][0] = fx1;
+           targetBboxList[bestIdx][1] = fy1;
+           targetBboxList[bestIdx][2] = fx2;
+           targetBboxList[bestIdx][3] = fy2;
+      }
+  }
 }

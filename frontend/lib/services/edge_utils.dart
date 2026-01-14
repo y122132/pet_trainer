@@ -446,5 +446,69 @@ List<DetectionResult> parseNMSOutput(
      results.add(DetectionResult([x1, y1, x2, y2], score, cls.toInt(), keypoints: kpts));
   }
   
+  
   return results;
+}
+
+// --- One Euro Filter (UX Smoothing) ---
+class OneEuroFilter {
+  final double _minCutoff; // Jitter reduction (Hz)
+  final double _beta;      // Speed coefficient (Responsiveness)
+  final double _dCutoff;   // Derivative cutoff (Hz)
+  
+  double? _prevValue;
+  double? _prevDeriv;
+  int? _prevTimestamp;
+
+  OneEuroFilter({double minCutoff = 1.0, double beta = 0.007, double dCutoff = 1.0}) 
+      : _minCutoff = minCutoff, _beta = beta, _dCutoff = dCutoff;
+
+  void reset() {
+    _prevValue = null;
+    _prevDeriv = null;
+    _prevTimestamp = null;
+  }
+
+  double filter(double value, int timestamp) {
+    if (_prevValue == null || _prevTimestamp == null) {
+      _prevValue = value;
+      _prevDeriv = 0.0;
+      _prevTimestamp = timestamp;
+      return value;
+    }
+
+    // 1. Calculate dt (seconds)
+    double dt = (timestamp - _prevTimestamp!) / 1000.0;
+    // Avoid division by zero or negative time
+    if (dt <= 0.0) return _prevValue!; 
+
+    // 2. Calculate derivative (velocity)
+    double deriv = (value - _prevValue!) / dt;
+    
+    // 3. Filter derivative
+    double dx = _lowPassFilter(deriv, _prevDeriv!, _alpha(dt, _dCutoff));
+    _prevDeriv = dx;
+
+    // 4. Calculate cutoff based on speed
+    // Higher speed -> Higher cutoff -> Less smoothing (Fast response)
+    // Lower speed -> Lower cutoff -> More smoothing (Stable)
+    double cutoff = _minCutoff + _beta * dx.abs();
+    
+    // 5. Filter value
+    double result = _lowPassFilter(value, _prevValue!, _alpha(dt, cutoff));
+    
+    _prevValue = result;
+    _prevTimestamp = timestamp;
+    
+    return result;
+  }
+
+  double _alpha(double dt, double cutoff) {
+    double tau = 1.0 / (2 * pi * cutoff);
+    return 1.0 / (1.0 + tau / dt);
+  }
+
+  double _lowPassFilter(double src, double dst, double alpha) {
+    return alpha * src + (1.0 - alpha) * dst;
+  }
 }

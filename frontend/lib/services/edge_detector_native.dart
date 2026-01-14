@@ -500,7 +500,7 @@ void _isolateEntry(_IsolateInitData initData) async {
             
             final swNMS = Stopwatch()..start();
             final detections = nonMaxSuppression(
-                _outputBufferPet!, 3, 0.55, 0.40,
+                _outputBufferPet!, 3, 0.55, 0.25, // [Tuning] Lowered to 0.25
                 keypointNum: 17, shape: outputShape 
             );
             swNMS.stop();

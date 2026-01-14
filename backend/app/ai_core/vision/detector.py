@@ -159,8 +159,8 @@ def process_frame(
         x_scale, y_scale = 1.0, 1.0 / aspect_ratio
     
     # 4. 설정값
-    # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
-    INFERENCE_LOW_CONF = 0.30 # [Tuning] Stricter noise filtering
+    # [Anti-Flickering] 기본 추론은 넓게(0.25), 로직에서 필터링
+    INFERENCE_LOW_CONF = 0.25 # [Tuning] Unify with Easy Mode threshold
     LOGIC_HIGH_CONF = 0.30 # [Tuning] Strict initial check
     LOGIC_LOW_CONF = 0.25  # [Tuning] Maintenance threshold
     

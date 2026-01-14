@@ -208,7 +208,7 @@ class PosePainter extends CustomPainter {
          // [Fix] Check Confidence to avoid exploding lines
          double conf = (kp.length > 2) ? (kp[2] as num).toDouble() : 1.0;
          
-         if (conf > 0.40) { // Threshold matches Pet Painter
+         if (conf > 0.25) { // Threshold matches Detect/Logic
              double finalX;
              if (isFrontCamera) {
                   finalX = (1.0 - normX) * renderW + dx;
