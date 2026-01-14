@@ -205,6 +205,31 @@ async def analysis_endpoint(
                     if 'frame_id' in edge_result:
                         result['frame_id'] = edge_result['frame_id']
                     
+                    
+                    # [Fix] Trust Client's Success Decision (Edge AI Timer Completion)
+                    if edge_result.get('status') == 'success':
+                        state = "SUCCESS"
+                        result["success"] = True # Align vision success with FSM state
+                        
+                        # [Fix] Force Generate Reward if Server Logic didn't trigger 'is_interacting'
+                        if not result.get("base_reward"):
+                            import numpy as np
+                            # Fallback Reward Generation (Same logic as detector.py)
+                            if mode == "playing":
+                                action_type = "playing_fetch"
+                                result["base_reward"] = {"stat_type": "strength", "value": 3} if np.random.rand() < 0.7 else {"stat_type": "agility", "value": 3}
+                                result["bonus_points"] = 2
+                            elif mode == "feeding":
+                                action_type = "feeding"
+                                result["base_reward"] = {"stat_type": "health", "value": 3} if np.random.rand() < 0.7 else {"stat_type": "defense", "value": 3}
+                                result["bonus_points"] = 1
+                            elif mode == "interaction":
+                                action_type = "interaction_owner"
+                                result["base_reward"] = {"stat_type": "happiness", "value": 4} if np.random.rand() < 0.7 else {"stat_type": "intelligence", "value": 3}
+                                result["bonus_points"] = 3
+                            
+                            result["action_type"] = action_type
+                    
                     # Pass through to FSM Logic below (Skip 'run_in_threadpool(detector...)')
                     image_bytes = None # Skip decoding
                     
@@ -435,7 +460,9 @@ async def analysis_endpoint(
                                 "bonus_points": result.get("bonus_points", 0),
                                 "count": service_result.get("daily_count", 0),
                                 "bbox": [],
-                                "level_up_info": service_result.get("level_up_info", {}) # [New] Pass Level Up Info
+                                "level_up_info": service_result.get("level_up_info", {}), # [New] Pass Level Up Info
+                                "pet_keypoints": [],
+                                "human_keypoints": []
                             }
                         else:
                              raise Exception("DB Error")

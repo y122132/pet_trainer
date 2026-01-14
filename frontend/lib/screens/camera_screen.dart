@@ -81,12 +81,20 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
   }
 
   void _handleSuccess() {
-    _startConfetti();
-    final ctrl = Provider.of<TrainingController>(context, listen: false);
-    final reward = ctrl.lastReward;
-    if (reward != null) {
-       _showSuccessDialog(reward['base'], reward['bonus'], reward['level_up_info']);
-    }
+    print("🎉 _handleSuccess Triggered!"); 
+    // Schedule dialog for AFTER the current build cycle (which might be triggered by stopTraining)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        print("🎉 Showing Success Dialog...");
+        _startConfetti();
+        final ctrl = Provider.of<TrainingController>(context, listen: false);
+        final reward = ctrl.lastReward;
+        if (reward != null) {
+           _showSuccessDialog(reward['base'], reward['bonus'], reward['level_up_info']);
+        } else {
+           print("⚠️ Last Reward is NULL!");
+        }
+    });
   }
 
   void _startConfetti() {
@@ -201,18 +209,28 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                  
                                  // STAY Progress
                                  if (trainingCtrl.trainingState == TrainingStatus.stay)
-                                    Center(
+                                 // STAY Progress (Moved to Top)
+                                 if (trainingCtrl.trainingState == TrainingStatus.stay)
+                                    Positioned(
+                                      top: 80, // Below App Bar
+                                      left: 40, right: 40,
                                       child: GlassContainer(
-                                        borderRadius: BorderRadius.circular(100),
+                                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                        borderRadius: BorderRadius.circular(20),
                                         child: Column(
                                          mainAxisSize: MainAxisSize.min,
                                          children: [
-                                            SizedBox(
-                                              width: 60, height: 60,
-                                              child: CircularProgressIndicator(value: trainingCtrl.stayProgress, strokeWidth: 8, valueColor: const AlwaysStoppedAnimation(AppColors.primaryMint)),
+                                            Text(trainingCtrl.progressText, style: AppTextStyles.title.copyWith(fontSize: 18, color: AppColors.textMain)),
+                                            const SizedBox(height: 8),
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(10),
+                                              child: LinearProgressIndicator(
+                                                value: trainingCtrl.stayProgress, 
+                                                minHeight: 12,
+                                                backgroundColor: Colors.grey.withOpacity(0.3),
+                                                valueColor: const AlwaysStoppedAnimation(AppColors.primaryMint),
+                                              ),
                                             ),
-                                            const SizedBox(height: 10),
-                                            Text(trainingCtrl.progressText, style: AppTextStyles.title.copyWith(fontSize: 24, color: AppColors.textMain))
                                          ]
                                       ))
                                     ),
@@ -405,9 +423,11 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
   }
   
   void _goToMyRoom() {
-     Navigator.pop(context); // Dialog
-     Navigator.pop(context); // Camera Screen
+     // Dialog is already closed by 'await showDialog' or explicit pop in actions
+     // We only need to close the Camera Screen
+     if (mounted) Navigator.pop(context); 
   }
+
   String? _buildSkillMessage(dynamic levelUpInfo) {
       if (levelUpInfo == null) return null;
       final skills = levelUpInfo['acquired_skills_details'];

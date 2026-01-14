@@ -78,10 +78,117 @@ class TrainingController extends ChangeNotifier {
   int _stayStartTime = 0;
   static const int _stayDuration = 2000; // 2 seconds
   
-  // [NEW] One Euro Filter State
-  List<OneEuroFilter>? _boxFilters;
+  // [NEW] One Euro Filter State (Class ID -> [x1, y1, x2, y2])
+  Map<int, List<OneEuroFilter>>? _boxFilters;
+  // Pet Keypoints (17 * 2)
+  List<OneEuroFilter>? _keypointFilters;
+  // Human Keypoints (17 * 2)
+  List<OneEuroFilter>? _humanKeypointFilters;
+  
+  // [NEW] Unified Smoothing Helper
+  void _applySmoothing(List<dynamic> targetBboxList) {
+      if (_boxFilters == null) {
+          _boxFilters = {};
+      }
+      
+      int now = DateTime.now().millisecondsSinceEpoch;
+      
+      for(int i=0; i<targetBboxList.length; i++) {
+          var box = targetBboxList[i]; 
+          // [x1, y1, x2, y2, conf, cls]
+          if (box.length > 5) {
+              int cls = (box[5] as num).toInt();
+              double conf = (box[4] as num).toDouble();
+              
+              // Only smooth high confidence inputs to avoid dragging ghosts
+              // (Threshold matches Edge logic)
+              if (conf < 0.25) continue;
+              
+              // Init filters for this class if missing
+              if (!_boxFilters!.containsKey(cls)) {
+                  _boxFilters![cls] = [
+                     OneEuroFilter(minCutoff: 0.5, beta: 0.007), // x1
+                     OneEuroFilter(minCutoff: 0.5, beta: 0.007), // y1
+                     OneEuroFilter(minCutoff: 0.5, beta: 0.007), // x2
+                     OneEuroFilter(minCutoff: 0.5, beta: 0.007), // y2
+                  ];
+              }
+              
+              final filters = _boxFilters![cls]!;
+              
+              double fx1 = filters[0].filter((box[0] as num).toDouble(), now);
+              double fy1 = filters[1].filter((box[1] as num).toDouble(), now);
+              double fx2 = filters[2].filter((box[2] as num).toDouble(), now);
+              double fy2 = filters[3].filter((box[3] as num).toDouble(), now);
+              
+              // Update In-Place
+              box[0] = fx1;
+              box[1] = fy1;
+              box[2] = fx2;
+              box[3] = fy2;
+          }
+      }
+  }
 
-  // --- Internal Flags & Flow Control ---
+  // [NEW] Keypoint Smoothing Helper (Pet)
+  void _smoothKeypoints(List<dynamic> rawFlatKeypoints) {
+      // Expecting [x, y, conf, x, y, conf, ...] for 17 keypoints
+      int numPoints = 17;
+      if (rawFlatKeypoints.length < numPoints * 3) return;
+
+      // Lazy Init
+      if (_keypointFilters == null) {
+          _keypointFilters = [];
+          for(int i=0; i<numPoints * 2; i++) { // 2 filters per point (x, y)
+             _keypointFilters!.add(OneEuroFilter(minCutoff: 0.5, beta: 0.007));
+          }
+      }
+
+      int now = DateTime.now().millisecondsSinceEpoch;
+      
+      for (int i = 0; i < numPoints; i++) {
+          int baseIdx = i * 3;
+          int filterIdx = i * 2;
+          
+          double rawX = (rawFlatKeypoints[baseIdx] as num).toDouble();
+          double rawY = (rawFlatKeypoints[baseIdx + 1] as num).toDouble();
+          
+          double smoothX = _keypointFilters![filterIdx].filter(rawX, now);
+          double smoothY = _keypointFilters![filterIdx+1].filter(rawY, now);
+          
+          rawFlatKeypoints[baseIdx] = smoothX;
+          rawFlatKeypoints[baseIdx + 1] = smoothY;
+      }
+  }
+  
+  // [NEW] Keypoint Smoothing Helper (Human)
+  void _smoothHumanKeypoints(List<dynamic> rawFlatKeypoints) {
+      int numPoints = 17;
+      if (rawFlatKeypoints.length < numPoints * 3) return;
+
+      if (_humanKeypointFilters == null) {
+          _humanKeypointFilters = [];
+          for(int i=0; i<numPoints * 2; i++) { 
+             _humanKeypointFilters!.add(OneEuroFilter(minCutoff: 0.5, beta: 0.007));
+          }
+      }
+
+      int now = DateTime.now().millisecondsSinceEpoch;
+      
+      for (int i = 0; i < numPoints; i++) {
+          int baseIdx = i * 3;
+          int filterIdx = i * 2;
+          
+          double rawX = (rawFlatKeypoints[baseIdx] as num).toDouble();
+          double rawY = (rawFlatKeypoints[baseIdx + 1] as num).toDouble();
+
+          double smoothX = _humanKeypointFilters![filterIdx].filter(rawX, now);
+          double smoothY = _humanKeypointFilters![filterIdx+1].filter(rawY, now);
+          
+          rawFlatKeypoints[baseIdx] = smoothX;
+          rawFlatKeypoints[baseIdx + 1] = smoothY;
+      }
+  }
   bool _isProcessingFrame = false;
   bool _canSendFrame = true; // Lock mechanism
   int _frameInterval = 100; // ms
@@ -160,24 +267,28 @@ class TrainingController extends ChangeNotifier {
       
       bool needsUpdate = false;
       
+      // [NEW] Adaptive Alpha Calculation
+      // Target: Smooth movement over the specific inference duration
+      // If inference takes 200ms, and UI tick is 16ms, we want to move ~1/12th per tick.
+      // alpha = dt / latency
+      
+      // Safety: Min Latency 50ms (avoid div by zero or super fast jitter)
+      int safeLatency = (inferenceMs > 50) ? inferenceMs : 50;
+      double alpha = (16.0 / safeLatency).clamp(0.01, 0.25); 
+      
       // 1. Interpolate BBox
-      // Strategy: If count matches, lerp. Else snap.
       if (bbox.length == _targetBbox.length) {
           for(int i=0; i<bbox.length; i++) {
-              // Check consistency (Class ID match)
-              // Box format: [x1, y1, x2, y2, conf, cls]
               var cur = bbox[i];
               var tgt = _targetBbox[i];
               
               if (cur.length > 5 && tgt.length > 5 && cur[5] == tgt[5]) {
                   // Same object -> Lerp
-                  double alpha = 0.2; // Speed factor (Adjustable)
                   
                   cur[0] += (tgt[0] - cur[0]) * alpha;
                   cur[1] += (tgt[1] - cur[1]) * alpha;
                   cur[2] += (tgt[2] - cur[2]) * alpha;
                   cur[3] += (tgt[3] - cur[3]) * alpha;
-                  // Conf & Cls are copied immediately or ignored in lerp
                   cur[4] = tgt[4]; 
                   
                   needsUpdate = true;
@@ -188,7 +299,6 @@ class TrainingController extends ChangeNotifier {
               }
           }
       } else {
-           // Structure Change -> Snap
            bbox = List.from(_targetBbox.map((e) => List.from(e)));
            needsUpdate = true;
       }
@@ -196,20 +306,17 @@ class TrainingController extends ChangeNotifier {
       // 2. Interpolate Keypoints
       if (petKeypoints.length == _targetPetKeypoints.length) {
            for(int i=0; i<petKeypoints.length; i++) {
-               var cur = petKeypoints[i]; // [x, y, c]
+               var cur = petKeypoints[i]; 
                var tgt = _targetPetKeypoints[i];
                
                if (cur.length >= 2 && tgt.length >= 2) {
-                   double alpha = 0.2;
                    cur[0] += (tgt[0] - cur[0]) * alpha;
                    cur[1] += (tgt[1] - cur[1]) * alpha;
-                   // Conf
                    if (cur.length > 2 && tgt.length > 2) cur[2] = tgt[2];
                    needsUpdate = true;
                }
            }
       } else {
-           // Snap
            petKeypoints = List.from(_targetPetKeypoints.map((e) => List.from(e)));
            needsUpdate = true;
       }
@@ -315,32 +422,28 @@ class TrainingController extends ChangeNotifier {
                 if (edgeResult['bbox'] != null && (edgeResult['bbox'] as List).isNotEmpty) {
                    isValidDetection = true;
                    // --- One Euro Filter (UX Smoothing) ---
-                // [NEW] Define filters if not exists (Lazy Load)
-                _boxFilters ??= [
-                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // x1
-                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // y1
-                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // x2
-                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // y2
-                ];
+
                 }
                 
                 if (isValidDetection) {
-                    // [Smoothing] Apply One Euro Filter to Pet Box
-                    // edgeResult['bbox'] is List<dynamic> (List of Boxes)
-                    // We need to find the "Primary Pet" box and smooth it.
-                    // EdgeGameLogic usually picks the best one. 
-                    // But here we are BEFORE EdgeGameLogic.
-                    
+                    // [Smoothing] Apply One Euro Filter to All Boxes (Pet, Human, Props)
                     if (edgeResult['bbox'] != null) {
-                         // [Smoothing] Use Helper
                          _applySmoothing(edgeResult['bbox']);
                     }
                     
-                    // [Smoothing] Keypoints (Sync with Box)
+                    // [Smoothing] Pet Keypoints
                     if (edgeResult['pet_keypoints'] != null && (edgeResult['pet_keypoints'] as List).isNotEmpty) {
                         var rawPets = edgeResult['pet_keypoints'] as List; 
                         if (rawPets.isNotEmpty && rawPets[0] is List) {
                              _smoothKeypoints(rawPets[0]);
+                        }
+                    }
+                    
+                    // [Smoothing] Human Keypoints
+                    if (edgeResult['human_keypoints'] != null && (edgeResult['human_keypoints'] as List).isNotEmpty) {
+                        var rawHumans = edgeResult['human_keypoints'] as List; 
+                        if (rawHumans.isNotEmpty && rawHumans[0] is List) {
+                             _smoothHumanKeypoints(rawHumans[0]);
                         }
                     }
 
@@ -367,7 +470,9 @@ class TrainingController extends ChangeNotifier {
                         
                         // [Reset] Filters to prevent jump on next detection
                         if (_boxFilters != null) {
-                             for(var f in _boxFilters!) f.reset();
+                             for(var list in _boxFilters!.values) {
+                                for(var f in list) f.reset();
+                             }
                         }
                     }
                 }
@@ -638,6 +743,7 @@ class TrainingController extends ChangeNotifier {
        // Success Handling (Server Auth)
        final statusStr = jsonMap['status'] as String?;
        if (statusStr == 'success') {
+          print("Received Success Status! keys: ${jsonMap.keys}");
           if (jsonMap.containsKey('base_reward')) {
              final base = jsonMap['base_reward'];
              final bonus = jsonMap['bonus_points'] ?? 0;
@@ -652,10 +758,16 @@ class TrainingController extends ChangeNotifier {
              _charProvider?.gainReward(base, bonus); 
              
              if (onSuccessCallback != null) {
+                print("Calling onSuccessCallback...");
                 onSuccessCallback?.call(); 
+             } else {
+                print("onSuccessCallback is NULL");
              }
              
+             print("Calling stopTraining...");
              stopTraining(); 
+          } else {
+             print("Success received but NO base_reward in map!");
           }
        }
        
@@ -693,85 +805,5 @@ class TrainingController extends ChangeNotifier {
   // Helper for JSON decode
   dynamic typeof(dynamic obj) => obj.runtimeType.toString();
   
-  // [NEW] One Euro Filter State for Keypoints (17 points * 2 coords = 34 filters)
-  List<OneEuroFilter>? _keypointFilters;
-  
-  // [NEW] Unified Smoothing Helper
-  void _applySmoothing(List<dynamic> targetBboxList) {
-       // ... (existing logic) ...
-      if (_boxFilters == null) {
-          _boxFilters = [
-             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
-             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
-             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
-             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
-          ];
-      }
-      
-      int bestIdx = -1;
-      double maxConf = -1.0;
-      
-      for(int i=0; i<targetBboxList.length; i++) {
-          var box = targetBboxList[i]; 
-          if (box.length > 5) {
-              int cls = (box[5] as num).toInt();
-              double conf = (box[4] as num).toDouble();
-              // [Fix] Smooth ANY Pet (Dog, Cat, Bird)
-              if ([14, 15, 16].contains(cls) && conf > maxConf) {
-                  maxConf = conf;
-                  bestIdx = i;
-              }
-          }
-      }
-      
-      if (bestIdx != -1) {
-           var rawBox = targetBboxList[bestIdx];
-           int now = DateTime.now().millisecondsSinceEpoch;
-           
-           double fx1 = _boxFilters![0].filter((rawBox[0] as num).toDouble(), now);
-           double fy1 = _boxFilters![1].filter((rawBox[1] as num).toDouble(), now);
-           double fx2 = _boxFilters![2].filter((rawBox[2] as num).toDouble(), now);
-           double fy2 = _boxFilters![3].filter((rawBox[3] as num).toDouble(), now);
-           
-           // Update In-Place
-           targetBboxList[bestIdx][0] = fx1;
-           targetBboxList[bestIdx][1] = fy1;
-           targetBboxList[bestIdx][2] = fx2;
-           targetBboxList[bestIdx][3] = fy2;
-      }
-  }
 
-  // [NEW] Keypoint Smoothing Helper
-  void _smoothKeypoints(List<dynamic> rawFlatKeypoints) {
-      // Expecting [x, y, conf, x, y, conf, ...] for 17 keypoints
-      int numPoints = 17;
-      if (rawFlatKeypoints.length < numPoints * 3) return;
-
-      // Lazy Init
-      if (_keypointFilters == null) {
-          _keypointFilters = [];
-          for(int i=0; i<numPoints * 2; i++) { // 2 filters per point (x, y)
-             // Use same parameters as Box for Sync
-             _keypointFilters!.add(OneEuroFilter(minCutoff: 0.5, beta: 0.007));
-          }
-      }
-
-      int now = DateTime.now().millisecondsSinceEpoch;
-      
-      for (int i = 0; i < numPoints; i++) {
-          int baseIdx = i * 3;
-          int filterIdx = i * 2;
-          
-          double rawX = (rawFlatKeypoints[baseIdx] as num).toDouble();
-          double rawY = (rawFlatKeypoints[baseIdx + 1] as num).toDouble();
-          // Conf at baseIdx + 2 (skip)
-
-          double smoothX = _keypointFilters![filterIdx].filter(rawX, now);
-          double smoothY = _keypointFilters![filterIdx+1].filter(rawY, now);
-
-          // Update In-Place
-          rawFlatKeypoints[baseIdx] = smoothX;
-          rawFlatKeypoints[baseIdx + 1] = smoothY;
-      }
-  }
 }
