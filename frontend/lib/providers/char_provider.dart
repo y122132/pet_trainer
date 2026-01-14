@@ -1,3 +1,4 @@
+// frontend/lib/providers/char_provider.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -358,9 +359,28 @@ class CharProvider with ChangeNotifier {
       );
 
       if (response.statusCode == 200) {
-        await fetchCharacter(_character!.id);
+        final Map<String, dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+
+        // 현재 가지고 있는 사진 경로 딱 하나만 백업
+        final String? savedFrontUrl = _character?.frontUrl;
+
+        // 서버 데이터로 갱신 (서버 응답에 사진이 없으면 이때 빈 값이 됨)
+        _character = Character.fromJson(data); 
+
+        //서버 응답에 사진이 없다면 아까 백업한 경로를 강제로 다시 넣어줌
+        if (_character!.frontUrl == null || _character!.frontUrl!.isEmpty) {
+          _character = _character!.copyWith(frontUrl: savedFrontUrl);
+        }
+        
+        // 스탯 포인트 등 세부 정보 갱신
+        if (_character!.stat != null) {
+          _unusedStatPoints = _character!.stat!.unused_points;
+        }
+
         _statusMessage = "레벨업 성공! 🎉";
         notifyListeners();
+        print("현재 앱 내 레벨: ${_character?.stat?.level}");
+        print("현재 앱 내 스킬: ${_character?.learnedSkills}");
         return data; 
       }
       return null;

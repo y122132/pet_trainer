@@ -20,8 +20,28 @@ class SkillManagementScreen extends StatelessWidget {
           return skillPetType == 'shared' || skillPetType == char.petType;
         })
         .map((entry) => entry.key)
-        .toList()
-        ..sort();
+        .toList();
+    
+    // 정렬 기준 재정의
+    allSkills.sort((a, b) {
+      bool isALearned = char.learnedSkills.contains(a);
+      bool isBLearned = char.learnedSkills.contains(b);
+
+      // 1순위: 해금(Learned)된 스킬을 위쪽으로 보내기
+      if (isALearned && !isBLearned) return -1;
+      if (!isALearned && isBLearned) return 1;
+
+      // 2순위: 해금 여부가 같다면 '요구 레벨' 낮은 순으로 정렬
+      int levelA = GameAssets.MOVE_DATA[a]?['unlock_level'] ?? 0;
+      int levelB = GameAssets.MOVE_DATA[b]?['unlock_level'] ?? 0;
+      
+      if (levelA != levelB) {
+        return levelA.compareTo(levelB);
+      }
+
+      // 3순위: 레벨까지 같다면 ID 숫자 순으로 정렬
+      return a.compareTo(b);
+    });
 
     const Color bgColor = Color(0xFFFFF9E6);
     const Color primaryText = Color(0xFF4E342E);
