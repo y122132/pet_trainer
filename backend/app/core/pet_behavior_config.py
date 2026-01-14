@@ -72,6 +72,31 @@ PET_BEHAVIORS = {
             "feedback_success": "그루밍 해주는 중?",
             "feedback_fail": "owner_missing"
         }
+    },
+
+    # --- BIRD (새 - ID: 14) ---
+    14: {
+        "playing": {
+            "targets": [32, 39, 41, 29], # 공, 병, 컵, 원반
+            "success_msg": "새가 날아다녀요! 🦜",
+            "fail_msg": "장난감을 보여주세요",
+            "feedback_success": "날개를 파닥입니다!",
+            "feedback_fail": "toy_missing"
+        },
+        "feeding": {
+            "targets": [45, 41], # 그릇, 컵
+            "success_msg": "모이 쪼는 중 🐦",
+            "fail_msg": "모이통이나 물을 주세요",
+            "feedback_success": "기분이 좋아보여요!",
+            "feedback_fail": "food_missing"
+        },
+        "interaction": {
+            "targets": [0], # 사람
+            "success_msg": "손에 올라왔어요! 📸",
+            "fail_msg": "새와 함께 있어주세요",
+            "feedback_success": "어깨에 앉으려 합니다!",
+            "feedback_fail": "owner_missing"
+        }
     }
 }
 

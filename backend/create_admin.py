@@ -8,7 +8,8 @@ sys.path.append(os.getcwd())
 
 from app.db.database import AsyncSessionLocal
 from app.db.models.user import User
-from app.db.models.diary import Diary, DiaryLike # 관계 매핑을 위해 import 필수
+# 관계 매핑을 위해 필요한 경우 모델 로드 (여기선 User만 직접 사용하지만, Base registry를 위해 필요할 수 있음)
+from app.db.models import diary, character, friendship, guestbook
 from app.core.security import get_password_hash
 
 async def create_superuser():

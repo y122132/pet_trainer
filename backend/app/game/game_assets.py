@@ -1,7 +1,7 @@
 # 1. Skill_Database: 각 스킬의 상세 데이터
 MOVE_DATA = {
-    # Lv5 경계 태세: 일반 / 회피율 증가 (2턴) -> Stat Change Agility? or Evasion? 
-    # Use Evasion for "Dodge". 
+    # --- 공통 / 강아지 계열 (Dog) ---
+    # Lv5 경계 태세 (Dog)
     5: {
         "name": "경계 태세", 
         "power": 0, 
@@ -13,37 +13,32 @@ MOVE_DATA = {
         "effect_chance": 100,
         "max_pp": 20
     },
-
-    # Lv10 위협의 포효: 일반 / 상대 공격력 감소 (2턴)
+    # Lv10 위협의 포효 (Dog)
     10: {
         "name": "위협의 포효", 
         "power": 0, 
         "accuracy": 100, 
-        "type": "normal", # Sound?
+        "type": "normal", 
         "category": "status",
         "description": "거칠게 포효하여 상대의 기를 꺽어 공격력을 낮춘다.",
         "effect": {"type": "stat_change", "stat": "strength", "value": -1, "target": "enemy"},
         "effect_chance": 100,
         "max_pp": 20
     },
-
-    # Lv15 사냥 개시: 준궁 / 선공 확정 + 첫 공격 피해 증가
-    # Priority move with high power. "First attack damage boost" logic is hard to inject perfectly without "turn count" state.
-    # Instead, we make it a High Priority + Decent Power move, conceptualizing "Initiative".
+    # Lv15 사냥 개시 (Dog)
     15: {
         "name": "사냥 개시", 
         "power": 60, 
         "accuracy": 100, 
         "type": "normal", 
         "category": "physical",
-        "priority": 2, # High Priority
+        "priority": 2, 
         "description": "누구보다 빠르게 먼저 공격한다. 사냥의 시작을 알린다.",
         "effect": None,
         "effect_chance": 0,
         "max_pp": 15
     },
-
-    # Lv25 출혈 이빨: 일반 / 공격 + 출혈 (2턴)
+    # Lv25 출혈 이빨 (Dog)
     25: {
         "name": "출혈 이빨", 
         "power": 50, 
@@ -52,11 +47,10 @@ MOVE_DATA = {
         "category": "physical",
         "description": "상대를 물어뜯어 출혈을 일으킨다.",
         "effect": {"type": "status", "status": "bleed", "target": "enemy"},
-        "effect_chance": 100, # Guaranteed bleed? or chance? User said "+ Bleed", implying guarantee.
+        "effect_chance": 100, 
         "max_pp": 15
     },
-
-    # Lv30 야성 폭주: 궁극 / 공격력 대폭 증가 / 방어 감소
+    # Lv30 야성 폭주 (Dog - Ult)
     30: {
         "name": "야성 폭주", 
         "power": 0, 
@@ -71,10 +65,134 @@ MOVE_DATA = {
         "effect_chance": 100,
         "max_pp": 5
     },
+    
+    # --- 고양이 계열 (Cat) ---
+    # Lv5 그루밍 (Cat)
+    105: {
+        "name": "그루밍", 
+        "power": 0, 
+        "accuracy": 100, 
+        "type": "normal", 
+        "category": "status",
+        "description": "털을 고르며 마음을 진정시킨다. (회복 + 상태이상 제거)",
+        "effect": {"type": "heal", "value": 20, "target": "self"}, # Simplification
+        "effect_chance": 100,
+        "max_pp": 15
+    },
+    # Lv10 냥냥 펀치 (Cat)
+    110: {
+        "name": "냥냥 펀치", 
+        "power": 40, 
+        "accuracy": 100, 
+        "type": "normal", 
+        "category": "physical",
+        "priority": 1, 
+        "description": "빠르게 앞발로 때린다. 선공 확률이 있다.",
+        "effect": None,
+        "effect_chance": 0,
+        "max_pp": 25
+    },
+    # Lv15 살금살금 (Cat)
+    115: {
+        "name": "살금살금", 
+        "power": 0, 
+        "accuracy": 100, 
+        "type": "dark", 
+        "category": "status",
+        "description": "기척을 숨겨 회피율을 크게 높인다.",
+        "effect": {"type": "stat_change", "stat": "evasion", "value": 2, "target": "self"},
+        "effect_chance": 100,
+        "max_pp": 10
+    },
+    # Lv25 할퀴기 (Cat)
+    125: {
+        "name": "할퀴기", 
+        "power": 55, 
+        "accuracy": 95, 
+        "type": "normal", 
+        "category": "physical",
+        "description": "날카로운 발톱으로 할퀸다. (출혈 확률)",
+        "effect": {"type": "status", "status": "bleed", "target": "enemy"},
+        "effect_chance": 50, 
+        "max_pp": 15
+    },
+    # Lv30 야옹이의 분노 (Cat - Ult)
+    130: {
+        "name": "야옹이의 분노", 
+        "power": 90, 
+        "accuracy": 90, 
+        "type": "dark", 
+        "category": "physical",
+        "description": "화난 고양이의 무서움을 보여준다. 치명타 확률이 높다.",
+        "effect": {"type": "stat_change", "stat": "crit_rate", "value": 2, "target": "self"}, # Crit boost before hit logic needed? Or just high crit move
+        "effect_chance": 100,
+        "max_pp": 5
+    },
 
-    # Lv45 전투 감각: 일반 / 상태이상 성공률 증가 (Implemented as Crit Rate increase as "Sense" is vague for status chance mod in current architecture)
-    # User said "Status Success Rate Increase". We don't have "Status Accumulation" or "Accuracy for Status" separate stat easily.
-    # Alternative: Increase Accuracy & Crit (Vital spots).
+    # --- 새 계열 (Bird) ---
+    # Lv5 쪼기 (Bird)
+    205: {
+        "name": "쪼기", 
+        "power": 40, 
+        "accuracy": 100, 
+        "type": "flying", 
+        "category": "physical",
+        "description": "부리로 콕콕 쪼아 공격한다.",
+        "effect": None,
+        "effect_chance": 0,
+        "max_pp": 35
+    },
+    # Lv10 날개치기 (Bird)
+    210: {
+        "name": "날개치기", 
+        "power": 0, 
+        "accuracy": 95, 
+        "type": "flying", 
+        "category": "status",
+        "description": "날개를 퍼덕여 모래바람을 일으켜 상대 명중률을 낮춘다.",
+        "effect": {"type": "stat_change", "stat": "accuracy", "value": -1, "target": "enemy"},
+        "effect_chance": 100,
+        "max_pp": 20
+    },
+    # Lv15 순풍 (Bird)
+    215: {
+        "name": "순풍", 
+        "power": 0, 
+        "accuracy": 100, 
+        "type": "flying", 
+        "category": "status",
+        "description": "바람을 타고 속도를 높인다.",
+        "effect": {"type": "stat_change", "stat": "agility", "value": 2, "target": "self"},
+        "effect_chance": 100,
+        "max_pp": 15
+    },
+    # Lv25 공중제비 (Bird)
+    225: {
+        "name": "공중제비", 
+        "power": 60, 
+        "accuracy": 100, 
+        "type": "flying", 
+        "category": "physical",
+        "description": "빠르게 공중을 돌아 상대의 허를 찌른다. (반드시 명중)",
+        "effect": None, # Aerial Ace logic
+        "effect_chance": 0, 
+        "max_pp": 20
+    },
+    # Lv30 폭풍우 (Bird - Ult)
+    230: {
+        "name": "폭풍우", 
+        "power": 110, 
+        "accuracy": 70, 
+        "type": "flying", 
+        "category": "special",
+        "description": "거대한 폭풍을 일으킨다. 명중률은 낮지만 강력하다.",
+        "effect": {"type": "status", "status": "confusion", "target": "enemy"},
+        "effect_chance": 30,
+        "max_pp": 5
+    },
+
+
+    # --- High Level Shared / Unique (Originals shifted or kept) ---
     45: {
         "name": "전투 감각", 
         "power": 0, 
@@ -89,23 +207,20 @@ MOVE_DATA = {
         "effect_chance": 100,
         "max_pp": 10
     },
-
-    # Lv50 본능 각성: 궁극 / HP 낮을수록 능력(Damage) 급상승
-    # Requires Special Logic in Calculator
+    # Lv50 본능 각성: 궁극 
     50: {
         "name": "본능 각성", 
-        "power": 70, # Base power
+        "power": 70, 
         "accuracy": 100, 
         "type": "fighting", 
         "category": "physical",
-        "scaling": "hp_loss", # Custom Flag handled in calculator
+        "scaling": "hp_loss", 
         "description": "위기에 몰릴수록 더 강력한 힘을 발휘한다.",
         "effect": None,
         "effect_chance": 0,
         "max_pp": 5
     },
-
-    # Lv65 집중: 일반 / 치명타 확률 증가
+    # Lv65 집중
     65: {
         "name": "집중", 
         "power": 0, 
@@ -117,8 +232,7 @@ MOVE_DATA = {
         "effect_chance": 100,
         "max_pp": 15
     },
-
-    # Lv75 지배의 포효: 궁극 / 공포 -> 행동 실패 확률 증가
+    # Lv75 지배의 포효
     75: {
         "name": "지배의 포효", 
         "power": 0, 
@@ -130,8 +244,7 @@ MOVE_DATA = {
         "effect_chance": 100,
         "max_pp": 5
     },
-
-    # Lv90 전투의 정점: 일반 / 모든 능력 소폭 증가
+    # Lv90 전투의 정점
     90: {
         "name": "전투의 정점", 
         "power": 0, 
@@ -148,13 +261,12 @@ MOVE_DATA = {
         "effect_chance": 100,
         "max_pp": 5
     },
-
-    # Lv100 야수의 왕: 최종 궁극 / 자신 강화 + 상대 약화
+    # Lv100 야수의 왕
     100: {
         "name": "야수의 왕", 
         "power": 150, 
         "accuracy": 100, 
-        "type": "dragon", # Majestic type
+        "type": "dragon",
         "category": "physical",
         "description": "짐승의 왕으로서 모든 것을 짓밟는다.",
         "effect": [
@@ -189,28 +301,50 @@ TYPE_CHART = {
 }
 
 # 3. PET_LEARNSET: 펫 종류에 따른 기술 습득 테이블
-# All pets learn the same new set for now as requested "Replace Everything"
-# Mapping Level -> List of Move IDs
-COMMON_LEARNSET = {
+# Shared High Level Skills (35+)
+SHARED_HIGH_LEVEL = {
+    35: [45],
+    45: [50],
+    55: [65],
+    65: [75],
+    80: [90],
+    95: [100]
+}
+
+DOG_LEARNSET = {
     5: [5],
-    10: [10],
-    15: [15],
-    25: [25],
-    30: [30],
-    45: [45],
-    50: [50],
-    65: [65],
-    75: [75],
-    90: [90],
-    100: [100]
+    8: [10],
+    12: [15],
+    18: [25],
+    25: [30],
+    **SHARED_HIGH_LEVEL
+}
+
+CAT_LEARNSET = {
+    5: [105],
+    8: [110],
+    12: [115],
+    18: [125],
+    25: [130],
+    **SHARED_HIGH_LEVEL
+}
+
+BIRD_LEARNSET = {
+    5: [205],
+    8: [210],
+    12: [215],
+    18: [225],
+    25: [230],
+    **SHARED_HIGH_LEVEL
 }
 
 PET_LEARNSET = {
-    "dog": COMMON_LEARNSET,
-    "cat": COMMON_LEARNSET,
-    "bird": COMMON_LEARNSET,
-    "bear": COMMON_LEARNSET,
-    "robot": COMMON_LEARNSET
+    "dog": DOG_LEARNSET,
+    "cat": CAT_LEARNSET,
+    "bird": BIRD_LEARNSET,
+    # Fallbacks or unfinished types
+    "bear": DOG_LEARNSET,
+    "robot": DOG_LEARNSET
 }
 
 PET_TYPE_MAP = {

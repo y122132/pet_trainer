@@ -118,10 +118,10 @@ async def manual_level_up(char_id: int, db: AsyncSession = Depends(get_db)):
     await db.refresh(char)
     
     exp_needed = char.stat.level * 100
-    await char_service._give_exp_and_levelup(db, char, exp_needed)
+    result = await char_service._give_exp_and_levelup(db, char, exp_needed)
     
     await db.flush()
-    await char_service.check_and_unlock_skills(db, char, char.stat.level)
+    # await char_service.check_and_unlock_skills(db, char, char.stat.level) # _give_exp_and_levelup now handles this
     
     await db.commit()
     await db.refresh(char)
@@ -142,7 +142,8 @@ async def manual_level_up(char_id: int, db: AsyncSession = Depends(get_db)):
             "happiness": char.stat.happiness,
             "health": char.stat.health,
             "unused_points": char.stat.unused_points
-        }
+        },
+        "level_up_result": result # Return full result for debugging/frontend usage
     }
 
 @router.post("/compose")
@@ -156,6 +157,7 @@ async def create_character_with_images(
     db: AsyncSession = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id)
 ):
+    print(f"--- [DEBUG] API /compose called: name={name}, pet_type={pet_type}, user_id={current_user_id} ---")
     # 1. 파일 확장자 선검사 (빠른 실패)
     image_files = [front_image, back_image, side_image, face_image]
     for file in image_files:

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'common/stat_widgets.dart'; // [New]
+import 'common/stat_widgets.dart';
 
 // --- 스탯 분배 다이얼로그 (StatDistributionDialog) ---
 class StatDistributionDialog extends StatefulWidget {
@@ -17,6 +17,7 @@ class StatDistributionDialog extends StatefulWidget {
   final Map<String, dynamic>? earnedReward;
   final int? earnedBonus;
   final VoidCallback? onContinue; // [NEW] 계속하기 콜백
+  final String? specialMessage; // [NEW] 스킬 획득 등 추가 메시지
   
   const StatDistributionDialog({
     super.key,
@@ -31,6 +32,7 @@ class StatDistributionDialog extends StatefulWidget {
     this.earnedReward,
     this.earnedBonus,
     this.onContinue,
+    this.specialMessage, 
   });
 
   @override
@@ -40,6 +42,10 @@ class StatDistributionDialog extends StatefulWidget {
 class _StatDistributionDialogState extends State<StatDistributionDialog> {
   late int remainingPoints;
   late Map<String, int> allocated;
+  bool isDirectInput = false; // [NEW] 숫자 직접 입력 모드 여부
+
+  // [NEW] 입력을 위한 컨트롤러들
+  final Map<String, TextEditingController> _controllers = {};
 
   @override
   void initState() {
@@ -54,6 +60,54 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
       "defense": 0,
       "luck": 0,
     };
+
+    // 컨트롤러 초기화
+    for (var key in allocated.keys) {
+      _controllers[key] = TextEditingController(text: "0");
+      _controllers[key]!.addListener(() => _onTextChanged(key));
+    }
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  void _onTextChanged(String key) {
+    if (!isDirectInput) return;
+    
+    final value = int.tryParse(_controllers[key]!.text) ?? 0;
+    _updateAllocatedDirectly(key, value);
+  }
+
+  void _updateAllocatedDirectly(String key, int newValue) {
+    if (newValue < 0) newValue = 0;
+
+    // 다른 스탯들의 현재 할당량 합산
+    int otherAllocatedSum = 0;
+    allocated.forEach((k, v) {
+      if (k != key) otherAllocatedSum += v;
+    });
+
+    // 새로 설정하려는 값이 총 포인트를 넘는지 체크
+    if (otherAllocatedSum + newValue > widget.availablePoints) {
+      newValue = widget.availablePoints - otherAllocatedSum;
+      // 텍스트 필드 값 보정 (필요시 시점을 늦춰야 함)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_controllers[key]!.text != newValue.toString()) {
+          _controllers[key]!.text = newValue.toString();
+          _controllers[key]!.selection = TextSelection.fromPosition(TextPosition(offset: _controllers[key]!.text.length));
+        }
+      });
+    }
+
+    setState(() {
+      allocated[key] = newValue;
+      remainingPoints = widget.availablePoints - (otherAllocatedSum + newValue);
+    });
   }
 
   void _allocate(String stat) {
@@ -61,6 +115,8 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
       setState(() {
         allocated[stat] = (allocated[stat] ?? 0) + 1;
         remainingPoints--;
+        // 컨트롤러 업데이트
+        _controllers[stat]!.text = allocated[stat].toString();
       });
     }
   }
@@ -70,6 +126,8 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
        setState(() {
         allocated[stat] = allocated[stat]! - 1;
         remainingPoints++;
+        // 컨트롤러 업데이트
+        _controllers[stat]!.text = allocated[stat].toString();
       });
     }
   }
@@ -126,10 +184,31 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
          child: Column(
            mainAxisSize: MainAxisSize.min,
            children: [
-             Text(widget.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.indigo)),
+             Row(
+               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+               children: [
+                 const SizedBox(width: 40), // 밸런스용
+                 Text(widget.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.indigo)),
+                 IconButton(
+                   icon: Icon(isDirectInput ? Icons.radar : Icons.edit_note, color: Colors.indigo),
+                   tooltip: isDirectInput ? "차트 보기" : "직접 입력",
+                   onPressed: () => setState(() => isDirectInput = !isDirectInput),
+                 ),
+               ],
+             ),
              const SizedBox(height: 10),
              
              _buildRewardInfo(),
+             
+             // [NEW] Special Message (Skill Unlock Notification)
+             if (widget.specialMessage != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: Text(widget.specialMessage!, 
+                     textAlign: TextAlign.center,
+                     style: const TextStyle(color: Colors.deepPurple, fontWeight: FontWeight.bold, fontSize: 13)
+                  ),
+                ),
 
              Text("분배 가능 포인트: $remainingPoints", 
                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
@@ -140,38 +219,43 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
              const SizedBox(height: 20),
              
              Expanded(
-               child: Stack(
-                 children: [
-                   // 1. 공용 레이더 차트 사용
-                   Positioned.fill(
-                     child: Padding(
-                       padding: const EdgeInsets.all(30.0), 
-                       child: StatRadarChart(stats: currentMap, showLabels: false), // 라벨 없이
-                     ),
+               child: isDirectInput 
+                 ? ListView(
+                     padding: const EdgeInsets.symmetric(vertical: 10),
+                     children: allocated.keys.map((key) => _buildDirectInputRow(key)).toList(),
+                   )
+                 : Stack(
+                     children: [
+                       // 1. 공용 레이더 차트 사용
+                       Positioned.fill(
+                         child: Padding(
+                           padding: const EdgeInsets.all(30.0), 
+                           child: StatRadarChart(stats: currentMap, showLabels: false), // 라벨 없이
+                         ),
+                       ),
+                       // 2. 각 방향별 스탯 제어 위젯 (위치는 유지)
+                       Align(
+                         alignment: Alignment.topCenter,
+                         child: _buildStatCtrl("근력", "strength"),
+                       ),
+                       Align(
+                         alignment: Alignment.centerRight,
+                         child: _buildStatCtrl("지능", "intelligence"),
+                       ),
+                       Align(
+                         alignment: Alignment.bottomRight,
+                         child: _buildStatCtrl("운", "luck"),
+                       ),
+                       Align(
+                         alignment: Alignment.bottomLeft,
+                         child: _buildStatCtrl("방어", "defense"),
+                       ),
+                       Align(
+                         alignment: Alignment.centerLeft,
+                         child: _buildStatCtrl("민첩", "agility"),
+                       ),
+                     ],
                    ),
-                   // 2. 각 방향별 스탯 제어 위젯 (위치는 유지)
-                   Align(
-                     alignment: Alignment.topCenter,
-                     child: _buildStatCtrl("근력", "strength"),
-                   ),
-                   Align(
-                     alignment: Alignment.centerRight,
-                     child: _buildStatCtrl("지능", "intelligence"),
-                   ),
-                   Align(
-                     alignment: Alignment.bottomRight,
-                     child: _buildStatCtrl("운", "luck"),
-                   ),
-                   Align(
-                     alignment: Alignment.bottomLeft,
-                     child: _buildStatCtrl("방어", "defense"),
-                   ),
-                   Align(
-                     alignment: Alignment.centerLeft,
-                     child: _buildStatCtrl("민첩", "agility"),
-                   ),
-                 ],
-               ),
              ),
              
              const SizedBox(height: 20),
@@ -254,6 +338,49 @@ class _StatDistributionDialogState extends State<StatDistributionDialog> {
         const SizedBox(height: 2),
         Text("+${allocated[key] ?? 0}", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
       ],
+    );
+  }
+
+  // [NEW] 직접 수치 입력 행 빌더
+  Widget _buildDirectInputRow(String key) {
+    Color color = StatColorMapper.getColor(key);
+    String label = "";
+    switch(key) {
+      case "strength": label = "근력 (STR)"; break;
+      case "intelligence": label = "지능 (INT)"; break;
+      case "agility": label = "민첩 (DEX)"; break;
+      case "defense": label = "방어 (DEF)"; break;
+      case "luck": label = "운 (LUK)"; break;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 10),
+      child: Row(
+        children: [
+          Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+          Text("${widget.currentStats[key]!} ", style: const TextStyle(color: Colors.grey)),
+          const Icon(Icons.arrow_forward, size: 14, color: Colors.grey),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 80,
+            child: TextField(
+              controller: _controllers[key],
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 18),
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                isDense: true,
+                prefixIcon: const Icon(Icons.add, size: 14, color: Colors.indigo),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Colors.indigo)),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

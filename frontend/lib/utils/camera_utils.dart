@@ -26,11 +26,11 @@ Uint8List resizeAndCompressImage(Map<String, dynamic> data) {
   final double aspectRatio = width / height;
 
   if (width > height) {
-    targetW = 640;
-    targetH = (640 / aspectRatio).round();
+    targetW = 1280;
+    targetH = (1280 / aspectRatio).round();
   } else {
-    targetH = 640;
-    targetW = (640 * aspectRatio).round();
+    targetH = 1280;
+    targetW = (1280 * aspectRatio).round();
   }
   
   // Create Resized Image Buffer directly
@@ -74,14 +74,12 @@ Uint8List resizeAndCompressImage(Map<String, dynamic> data) {
   // Encode to JPEG (Quality 80)
   List<int> jpeg = img.encodeJpg(finalImage, quality: 80);
 
-  // [NEW] Append Frame ID (4 bytes, Big Endian)
+  // [Fix] Always append Frame ID (4 bytes) to prevent backend corruption
+  // Backend unconditionally slices the last 4 bytes.
   int frameId = data['frameId'] ?? -1;
-  if (frameId != -1) {
-    // 32-bit integer to 4 bytes
-    final idBytes = Uint8List(4)
-      ..buffer.asByteData().setInt32(0, frameId, Endian.big);
-    jpeg = [...jpeg, ...idBytes];
-  }
+  final idBytes = Uint8List(4)
+    ..buffer.asByteData().setInt32(0, frameId, Endian.big);
+  jpeg = [...jpeg, ...idBytes];
 
   return Uint8List.fromList(jpeg);
 }

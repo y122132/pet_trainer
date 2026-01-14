@@ -344,11 +344,70 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                                 icon: const Icon(Icons.upgrade, color: Color(0xFFE91E63)),
                                 tooltip: "레벨업 (테스트)",
                                 onPressed: () async {
-                                   await charProvider.manualLevelUp();
-                                   if (context.mounted) {
-                                     ScaffoldMessenger.of(context).showSnackBar(
-                                       const SnackBar(content: Text("레벨업되었습니다!"))
-                                     );
+                                   final result = await charProvider.manualLevelUp();
+                                   if (context.mounted && result != null) {
+                                      // 1. Show Level Up Message
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text("🎉 레벨업을 축하합니다!"))
+                                      );
+
+                                      // 2. Show Stat Distribution Dialog (Await it)
+                                      await showDialog(
+                                        context: context,
+                                        builder: (context) => StatDistributionDialog(
+                                          availablePoints: charProvider.unusedStatPoints,
+                                          currentStats: statsMap, 
+                                          title: "레벨업!",
+                                          confirmLabel: "확인",
+                                          skipLabel: "닫기",
+                                          // No specialMessage here
+                                          onConfirm: (allocated, remaining) {
+                                             _applyAllocated(charProvider, 'strength', allocated['strength']!);
+                                             _applyAllocated(charProvider, 'intelligence', allocated['intelligence']!);
+                                             _applyAllocated(charProvider, 'agility', allocated['agility']!);
+                                             _applyAllocated(charProvider, 'defense', allocated['defense']!);
+                                             _applyAllocated(charProvider, 'luck', allocated['luck']!);
+                                             Navigator.pop(context);
+                                          },
+                                          onSkip: () => Navigator.pop(context),
+                                        ),
+                                      );
+
+                                      // 3. Check for Skills & Navigate
+                                      if (context.mounted && result.containsKey('level_up_result')) {
+                                         final levelUpRes = result['level_up_result'];
+                                         final acquiredSkills = levelUpRes['acquired_skills_details'];
+                                         
+                                         if (acquiredSkills != null && (acquiredSkills as List).isNotEmpty) {
+                                            String msg = "";
+                                            for (var s in acquiredSkills) {
+                                               msg += "'${s['name']}' ";
+                                            }
+                                            msg += "스킬을 획득했습니다!\n스킬 창으로 이동하시겠습니까?";
+
+                                            showDialog(
+                                              context: context,
+                                              builder: (context) => AlertDialog(
+                                                title: const Text("스킬 획득!"),
+                                                content: Text(msg),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () => Navigator.pop(context),
+                                                    child: const Text("아니오"),
+                                                  ),
+                                                  TextButton(
+                                                    onPressed: () {
+                                                      Navigator.pop(context);
+                                                      charProvider.clearSkillAlert();
+                                                      Navigator.push(context, MaterialPageRoute(builder: (context) => const SkillManagementScreen()));
+                                                    },
+                                                    child: const Text("예 (이동)"),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                         }
+                                      }
                                    }
                                 },
                               ),
@@ -401,14 +460,35 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                         ],
                       ),
                       const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: (stat?.exp ?? 0) / maxExp,
-                        backgroundColor: Colors.brown[100],
-                        color: Colors.brown[400],
-                        minHeight: 8,
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: LinearProgressIndicator(
+                              value: (stat?.exp ?? 0) / maxExp,
+                              backgroundColor: Colors.brown[100],
+                              color: Colors.brown[400],
+                              minHeight: 18,
+                            ),
+                          ),
+                          Text(
+                            "EXP ${stat?.exp ?? 0} / $maxExp",
+                            style: GoogleFonts.jua(
+                              color: Colors.white,
+                              fontSize: 11, 
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                const Shadow(
+                                  offset: Offset(0, 1),
+                                  blurRadius: 2.0,
+                                  color: Color(0x80000000),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      Text("EXP ${stat?.exp ?? 0} / $maxExp", style: GoogleFonts.jua(color: Colors.grey[600], fontSize: 12)),
                       const SizedBox(height: 12),
 
                       // Card Body (Radar Chart and Stats)
