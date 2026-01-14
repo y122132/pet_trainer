@@ -358,8 +358,7 @@ class CharProvider with ChangeNotifier {
       );
 
       if (response.statusCode == 200) {
-        final data = json.decode(utf8.decode(response.bodyBytes));
-        _character = Character.fromJson(data);
+        await fetchCharacter(_character!.id);
         _statusMessage = "레벨업 성공! 🎉";
         notifyListeners();
         return data; 

@@ -3,11 +3,9 @@
 import json
 import uuid
 import random
-import asyncio
 from sqlalchemy import select
-from dataclasses import asdict
 from app.services import char_service
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from app.game.game_assets import MOVE_DATA
 from app.game.matchmaker import matchmaker
 from app.db.database import AsyncSessionLocal
@@ -20,40 +18,47 @@ from app.game.battle_manager import BattleManager, BattleState
 
 router = APIRouter()
 
+# --- 웹소켓 연결 관리 클래스 ---
 class BattleConnectionManager:
     def __init__(self):
-        # {room_id: {user_id: websocket}}
+        """ 방 ID별로 유저 ID와 웹소켓 객체를 매핑: {room_id: {user_id: WebSocket}}"""
         self.active_connections: Dict[str, Dict[int, WebSocket]] = {}
 
     async def connect(self, room_id: str, user_id: int, websocket: WebSocket):
+        """새로운 웹소켓 연결을 관리 목록에 추가"""
         if room_id not in self.active_connections:
-            self.active_connections[room_id] = {}
-        self.active_connections[room_id][user_id] = websocket
+            self.active_connections[room_id] = {} # 방 없으면 생성
+        self.active_connections[room_id][user_id] = websocket # 유저 소켓 저장
 
     def disconnect(self, room_id: str, user_id: int):
-        if room_id in self.active_connections:
+        """연결 종료 시 목록에서 삭제"""
+        if room_id in self.active_connections: # 방이 있으면
             if user_id in self.active_connections[room_id]:
-                del self.active_connections[room_id][user_id]
-            if not self.active_connections[room_id]:
-                del self.active_connections[room_id]
+                del self.active_connections[room_id][user_id] # 유저 소켓 삭제
+            if not self.active_connections[room_id]: # 방에 유저 없으면
+                del self.active_connections[room_id] # 방 삭제
 
     async def broadcast(self, room_id: str, message: dict):
+        """해당 방에 있는 모든 유저에게 메시지 전송"""
         if room_id in self.active_connections:
+            """실시간으로 목록이 변할 수 있으므로 list로 복사해서 순회"""
             targets = list(self.active_connections[room_id].items())
             for uid, ws in targets:
                 try:
-                    if ws.client_state.value == 1:
+                    if ws.client_state.value == 1: # 소켓 연결된 상태(1)에서만 json 전송
                         await ws.send_json(message)
                 except:
-                    self.disconnect(room_id, uid)
+                    self.disconnect(room_id, uid) # 오류 시 강제 연결 해제
 
     async def send_to_user(self, room_id: str, user_id: int, message: dict):
+        """방 내부의 특정 유저 한 명에게만 메시지 전송"""
         ws = self.active_connections.get(room_id, {}).get(user_id)
         if ws:
             await ws.send_json(message)
 
 manager = BattleConnectionManager()
 
+# --- 매치메이킹(대기열) 엔드포인트 ---
 @router.websocket("/ws/battle/matchmaking/{user_id}")
 async def matchmaking_endpoint(websocket: WebSocket, user_id: int, token: str | None = None):
     try:
@@ -61,27 +66,34 @@ async def matchmaking_endpoint(websocket: WebSocket, user_id: int, token: str | 
         await websocket.accept()
 
         async with AsyncSessionLocal() as db:
+            """캐릭터 존재 여부 확인"""
             char_res = await db.execute(select(Character).where(Character.user_id == user_id))
             char = char_res.scalar_one_or_none()
-            
             if not char:
                 await websocket.close(code=4004)
                 return
-
+            
+            """레벨 제한 확인"""
             stat_res = await db.execute(select(Stat).where(Stat.character_id == char.id))
             char_stat = stat_res.scalar_one_or_none()
-            
             if not char_stat or char_stat.level < 10:
                 await websocket.send_json({
                     "type": "ERROR", 
                     "code": "LEVEL_LOW", 
                     "message": f"Lv.10부터 가능합니다. (현재: {char_stat.level if char_stat else 1})"
                 })
-                await websocket.close(code=4003)
+                try:
+                    while True:
+                        data = await websocket.receive_text() # 유저가 '나가기' 버튼을 누를 때까지 대기
+                        if data == "EXIT": 
+                            break
+                except WebSocketDisconnect:
+                    pass
                 return
-
+        """매치메이킹 대기열에 추가"""
         await matchmaker.add_to_queue(user_id, websocket)
-        
+
+        """대기열 상태 모니터링 및 매치 성사 대기"""
         while True:
             data = await websocket.receive_text()
             if data == "CANCEL": break
@@ -126,12 +138,10 @@ async def handle_forfeit(room_id: str, leaver_id: int):
         # 기권 승 보상 지급 (평소보다 적게 혹은 적절히)
         async with AsyncSessionLocal() as db:
             await char_service.process_battle_result(db, winner_id, leaver_id)
-    
-    await RedisManager.get_client().delete(f"room:{room_id}")
 
 async def delete_room_state(room_id: str):
     redis = RedisManager.get_client()
-    await redis.delete(f"room:{room_id}")
+    await redis.delete(f"room:{room_id}:players_list")
 
 def create_initial_room_data(room_id: str, is_ai_battle: bool = False) -> dict:
     """방 초기 상태 데이터를 생성합니다."""
@@ -156,6 +166,14 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
         await websocket.accept()
         await manager.connect(room_id, user_id, websocket)
 
+        redis = RedisManager.get_client()
+        players_set_key = f"room:{room_id}:players_list"
+
+        # 유저 ID를 Set에 추가,SADD는 Redis 내부에서 순차적처리 덮어쓰기가 발생하지 않음
+        await redis.sadd(players_set_key, user_id)
+        # 현재 접속 확정된 인원수 확인
+        player_count = await redis.scard(players_set_key)
+
         room_data = await load_room_state(room_id) or create_initial_room_data(room_id)
         
         # 유저 정보 로드 및 초기화
@@ -163,13 +181,28 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
             char = (await db.execute(select(Character).where(Character.user_id == user_id))).scalar_one_or_none()
             stat = (await db.execute(select(Stat).where(Stat.character_id == char.id))).scalar_one_or_none()
             
-            # 룸 데이터 갱신
-            if user_id not in room_data["players"]: room_data["players"].append(user_id)
-            room_data["character_stats"][str(user_id)] = {k: v for k, v in stat.__dict__.items() if not k.startswith('_')}
+            # JSON 내의 players 리스트도 동기화 (Set의 인원수를 기준으로 보정)
+            current_players_in_set = await redis.smembers(players_set_key)
+            room_data["players"] = [int(p) for p in current_players_in_set]
+            
+            # 유저별 상세 스탯 업데이트
+            room_data["character_stats"][str(user_id)] = {
+                k: v for k, v in stat.__dict__.items() 
+                if not k.startswith('_')  # SQLAlchemy 내부 필드 제외
+                and isinstance(v, (int, float, str, bool, list, dict)) # JSON 변환 가능 타입만 포함
+            }
             room_data["pet_types"][str(user_id)] = char.pet_type
             room_data["learned_skills"][str(user_id)] = char.learned_skills or [1]
             if str(user_id) not in room_data["battle_states"]:
                 room_data["battle_states"][str(user_id)] = BattleState(max_hp=stat.health, current_hp=stat.health).to_dict()
+
+        # 업데이트된 전체 방 상태 저장
+        await save_room_state(room_id, room_data)
+        await manager.broadcast(room_id, {"type": "JOIN", "user_id": user_id, "message": f"User {user_id} joined."})
+
+        # 덮어쓰기 위험이 없는 player_count 변수로 배틀 시작 판단
+        if player_count == 2:
+            await start_battle_check(room_id)
 
         # AI 봇 설정
         if room_data.get("is_ai_battle") and 0 not in room_data["players"]:
@@ -188,21 +221,33 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
         # 메인 루프
         while True:
             msg = await websocket.receive_json()
-            room_data = await load_room_state(room_id)
-            if not room_data: break
-
             if msg.get("action") == "select_move":
                 move_id = msg.get("move_id")
-                room_data["selections"][str(user_id)] = move_id
+                redis = RedisManager.get_client()
                 
-                if room_data.get("is_ai_battle"):
-                    room_data["selections"]["0"] = random.choice(room_data["learned_skills"]["0"])
+                # 유저 선택 저장
+                await redis.hset(f"room:{room_id}:selections", str(user_id), move_id)
 
-                await save_room_state(room_id, room_data)
-                await manager.send_to_user(room_id, user_id, {"type": "WAITING"})
+                room_data = await load_room_state(room_id)
+                if room_data and room_data.get("is_ai_battle"):
+                    # 봇(ID 0)의 스킬 리스트에서 하나를 랜덤으로 뽑음
+                    bot_skills = room_data["learned_skills"].get("0", [1])
+                    bot_move = random.choice(bot_skills) # 여기서 import random이 사용됨
+                    
+                    # 봇의 선택을 유저인 것처럼 Redis에 강제로 저장
+                    await redis.hset(f"room:{room_id}:selections", "0", str(bot_move))
+                    print(f"[Battle] AI selected move: {bot_move}")
 
-                if len(room_data["selections"]) == 2:
-                    await process_turn_redis(room_id)
+                all_selections = await redis.hgetall(f"room:{room_id}:selections")
+                if len(all_selections) == 2:
+                    room_data = await load_room_state(room_id)
+                    if room_data:
+                        room_data["selections"] = {k: int(v) for k, v in all_selections.items()}
+                        await save_room_state(room_id, room_data)
+                        await redis.delete(f"room:{room_id}:selections")
+                        await process_turn_redis(room_id)
+                else:
+                    await manager.send_to_user(room_id, user_id, {"type": "WAITING"})
 
     except WebSocketDisconnect:
         manager.disconnect(room_id, user_id)
@@ -325,7 +370,14 @@ async def process_turn_redis(room_id: str):
              is_hit = BattleCalculator.check_hit(att_stat, att_state, def_stat, def_state, move_id)
         
         if not is_hit:
-             turn_logs.append({"type":"turn_event", "result":"miss", "message":"빗나감!"})
+            turn_logs.append({
+                "type": "turn_event",
+                "event_type": "hit_result",
+                "result": "miss",
+                "attacker": att_id,
+                "defender": def_id,
+                "message": "공격이 빗나갔습니다!"
+            })
         else:
              # Damage
              from app.game.game_assets import PET_TYPE_MAP
@@ -417,46 +469,51 @@ async def process_turn_redis(room_id: str):
     if is_over:
         winner, loser = None, None
         if state1.current_hp <= 0 and state2.current_hp <= 0:
-             winner = "DRAW"
+            winner = "DRAW"
         elif state1.current_hp <= 0:
-             winner, loser = u2, u1
+            winner, loser = u2, u1
         else:
-             winner, loser = u1, u2
+            winner, loser = u1, u2
              
         if winner == "DRAW":
-             # [New] 무승부 보상 로직 호출
-             draw_rewards = {}
-             try:
-                 async with AsyncSessionLocal() as db:
-                     draw_rewards = await char_service.process_battle_draw(db, u1, u2)
-             except Exception as e:
-                 print(f"DB Error (Draw): {e}")
+            draw_rewards = {}
+            try:
+                async with AsyncSessionLocal() as db:
+                    draw_rewards = await char_service.process_battle_draw(db, u1, u2)
+            except Exception as e:
+                print(f"DB Error (Draw): {e}")
 
-             await manager.broadcast(room_id, {
-                 "type": "GAME_OVER", 
-                 "result": "DRAW",
-                 "rewards": draw_rewards # 클라이언트에서 이 정보를 보여줘야 함
-             })
+            await manager.broadcast(room_id, {
+                "type": "GAME_OVER", 
+                "result": "DRAW",
+                "rewards": draw_rewards
+            })
         else:
-             # [Fix] 배틀 종료 시 체력 스탯 덮어쓰기 로직 제거
-             reward_info = None
-             try:
-                 async with AsyncSessionLocal() as db:
-                      reward_info = await char_service.process_battle_result(db, winner, loser)
-             except Exception as e:
-                 print(f"DB Update/Reward Error: {e}")
-                 
-             await manager.send_to_user(room_id, winner, {
-                 "type": "GAME_OVER",
-                 "result": "WIN",
-                 "winner": winner,
-                 "reward": reward_info
-             })
-             
-             await manager.send_to_user(room_id, loser, {
-                 "type": "GAME_OVER",
-                 "result": "LOSE",
-                 "winner": winner
-             })
-        # Cleanup
+            reward_info = None
+            try:
+                async with AsyncSessionLocal() as db:
+                        reward_info = await char_service.process_battle_result(db, winner, loser)
+            except Exception as e:
+                print(f"DB Update/Reward Error: {e}")
+                    
+            await manager.send_to_user(room_id, winner, {
+                "type": "GAME_OVER",
+                "result": "WIN",
+                "winner": winner,
+                "reward": reward_info
+                })
+                
+            await manager.send_to_user(room_id, loser, {
+                "type": "GAME_OVER",
+                "result": "LOSE",
+                "winner": winner
+            })
         await RedisManager.get_client().delete(f"room:{room_id}")
+
+    else:
+        room_data["selections"] = {}
+        room_data["turn_count"] += 1
+        room_data["battle_states"][su1] = state1.to_dict()
+        room_data["battle_states"][su2] = state2.to_dict()
+        
+        await save_room_state(room_id, room_data)

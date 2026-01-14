@@ -5,10 +5,8 @@ import os
 # 프로젝트 루트 디렉토리를 path에 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.db.database import engine, Base, AsyncSessionLocal
-from app.db.models import user, character, guestbook  # 모든 모델 로드
-from app.db.models.user import User
-from app.db.models.character import Character, Stat, ActionLog
+from app.db.database import engine, Base
+from app.db.models import user, character, guestbook, friendship, diary, chat_data  # 모든 모델 로드
 
 async def reset_database():
     print("--- [주의] 데이터베이스 스키마 초기화 시작 ---")

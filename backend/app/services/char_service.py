@@ -3,7 +3,7 @@ from sqlalchemy import select, func
 from app.db.models.character import Character, Stat, ActionLog
 from datetime import datetime
 from app.game.game_assets import PET_LEARNSET
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_result: dict):
     """
     YOLO 분석 결과(성공 시)를 바탕으로 캐릭터의 스탯을 업데이트하고 행동 로그를 저장합니다.
@@ -11,13 +11,16 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
     if not yolo_result.get("success"):
         return None
 
-    # 1. 캐릭터 스탯 조회
-    result = await db.execute(select(Stat).where(Stat.character_id == char_id))
-    stat = result.scalar_one_or_none()
+    # 1. 캐릭터와 스탯 조회 (Eager Loading)
+    # [Optimization] N+1 Problem Solved: Fetch Character AND Stat in one query
+    stmt = select(Character).options(selectinload(Character.stat)).where(Character.id == char_id)
+    result = await db.execute(stmt)
+    character = result.scalar_one_or_none()
     
-    if not stat:
-        # 스탯이 없으면 중단 (실제 앱에서는 에러 처리 필요)
+    if not character or not character.stat:
         return None
+        
+    stat = character.stat
 
     # 2. 행동 로그 저장 (히스토리 추적용)
     action_type = yolo_result.get("action_type", "unknown")
@@ -72,21 +75,19 @@ async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_res
     # Training grants 30 EXP by default
     exp_gain = 30
     
-    # We need Character object for _give_exp_and_levelup
-    stmt_char = select(Character).where(Character.id == char_id)
-    res_char = await db.execute(stmt_char)
-    character = res_char.scalar_one_or_none()
+    # [Optimization] Removed redundant character fetch
+    # We already have 'character' from the initial eager load
     
     level_up_info = {}
     if character:
-        # Note: _give_exp_and_levelup re-fetches Stat. 
-        # To be safe, we flush current changes.
+        # Note: _give_exp_and_levelup uses character.stat directly now
+        # But we might need to explicit flush if we modified stat above
         await db.flush()
         
         level_up_info = await _give_exp_and_levelup(db, character, exp_gain) 
         
-        # Re-fetch stat if needed or rely on object identity
-        await db.refresh(stat)
+        # No need to refresh stat manually if object is same session attached
+    
         
     # 4. 마일스톤(목표 달성) 체크
     # 예: 스탯이 10단위(10, 20, 30...)에 도달했을 때 이펙트 발생
@@ -264,10 +265,15 @@ async def update_character_stats(db: AsyncSession, char_id: int, stats_update: d
 async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain: int) -> dict:
     from app.game.game_assets import PET_LEARNSET, PET_BASE_STATS, MOVE_DATA
     
-    stmt_stat = select(Stat).where(Stat.character_id == character.id)
-    res_stat = await db.execute(stmt_stat)
-    stat = res_stat.scalar_one_or_none()
+    # [Optimization] Use eager loaded stat if available
+    stat = character.stat
     
+    if not stat:
+        # Fallback (should not happen if eager loading is used properly)
+        stmt_stat = select(Stat).where(Stat.character_id == character.id)
+        res_stat = await db.execute(stmt_stat)
+        stat = res_stat.scalar_one_or_none()
+        
     if not stat:
         return {}
 

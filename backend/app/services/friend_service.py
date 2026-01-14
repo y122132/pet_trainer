@@ -3,6 +3,7 @@ from sqlalchemy import select, or_, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.friendship import Friendship
 from app.db.models.chat_data import ChatMessage
+from sqlalchemy.orm import selectinload
 
 async def request_friend(db: AsyncSession, requester_id: int, receiver_id: int):
     # 중복 요청 체크
@@ -52,18 +53,14 @@ async def get_friends(db: AsyncSession, user_id: int):
     result = await db.execute(stmt)
     friendships = result.scalars().all()
     
-    friend_ids = []
-    for f in friendships:
-        if f.requester_id == user_id:
-            friend_ids.append(f.receiver_id)
-        else:
-            friend_ids.append(f.requester_id)
+    friend_ids = [f.receiver_id if f.requester_id == user_id else f.requester_id for f in friendships]
             
     if not friend_ids:
         return []
         
     from app.db.models.character import Character, Stat
     
+    # 상세 정보 조회
     stmt_users = (
         select(User, Character, Stat)
         .outerjoin(Character, Character.user_id == User.id)
@@ -73,14 +70,14 @@ async def get_friends(db: AsyncSession, user_id: int):
     result_users = await db.execute(stmt_users)
     rows = result_users.all()
     
-    # [Optimization] N+1 문제 해결: 모든 친구의 안 읽은 메시지 수를 한 번의 쿼리로 조회
+    # 안 읽은 메시지 수 조회 (N+1 최적화)
     unread_stmt = (
         select(ChatMessage.sender_id, func.count(ChatMessage.id))
         .where(
             and_(
-                ChatMessage.sender_id.in_(friend_ids),   # 친구가 보낸 것
-                ChatMessage.receiver_id == user_id,      # 나에게 온 것
-                ChatMessage.is_read == False             # 안 읽음
+                ChatMessage.sender_id.in_(friend_ids),
+                ChatMessage.receiver_id == user_id,
+                ChatMessage.is_read == False
             )
         )
         .group_by(ChatMessage.sender_id)
@@ -90,35 +87,49 @@ async def get_friends(db: AsyncSession, user_id: int):
     
     friends_list = []
     for user, character, stat in rows:
-        unread_count = unread_map.get(user.id, 0)
-
-        friend_data = {
+        friends_list.append({
             "id": user.id,
             "username": user.username,
             "nickname": user.nickname,
             "level": stat.level if stat else 1,
+            "last_active_at": f"{user.last_active_at.isoformat()}Z" if user.last_active_at else None,
             "pet_type": character.pet_type if character else "dog",
-            "unread_count": unread_count
-        }
-        friends_list.append(friend_data)
+            "face_url": character.face_url if character else None,
+            "unread_count": unread_map.get(user.id, 0)
+        })
         
     return friends_list
 
 async def get_pending_requests(db: AsyncSession, user_id: int):
-    # 나에게 온 요청 중 status='pending'인 것
-    stmt = select(Friendship).where(
-        Friendship.receiver_id == user_id,
-        Friendship.status == "pending"
-    )
-    result = await db.execute(stmt)
-    friendships = result.scalars().all()
+    """나에게 온 친구 요청 목록을 사진/정보와 함께 반환 (안전한 버전)"""
     
-    if not friendships:
+    # 1. 나(receiver_id)에게 요청을 보낸 유저 정보를 Character와 함께 로드
+    stmt = (
+        select(User)
+        .options(selectinload(User.character)) 
+        .join(Friendship, Friendship.requester_id == User.id)
+        .where(
+            Friendship.receiver_id == user_id,
+            Friendship.status == "pending"
+        )
+    )
+    
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+    
+    # 2. 결과가 없으면 빈 리스트 [] 반환 (None 객체 포함 리스트 X)
+    if not users:
         return []
         
-    requester_ids = [f.requester_id for f in friendships]
-    user_stmt = select(User).where(User.id.in_(requester_ids))
-    user_res = await db.execute(user_stmt)
-    users = user_res.scalars().all()
-    
-    return [{"id": u.id, "username": u.username, "nickname": u.nickname} for u in users]
+    # 3. 데이터 가공 (None 체크를 포함하여 에러 방지)
+    return [
+        {
+            "id": u.id, 
+            "username": u.username, 
+            "nickname": u.nickname,
+            "face_url": u.character.face_url if u.character else None,
+            "pet_type": u.character.pet_type if u.character else "dog",
+            "last_active_at": f"{u.last_active_at.isoformat()}Z" if u.last_active_at else None
+        } 
+        for u in users if u is not None
+    ]

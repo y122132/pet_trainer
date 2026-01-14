@@ -1,3 +1,4 @@
+# backend/app/game/battle_manager.py
 import random
 from typing import List, Dict, Any, Optional
 from abc import ABC, abstractmethod
