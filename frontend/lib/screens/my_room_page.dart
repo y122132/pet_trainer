@@ -415,17 +415,53 @@ class _MyRoomPageState extends State<MyRoomPage> with TickerProviderStateMixin {
 
   Widget _buildCharacterDisplay(dynamic character) {
     String? imageUrl = character?.frontUrl;
+    
+    // Create the circular frame wrapper
+    return Container(
+      width: 280,
+      height: 280,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 20,
+            spreadRadius: 5,
+            offset: const Offset(0, 10),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.white,
+          width: 8,
+        ),
+      ),
+      child: ClipOval(
+        child: _getImageWidget(imageUrl, character),
+      ),
+    );
+  }
+
+  Widget _getImageWidget(String? imageUrl, dynamic character) {
     if (imageUrl != null && imageUrl.isNotEmpty) {
       if (imageUrl.startsWith('/')) {
         imageUrl = "${AppConfig.serverBaseUrl}$imageUrl";
       } else if (imageUrl.contains('localhost')) {
         imageUrl = imageUrl.replaceFirst('localhost', AppConfig.serverIp);
       }
-      return Image.network(imageUrl, fit: BoxFit.contain,
-        errorBuilder: (ctx, err, stack) => CuteAvatar(petType: character?.petType ?? "dog", size: 280),
+      return Image.network(
+        imageUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (ctx, err, stack) => CuteAvatar(
+          petType: character?.petType ?? "dog",
+          size: 280,
+        ),
       );
     } else {
-      return CuteAvatar(petType: character?.petType ?? "dog", size: 280);
+      return CuteAvatar(
+        petType: character?.petType ?? "dog",
+        size: 280,
+      );
     }
   }
 
