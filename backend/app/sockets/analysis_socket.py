@@ -148,7 +148,10 @@ async def analysis_endpoint(
         "last_pet_box": None,
         "missing_count": 0,
         "is_tracking": False,
-        "last_response": None # [NEW] Zero-Order Hold (프레임 스킵용 캐시)
+        "last_response": None, # [NEW] Zero-Order Hold (프레임 스킵용 캐시)
+        "best_frame_data": None, # [NEW] Best Shot (Binary)
+        "best_conf": 0.0,        # [NEW] Best Shot Confidence
+        "best_bbox": []          # [NEW] Best Shot BBox for cropping (Optional)
     }
 
     
@@ -230,6 +233,8 @@ async def analysis_endpoint(
                             state_start_time = None
                             last_detected_time = None
                             vision_state["is_tracking"] = False # Vision state reset
+                            vision_state["best_frame_data"] = None # Reset Best Shot
+                            vision_state["best_conf"] = 0.0
                             
                             print(f"[FSM_WS] User {user_id} switched to mode: {mode}")
                             
@@ -342,6 +347,16 @@ async def analysis_endpoint(
                         state = "SUCCESS"
                     else:
                         response.update({"status": "stay", "message": f"자세 유지... {3 - hold_duration:.1f}초"})
+                        
+                        # [NEW] Best Shot Selection
+                        # 현재 프레임의 자신감(Conf)이 기존 최고치보다 높으면 갱신
+                        current_conf = result.get("conf_score", 0.0)
+                        if image_bytes and current_conf > vision_state["best_conf"]:
+                            vision_state["best_conf"] = current_conf
+                            vision_state["best_frame_data"] = image_bytes # Keep binary
+                            vision_state["best_bbox"] = result.get("bbox", [])
+                            # print(f"[BestShot] Updated: {current_conf:.4f}", flush=True)
+
                         await websocket.send_json(response)
             
             else: # is_success_vision is False
@@ -352,6 +367,8 @@ async def analysis_endpoint(
                         # [실패 전환]
                         state = "READY"
                         state_start_time = None
+                        vision_state["best_frame_data"] = None # Reset on Fail
+                        vision_state["best_conf"] = 0.0
                         response.update({"status": "fail", "message": "동작이 끊겼습니다."})
                         await websocket.send_json(response)
                         
@@ -424,7 +441,11 @@ async def analysis_endpoint(
                                 reward_info=result.get("base_reward", {}),
                                 feedback_detail=result.get("feedback_message", ""),
                                 daily_count=service_result.get("daily_count", 0),
-                                milestone_reached=service_result.get("milestone_reached")
+                                reward_info=result.get("base_reward", {}),
+                                feedback_detail=result.get("feedback_message", ""),
+                                daily_count=service_result.get("daily_count", 0),
+                                milestone_reached=service_result.get("milestone_reached"),
+                                best_shot_url=best_shot_url # [New] Pass Best Shot URL
                             )
                             
                             response_data = {
@@ -435,8 +456,57 @@ async def analysis_endpoint(
                                 "bonus_points": result.get("bonus_points", 0),
                                 "count": service_result.get("daily_count", 0),
                                 "bbox": [],
-                                "level_up_info": service_result.get("level_up_info", {}) # [New] Pass Level Up Info
+                                "level_up_info": service_result.get("level_up_info", {}), # [New] Pass Level Up Info
+                                "best_shot_url": None # Default
                             }
+                            
+                            # [NEW] Best Shot Saving & Diary Upload
+                            if vision_state["best_frame_data"]:
+                                try:
+                                    import os
+                                    from datetime import datetime
+                                    
+                                    # 1. Save Image to Local Disk
+                                    today_str = datetime.now().strftime("%Y%m%d")
+                                    upload_dir = f"uploads/{today_str}"
+                                    os.makedirs(upload_dir, exist_ok=True)
+                                    
+                                    filename = f"best_shot_{user_id}_{int(time.time())}.jpg"
+                                    filepath = f"{upload_dir}/{filename}"
+                                    
+                                    with open(filepath, "wb") as f:
+                                        f.write(vision_state["best_frame_data"])
+                                        
+                                    # 2. Generate URL (Relative path for Frontend)
+                                    # Frontend should prepend Base URL
+                                    best_shot_url = f"/uploads/{today_str}/{filename}"
+                                    response_data["best_shot_url"] = best_shot_url
+                                    
+                                    # 3. Create Diary Entry automatically
+                                    from app.db.models.diary import Diary
+                                    
+                                    # LangGraph 메시지를 일기 내용으로 사용 (시스템 로그 제외)
+                                    # msg 변수에 LLM이 생성한 멘트가 들어있음
+                                    diary_entry = Diary(
+                                        user_id=user_id,
+                                        image_url=best_shot_url, # Local URL
+                                        content=msg, # Character's comment as diary content
+                                        tag="훈련인증",
+                                        created_at=datetime.utcnow()
+                                    )
+                                    db.add(diary_entry)
+                                    await db.commit() # Commit Diary
+                                    
+                                    print(f"[BestShot] Saved & Uploaded: {filepath}")
+                                    
+                                except Exception as e:
+                                    print(f"[BestShot] Error: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                            
+                            # Reset Best Shot State for next round
+                            vision_state["best_frame_data"] = None
+                            vision_state["best_conf"] = 0.0
                         else:
                              raise Exception("DB Error")
                              

@@ -46,7 +46,9 @@ class AgentState(TypedDict):
     milestone_reached: bool 
     messages: list          
     last_interaction_timestamp: float 
-    is_long_absence: bool             
+    is_long_absence: bool
+    best_shot_url: Optional[str] # [New]
+             
 
 # LLM 모델 초기화
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7, api_key=OPENAI_API_KEY)
@@ -74,6 +76,10 @@ def route_step(state: AgentState) -> Literal["llm_node", "rule_node"]:
     if stats.get("happiness", 0) >= 80:
         return "llm_node"
         
+    # 3-1. 베스트샷(사진)이 있는 경우 -> LLM (사진에 대한 언급)
+    if state.get("best_shot_url"):
+        return "llm_node"
+
     # 4. 그 외 단순 반복적 성공/실패 -> Rule Based
     return "rule_node"
 
@@ -88,6 +94,7 @@ def generate_llm_message(state: AgentState):
     daily_count = state.get("daily_count", 1)
     milestone_reached = state.get("milestone_reached", False)
     is_long_absence = state.get("is_long_absence", False)
+    best_shot_url = state.get("best_shot_url")
     
     # 히스토리 로드 (최근 6개 대화만 유지)
     history = state.get("messages", [])
@@ -118,6 +125,8 @@ def generate_llm_message(state: AgentState):
         )
         if daily_count > 1: situation_prompt += DAILY_STREAK_ADDON.format(daily_count=daily_count)
         if milestone_reached: situation_prompt += MILESTONE_ADDON
+        if best_shot_url:
+             situation_prompt += "\n(참고: 방금 정말 멋진 훈련 모습이 사진으로 찍혔어요! '인생샷', '화보' 등을 언급하며 칭찬해주세요.)"
             
     elif action == "idle":
         situation_prompt = IDLE_TEMPLATE
@@ -201,7 +210,8 @@ async def get_character_response(
     reward_info: dict = {},
     feedback_detail: str = "",
     daily_count: int = 1,
-    milestone_reached: bool = False
+    milestone_reached: bool = False,
+    best_shot_url: Optional[str] = None # [New] Best Shot URL
 ) -> str:
     """
     Redis를 사용하여 대화 맥락(State)을 로드하고 LangGraph를 실행한 뒤 결과를 저장합니다.
@@ -235,7 +245,10 @@ async def get_character_response(
         "reward_info": reward_info,
         "feedback_detail": feedback_detail,
         "daily_count": daily_count,
+        "feedback_detail": feedback_detail,
+        "daily_count": daily_count,
         "milestone_reached": milestone_reached,
+        "best_shot_url": best_shot_url, # [New] Add to inputs
         "last_interaction_timestamp": time.time(),
         "is_long_absence": is_long_absence,
         "messages": saved_state.get("messages", []) # 기존 대화 히스토리 주입

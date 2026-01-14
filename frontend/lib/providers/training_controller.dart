@@ -63,6 +63,7 @@ class TrainingController extends ChangeNotifier {
   String progressText = "";
   Map<String, dynamic>? lastReward;
   VoidCallback? onSuccessCallback;
+  String? bestShotUrl; // [NEW] Best Shot URL
   
   // Debug
   String debugLog = "";
@@ -142,6 +143,7 @@ class TrainingController extends ChangeNotifier {
     // [NEW] Stop UI Loop
     _uiTimer?.cancel();
     _uiTimer = null;
+    bestShotUrl = null; // Reset
     
     notifyListeners();
   }
@@ -643,7 +645,12 @@ class TrainingController extends ChangeNotifier {
                'level_up_info': data['level_up_info'] // [New]
              };
 
-             _charProvider?.gainReward(base, bonus); 
+             // [NEW] Parse Best Shot URL
+             if (jsonMap.containsKey('best_shot_url')) {
+                 bestShotUrl = jsonMap['best_shot_url'];
+             }
+
+             _charProvider?.gainReward(base, bonus);  
              
              if (onSuccessCallback != null) {
                 onSuccessCallback?.call(); 
