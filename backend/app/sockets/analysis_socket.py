@@ -281,8 +281,6 @@ async def analysis_endpoint(
             # B. Image Data Handling
             if "bytes" in message:
                 image_bytes = message["bytes"]
-            else:
-                continue
 
             frame_count += 1
 
