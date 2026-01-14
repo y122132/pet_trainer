@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
-import '../config/design_system.dart';
-import '../services/auth_service.dart';
-import '../models/user_model.dart';
-import 'user_register_screen.dart';
-import 'menu_page.dart';
+import 'package:pet_trainer_frontend/screens/menu_page.dart';
+// import 'package:pet_trainer_frontend/widgets/common/custom_text_field.dart'; // File missing
+// import 'package:pet_trainer_frontend/logic/login_logic.dart'; // File missing
+import 'package:pet_trainer_frontend/screens/user_register_screen.dart'; 
+import 'package:pet_trainer_frontend/config/theme.dart';
+import 'package:pet_trainer_frontend/config/design_system.dart';
+import 'package:pet_trainer_frontend/services/auth_service.dart';
+import 'package:pet_trainer_frontend/models/user_model.dart';
+import 'package:google_fonts/google_fonts.dart'; // Added
 import 'creation_name_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -13,10 +17,26 @@ class LoginScreen extends StatefulWidget {
   _LoginScreenState createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
   final _userController = TextEditingController();
   final _passController = TextEditingController();
   final AuthService _authService = AuthService();
+  
+  late AnimationController _logoController;
+  late Animation<double> _logoScaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _logoController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+    
+    _logoScaleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+      CurvedAnimation(parent: _logoController, curve: Curves.easeInOut),
+    );
+  }
 
   void _handleLogin() async {
     if (_userController.text.isEmpty || _passController.text.isEmpty) {
@@ -24,10 +44,10 @@ class _LoginScreenState extends State<LoginScreen> {
         SnackBar(
           content: Text(
             "아이디와 비밀번호를 입력해주세요.",
-            style: AppTextStyles.button,
+            style: GoogleFonts.jua(color: Colors.white, fontSize: 16),
           ),
-          backgroundColor: AppColors.primaryBrown,
-          shape: RoundedRectangleBorder(borderRadius: AppDecorations.cardRadius),
+          backgroundColor: AppColors.primary,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(20),
         ),
@@ -59,10 +79,10 @@ class _LoginScreenState extends State<LoginScreen> {
         SnackBar(
           content: Text(
             "로그인 실패! 아이디와 비밀번호를 확인하세요.",
-            style: AppTextStyles.button,
+            style: GoogleFonts.jua(color: Colors.white, fontSize: 16),
           ),
-          backgroundColor: Colors.redAccent,
-          shape: RoundedRectangleBorder(borderRadius: AppDecorations.cardRadius),
+          backgroundColor: AppColors.danger,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(20),
         ),
@@ -72,6 +92,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _logoController.dispose();
     _userController.dispose();
     _passController.dispose();
     super.dispose();
@@ -87,17 +108,28 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Image.asset(
-                  'assets/images/독고 표지 이름.png',
-                  width: MediaQuery.of(context).size.width * 0.7,
-                  filterQuality: FilterQuality.high,
+                ScaleTransition(
+                  scale: _logoScaleAnimation,
+                  child: Image.asset(
+                    'assets/images/독고 표지 이름.png',
+                    width: MediaQuery.of(context).size.width * 0.7,
+                    filterQuality: FilterQuality.high,
+                  ),
                 ),
                 const SizedBox(height: 30),
                 Text(
                   "반갑습니다!",
-                  style: AppTextStyles.title.copyWith(
-                    color: AppColors.primaryBrown,
-                    shadows: AppDecorations.cardShadow,
+                  style: GoogleFonts.jua(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textMain,
+                    shadows: [
+                      Shadow(
+                        color: AppColors.primary.withOpacity(0.1),
+                        offset: const Offset(2, 2),
+                        blurRadius: 4,
+                      )
+                    ]
                   ),
                 ),
                 const SizedBox(height: 60),
@@ -133,27 +165,32 @@ class _LoginScreenState extends State<LoginScreen> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        boxShadow: AppDecorations.cardShadow,
-        borderRadius: AppDecorations.cardRadius,
+        color: Colors.white,
+        boxShadow: AppDecorations.softShadow,
+        borderRadius: BorderRadius.circular(24),
       ),
       child: TextField(
         controller: controller,
         obscureText: obscureText,
-        style: AppTextStyles.base,
+        style: GoogleFonts.jua(color: AppColors.textMain, fontSize: 16),
         decoration: InputDecoration(
           hintText: hintText,
-          hintStyle: AppTextStyles.body,
-          prefixIcon: Icon(icon, color: AppColors.secondaryBrown),
+          hintStyle: GoogleFonts.jua(color: AppColors.textSub),
+          prefixIcon: Icon(icon, color: AppColors.textMain),
           filled: true,
-          fillColor: Colors.white,
+          fillColor: Colors.transparent, // Container has color
           contentPadding: const EdgeInsets.symmetric(vertical: 22, horizontal: 25),
           border: OutlineInputBorder(
-            borderRadius: AppDecorations.cardRadius,
+            borderRadius: BorderRadius.circular(24),
             borderSide: BorderSide.none,
           ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(24),
+            borderSide: BorderSide(color: Colors.transparent),
+          ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: AppDecorations.cardRadius,
-            borderSide: const BorderSide(color: AppColors.primaryBrown, width: 2.5),
+            borderRadius: BorderRadius.circular(24),
+            borderSide: const BorderSide(color: AppColors.primary, width: 2.0),
           ),
         ),
       ),
@@ -163,19 +200,19 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildLoginButton() {
     return Container(
       decoration: BoxDecoration(
-        boxShadow: AppDecorations.cardShadow,
-        borderRadius: AppDecorations.cardRadius,
+        boxShadow: AppDecorations.floatShadow,
+        borderRadius: BorderRadius.circular(24),
       ),
       child: ElevatedButton(
         onPressed: _handleLogin,
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryBrown,
+          backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           minimumSize: const Size(double.infinity, 60),
-          shape: RoundedRectangleBorder(borderRadius: AppDecorations.cardRadius),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
           elevation: 0,
         ),
-        child: Text("로그인", style: AppTextStyles.button.copyWith(fontSize: 22)),
+        child: Text("로그인", style: GoogleFonts.jua(fontSize: 22, fontWeight: FontWeight.bold)),
       ),
     );
   }
@@ -186,7 +223,7 @@ class _LoginScreenState extends State<LoginScreen> {
       children: [
         Text(
           "계정이 없으신가요?",
-          style: AppTextStyles.body.copyWith(color: AppColors.secondaryBrown),
+          style: GoogleFonts.jua(color: AppColors.textSub, fontSize: 14),
         ),
         const SizedBox(width: 8),
         TextButton(
@@ -198,9 +235,12 @@ class _LoginScreenState extends State<LoginScreen> {
           },
           child: Text(
             "회원가입",
-            style: AppTextStyles.base.copyWith(
+            style: GoogleFonts.jua(
+              color: AppColors.primary,
               fontWeight: FontWeight.bold,
+              fontSize: 16,
               decoration: TextDecoration.underline,
+              decorationColor: AppColors.primary,
             ),
           ),
         ),

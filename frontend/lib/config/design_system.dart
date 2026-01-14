@@ -1,80 +1,172 @@
 import 'package:flutter/material.dart';
+import 'dart:ui';
 import 'package:google_fonts/google_fonts.dart';
+import 'theme.dart';
 
-// --- Color Palette ---
-class AppColors {
-  static const Color background = Color(0xFFFFF9E6);
-  static const Color primaryBrown = Color(0xFF5D4037);
-  static const Color secondaryBrown = Color(0xFF8D6E63);
-  static const Color softCharcoal = Color(0xFF4A4A4A);
-
-  // Stat Colors
-  static const Color statStr = Color(0xFFFF8A80);
-  static const Color statInt = Color(0xFF82B1FF);
-  static const Color statDex = Color(0xFFB9F6CA);
-  static const Color statDef = Color(0xFFD7CCC8);
-}
-
-// --- Text Styles ---
 class AppTextStyles {
-  static final TextStyle base = GoogleFonts.jua(
-    color: AppColors.primaryBrown,
-    letterSpacing: 1.2,
-  );
-
-  static final TextStyle title = base.copyWith(
-    fontSize: 28,
-    fontWeight: FontWeight.bold,
-  );
-
-  static final TextStyle button = base.copyWith(
-    fontSize: 18,
-    color: Colors.white,
-    fontWeight: FontWeight.bold,
+  // Just helpers that proxy to what we might want
+  static TextStyle get title => GoogleFonts.jua(
+    fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textMain
   );
   
-  static final TextStyle body = base.copyWith(
-    fontSize: 16,
-    color: AppColors.secondaryBrown,
+  static TextStyle get body => GoogleFonts.jua(
+    fontSize: 16, color: AppColors.textMain
   );
+  
+  static TextStyle get subBody => GoogleFonts.jua(
+    fontSize: 14, color: AppColors.textSub
+  );
+
+  // Legacy mappings
+  static TextStyle get button => title.copyWith(fontSize: 18);
+  static TextStyle get base => body;
 }
 
-// --- Decorations ---
 class AppDecorations {
-  static final List<BoxShadow> cardShadow = [
+  // Warm, soft shadows
+  static final List<BoxShadow> softShadow = [
     BoxShadow(
-      color: Colors.black12,
-      blurRadius: 10,
+      color: AppColors.primary.withOpacity(0.08), // Warm shadow
+      blurRadius: 12,
       offset: const Offset(0, 4),
-    )
+    ),
+    BoxShadow(
+      color: Colors.black.withOpacity(0.03), // Subtle depth
+      blurRadius: 4,
+      offset: const Offset(0, 2),
+    ),
   ];
 
-  static final BorderRadius cardRadius = BorderRadius.circular(30);
+  static final List<BoxShadow> floatShadow = [
+    BoxShadow(
+      color: AppColors.primary.withOpacity(0.15),
+      blurRadius: 20,
+      offset: const Offset(0, 10),
+    )
+  ];
+  
+  // Glowing effect for character focus
+  static final List<BoxShadow> glowShadow = [
+    BoxShadow(
+      color: AppColors.accent.withOpacity(0.4),
+      blurRadius: 30,
+      spreadRadius: 5,
+    ),
+    BoxShadow(
+      color: Colors.white.withOpacity(0.8),
+      blurRadius: 20,
+      spreadRadius: -5,
+    ),
+  ];
+
+  static BorderRadius cardRadius = BorderRadius.circular(24);
+  
+  // Legacy mappings
+  static List<BoxShadow> get cardShadow => softShadow;
 }
 
-// --- Background Widget ---
+class GlassContainer extends StatelessWidget {
+  final Widget child;
+  final double opacity;
+  final double blur;
+  final BorderRadius? borderRadius;
+  final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
+  final double? width;
+  final double? height;
+
+  const GlassContainer({
+    super.key,
+    required this.child,
+    this.opacity = 0.6, // Slightly more opaque for readability on cream
+    this.blur = 15.0,   // Softer blur
+    this.borderRadius,
+    this.padding,
+    this.margin,
+    this.width,
+    this.height,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      margin: margin,
+      child: ClipRRect(
+        borderRadius: borderRadius ?? BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+          child: Container(
+            padding: padding ?? const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              // Warm white tint
+              color: AppColors.surface.withOpacity(opacity),
+              borderRadius: borderRadius ?? BorderRadius.circular(24),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.6),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withOpacity(0.05),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5),
+                )
+              ]
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class ThemedBackground extends StatelessWidget {
   final Widget child;
   const ThemedBackground({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Container(color: AppColors.background),
-        Container(
-          width: double.infinity,
-          height: double.infinity,
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              image: const AssetImage('assets/images/login_bg.png'),
-              fit: BoxFit.cover, // Cover might look better than tile
-              opacity: 0.3,
+    return Container(
+      color: AppColors.background, // Explicit warm background
+      child: Stack(
+        children: [
+          // Subtle warm gradient blob
+          Positioned(
+            top: -100,
+            right: -100,
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+              child: Container(
+                width: 300,
+                height: 300,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.secondary.withOpacity(0.1),
+                ),
+              ),
             ),
           ),
-        ),
-        child,
-      ],
+          Positioned(
+            bottom: -50,
+            left: -50,
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
+              child: Container(
+                width: 250,
+                height: 250,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.accent.withOpacity(0.1),
+                ),
+              ),
+            ),
+          ),
+          child,
+        ],
+      ),
     );
   }
 }

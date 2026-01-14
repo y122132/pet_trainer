@@ -1,27 +1,29 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:pet_trainer_frontend/config/theme.dart';
+import 'package:pet_trainer_frontend/config/design_system.dart';
 
-class ChatBubble extends StatefulWidget {
+class CharMessageBubble extends StatefulWidget {
   final String message;
-  final bool isAnalyzing;
+  final bool isAnalyzing; // Used for "typing" effect or purely display
 
-  const ChatBubble({
+  const CharMessageBubble({
     Key? key, 
     required this.message,
-    required this.isAnalyzing,
+    this.isAnalyzing = true, // Default to true to show typing if message changes
   }) : super(key: key);
 
   @override
-  _ChatBubbleState createState() => _ChatBubbleState();
+  _CharMessageBubbleState createState() => _CharMessageBubbleState();
 }
 
-class _ChatBubbleState extends State<ChatBubble> {
+class _CharMessageBubbleState extends State<CharMessageBubble> {
   String _displayedMessage = "";
   Timer? _typingTimer;
   int _charIndex = 0;
 
   @override
-  void didUpdateWidget(ChatBubble oldWidget) {
+  void didUpdateWidget(CharMessageBubble oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.message != widget.message) {
       _startTypingAnimation();
@@ -45,20 +47,20 @@ class _ChatBubbleState extends State<ChatBubble> {
     _charIndex = 0;
     _displayedMessage = "";
     
-    // 빈 메시지거나 분석 중이 아니면 타이핑 스킵
-    if (widget.message.isEmpty || !widget.isAnalyzing) {
-       setState(() {
-         _displayedMessage = widget.message;
-       });
+    // If empty, just clear
+    if (widget.message.isEmpty) {
+       if (mounted) setState(() => _displayedMessage = "");
        return;
     }
 
     _typingTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       if (_charIndex < widget.message.length) {
-        setState(() {
-          _displayedMessage += widget.message[_charIndex];
-          _charIndex++;
-        });
+        if (mounted) {
+          setState(() {
+            _displayedMessage += widget.message[_charIndex];
+            _charIndex++;
+          });
+        }
       } else {
         timer.cancel();
       }
@@ -68,54 +70,42 @@ class _ChatBubbleState extends State<ChatBubble> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      // Centered or positioned by parent
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // 말풍선 본체
+          // Bubble Body
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
-              boxShadow: [
+              boxShadow: const [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
+                   color: Colors.black12,
+                   blurRadius: 10,
+                   offset: Offset(0, 4)
+                )
               ],
-              border: Border.all(color: Colors.indigo.shade100, width: 2),
+              border: Border.all(color: AppColors.primary.withOpacity(0.3), width: 1.5),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (!widget.isAnalyzing)
-                   const Text(
-                     "대기 중...", 
-                     style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)
-                   ),
-                if (!widget.isAnalyzing) const SizedBox(height: 5),
-                
-                Text(
-                  _displayedMessage,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 16, 
-                    fontWeight: FontWeight.w600, 
-                    color: Colors.black87,
-                    height: 1.4
-                  ),
-                ),
-              ],
+            child: Text(
+              _displayedMessage,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14, 
+                fontWeight: FontWeight.w600, 
+                color: AppColors.textMain,
+                height: 1.3
+              ),
             ),
           ),
-          // 말풍선 꼬리 (Triangle)
-          Transform.translate(
-            offset: const Offset(0, -1),
-            child: CustomPaint(
-              size: const Size(20, 10),
-              painter: TrianglePainter(strokeColor: Colors.indigo.shade100, paintingStyle: PaintingStyle.fill, fillColor: Colors.white),
+          // Triangle Tail
+          CustomPaint(
+            size: const Size(16, 8),
+            painter: TrianglePainter(
+               fillColor: Colors.white, 
+               strokeColor: AppColors.primary.withOpacity(0.3)
             ),
           ),
         ],
@@ -126,10 +116,9 @@ class _ChatBubbleState extends State<ChatBubble> {
 
 class TrianglePainter extends CustomPainter {
   final Color strokeColor;
-  final PaintingStyle paintingStyle;
   final Color fillColor;
 
-  TrianglePainter({this.strokeColor = Colors.black, this.paintingStyle = PaintingStyle.stroke, this.fillColor = Colors.white});
+  TrianglePainter({this.strokeColor = Colors.grey, this.fillColor = Colors.white});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -145,16 +134,16 @@ class TrianglePainter extends CustomPainter {
 
     canvas.drawPath(path, paint);
     
+    // Border for the triangle (only sides)
     final borderPaint = Paint()
       ..color = strokeColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
+      ..strokeWidth = 1.5;
       
-    // 꼬리 테두리 (위쪽은 뚫려있어야 자연스러움)
     final borderPath = Path()
-      ..moveTo(0, 0)
-      ..lineTo(size.width / 2, size.height)
-      ..lineTo(size.width, 0);
+      ..moveTo(0, 0) // Start top left
+      ..lineTo(size.width / 2, size.height) // Tip
+      ..lineTo(size.width, 0); // Top right (open top)
       
     canvas.drawPath(borderPath, borderPaint);
   }

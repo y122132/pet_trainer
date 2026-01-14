@@ -6,6 +6,7 @@ import '../api_config.dart';
 import '../config/theme.dart';
 import 'pet_universe_screen.dart';
 import '../widgets/cute_avatar.dart';
+import '../widgets/common/bone_widget.dart'; // Added
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
@@ -79,9 +80,10 @@ class _UserListScreenState extends State<UserListScreen>
     _tabController = TabController(
         length: 2, vsync: this, initialIndex: widget.initialTab);
     _tabController.addListener(() {
-      if (_tabController.indexIsChanging) {
-        setState(() {}); // 탭 변경 시 UI 갱신
-      }
+      // Swipe support: Update UI whenever index changes
+       if (!_tabController.indexIsChanging) {
+         setState(() {}); 
+       }
     });
     _loadMyInfo();
   }
@@ -305,22 +307,13 @@ class _UserListScreenState extends State<UserListScreen>
 
   // 2. 상단 뼈다귀 타이틀 위젯
   Widget _buildHeader() {
-    return Container(
-      height: 100,
-      margin: const EdgeInsets.only(top: 20, bottom: 10),
-      decoration: BoxDecoration(
-        color: darkBrown, // Solid dark brown background
-        borderRadius: BorderRadius.circular(10), // Slightly rounded corners
-      ),
-      child: Center(
-        child: Text(
-          "친구 목록",
-          style: GoogleFonts.jua(
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            color: Colors.white, // Text color changed to white for contrast
-          ),
-        ),
+    return const Padding(
+      padding: EdgeInsets.only(top: 20, bottom: 10),
+      child: BoneWidget(
+        text: "친구 목록",
+        fontSize: 28,
+        paddingHorizontal: 50,
+        paddingVertical: 15,
       ),
     );
   }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../config/design_system.dart';
+import 'package:pet_trainer_frontend/config/theme.dart';
+import 'package:pet_trainer_frontend/config/design_system.dart';
 import '../services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
