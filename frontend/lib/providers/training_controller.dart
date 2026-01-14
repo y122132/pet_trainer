@@ -74,6 +74,10 @@ class TrainingController extends ChangeNotifier {
   double maxConfAny = 0.0;
   int maxConfCls = -1;
   Uint8List? debugInputImage;
+  
+  // 성공 트리거 잠금 (중복 전송 방지)
+  bool _successTriggered = false;
+  String? cachedCharMessage;
 
   // [NEW] Persistence State
   Map<String, dynamic>? lastEdgeResult;
@@ -232,7 +236,9 @@ class TrainingController extends ChangeNotifier {
     _targetPetKeypoints = []; // Reset Target
     humanKeypoints = [];
     _canSendFrame = true;
-    _currentFrameId = 0;
+    bestShotUrl = null; // Reset
+    _successTriggered = false;
+    cachedCharMessage = null;
     
     // [NEW] Start UI Animation Loop
     _startUiLoop(); 
@@ -255,6 +261,8 @@ class TrainingController extends ChangeNotifier {
     _uiTimer?.cancel();
     _uiTimer = null;
     bestShotUrl = null; // Reset
+    _successTriggered = false;
+    cachedCharMessage = null;
     
     notifyListeners();
   }
@@ -647,8 +655,9 @@ class TrainingController extends ChangeNotifier {
                 // The UI Loop (60FPS) will pick up the state changes automatically.
                 
                 // [OPTIONAL] Send to server ONLY for SUCCESS 
-                // [OPTIONAL] Send to server ONLY for SUCCESS 
-                if (status == 'success') {
+                if (status == 'success' && !_successTriggered) {
+                   _successTriggered = true; // 잠금 활성화
+                   
                    // Create a minimal success packet
                    final successPacket = {
                        'frame_id': thisFrameId,
@@ -789,13 +798,14 @@ class TrainingController extends ChangeNotifier {
            if (jsonMap.containsKey('debug_max_cls')) maxConfCls = (jsonMap['debug_max_cls'] as num).toInt();
        }
 
-       // Handle LLM/System Messages (Always allow these)
-       if (jsonMap.containsKey('char_message')) {
-          _charProvider?.updateStatusMessage(jsonMap['char_message']);
-       }
-       if (jsonMap.containsKey('message')) { 
-          _charProvider?.updateStatusMessage(jsonMap['message']);
-       }
+        // Handle LLM/System Messages (Always allow these)
+        if (jsonMap.containsKey('char_message')) {
+           cachedCharMessage = jsonMap['char_message']; // 캐싱
+           _charProvider?.updateStatusMessage(jsonMap['char_message']);
+        }
+        if (jsonMap.containsKey('message')) { 
+           _charProvider?.updateStatusMessage(jsonMap['char_message'] ?? jsonMap['message']);
+        }
 
        // Success Handling (Server Auth)
        final statusStr = jsonMap['status'] as String?;

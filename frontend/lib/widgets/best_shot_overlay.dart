@@ -5,11 +5,13 @@ import 'package:pet_trainer_frontend/api_config.dart';
 
 class BestShotOverlay extends StatelessWidget {
   final String imageUrl;
+  final String? message; // [NEW] LLM 메시지
   final VoidCallback onClose;
 
   const BestShotOverlay({
     Key? key,
     required this.imageUrl,
+    this.message,
     required this.onClose,
   }) : super(key: key);
 
@@ -62,10 +64,31 @@ class BestShotOverlay extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    if (message != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryMint.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: AppColors.primaryMint.withOpacity(0.3)),
+                        ),
+                        child: Text(
+                          message!,
+                          textAlign: TextAlign.center,
+                          style: AppTextStyles.body.copyWith(
+                            fontSize: 16, 
+                            color: AppColors.textMain,
+                            fontStyle: FontStyle.italic,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     Text(
                       "미니홈피 다이어리에\n자동으로 기록되었습니다 📝",
                       textAlign: TextAlign.center,
-                      style: AppTextStyles.body.copyWith(fontSize: 14, color: AppColors.textMain),
+                      style: AppTextStyles.body.copyWith(fontSize: 12, color: AppColors.textSub),
                     ),
                   ],
                 ),

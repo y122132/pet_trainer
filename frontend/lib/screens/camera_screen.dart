@@ -100,6 +100,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                   opacity: anim1,
                   child: BestShotOverlay(
                       imageUrl: ctrl.bestShotUrl!,
+                      message: ctrl.cachedCharMessage, // [NEW] 메시지 전달
                       onClose: () => Navigator.pop(ctx),
                   )
               )
