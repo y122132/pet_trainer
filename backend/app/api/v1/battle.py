@@ -28,6 +28,12 @@ async def invite_friend(
 
     room_id = str(uuid.uuid4()) #두 유저가 만날 고유ID(UUID)를 생성
     
+    print(f"\n[INVITE_DEBUG] =========================================")
+    print(f"🚩 초대한 유저(나): {current_user_id}")
+    print(f"🚩 초대받은 친구: {friend_id}")
+    print(f"🚩 서버가 생성한 UUID: {room_id}")
+    print(f"========================================================\n")
+    
     invite_payload = {
         "type": "BATTLE_INVITE",
         "room_id": room_id,

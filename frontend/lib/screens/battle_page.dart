@@ -1,3 +1,4 @@
+// frontend/lib/screens/battle_page.dart
 import 'dart:ui';
 import 'dart:async';
 import 'dart:convert';
@@ -20,19 +21,23 @@ import 'package:pet_trainer_frontend/widgets/stat_distribution_dialog.dart';
 import 'skill_management_screen.dart';
 
 class BattlePage extends StatelessWidget {
-  const BattlePage({super.key});
+  final String roomId;
+  const BattlePage({super.key, required this.roomId});
 
   @override
   Widget build(BuildContext context) {
+    debugPrint("🍎 [BattlePage] 생성! 방 ID: $roomId");
+
     return ChangeNotifierProvider(
-      create: (_) => BattleProvider(),
-      child: const BattleView(),
+      create: (_) => BattleProvider()..setRoomId(roomId),
+      child: BattleView(roomId: roomId),
     );
   }
 }
 
 class BattleView extends StatefulWidget {
-  const BattleView({super.key});
+  final String? roomId; 
+  const BattleView({super.key, this.roomId});
 
   @override
   State<BattleView> createState() => _BattleViewState();
@@ -68,8 +73,17 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       final charProvider = Provider.of<CharProvider>(context, listen: false);
 
       if (charProvider.character != null) {
-        _controller.connect(charProvider.character!.userId);
+        debugPrint("🍋 [BattleView] 소켓 연결 시도!");
+        debugPrint("   - 내 유저 ID: ${charProvider.character!.userId}");
+        debugPrint("   - 넘겨줄 roomId: ${widget.roomId}");
+
+        _controller.connect(
+          charProvider.character!.userId, 
+          roomId: widget.roomId
+        );
         _listenToEvents();
+      } else {
+        debugPrint("❌ [BattleView] 캐릭터 정보가 없어 소켓 연결을 실패했습니다.");
       }
     });
   }

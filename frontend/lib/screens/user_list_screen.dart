@@ -649,30 +649,36 @@ class _UserListScreenState extends State<UserListScreen>
   }
 
   void _handleChallenge(dynamic user) async {
-     if (user['id'] == null) return;
-     
-     final battleService = BattleService();
-     
-     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-       content: Text("${user['nickname']}님에게 도전장을 보내는 중..."),
-       duration: const Duration(seconds: 1),
-     ));
-     
-     final roomId = await battleService.sendInvite(user['id']);
-     
-     if (roomId != null && mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ChangeNotifierProvider(
-              create: (_) => BattleProvider()..setRoomId(roomId), 
-              child: const BattleView(),
-            ),
-          ),
+    final battleService = BattleService();
+    final int targetFriendId = user['id'];
+    final String targetNickname = user['nickname'] ?? user['username'];
+
+    debugPrint("\n🏁 [Challenge] =========================================");
+    debugPrint("🚩 STEP 0: 친구에게 배틀 도전 시도");
+    debugPrint("🚩 대상 친구 ID: $targetFriendId ($targetNickname)");
+
+    final String? roomId = await battleService.sendInvite(targetFriendId);
+
+    debugPrint("🚩 STEP 1: 서버에서 응답받은 Room ID: $roomId");
+    debugPrint("========================================================\n");
+
+    if (roomId != null && mounted) {
+      debugPrint("🚀 [Challenge] UUID를 가지고 BattlePage로 이동합니다. (Room: $roomId)");
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => BattlePage(roomId: roomId),
+        ),
+      );
+    } else {
+      debugPrint("❌ [Challenge] 초대 실패 (Room ID가 null이거나 위젯이 dispose됨)");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("상대방이 오프라인이거나 초대할 수 없습니다."))
         );
-     } else {
-       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("초대 실패")));
-     }
+      }
+    }
   }
 
   Widget _buildSearchTab() {

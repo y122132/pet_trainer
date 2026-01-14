@@ -4,6 +4,7 @@ from app.db.models.character import Character, Stat, ActionLog
 from datetime import datetime
 from app.game.game_assets import PET_LEARNSET
 from sqlalchemy.orm import Session, selectinload
+
 async def update_stats_from_yolo_result(db: AsyncSession, char_id: int, yolo_result: dict):
     """
     YOLO 분석 결과(성공 시)를 바탕으로 캐릭터의 스탯을 업데이트하고 행동 로그를 저장합니다.
@@ -354,14 +355,17 @@ async def _give_exp_and_levelup(db: AsyncSession, character: Character, exp_gain
 
 async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int):
     # 1. 승자 캐릭터 조회
-    stmt = select(Character).where(Character.user_id == winner_id)
+    stmt = (
+        select(Character)
+        .options(selectinload(Character.stat)) 
+        .where(Character.user_id == winner_id)
+    )
     res = await db.execute(stmt)
     winner_char = res.scalar_one_or_none()
     
     if not winner_char:
         return None
         
-    # [New] If loser is Bot (ID 0), skip loser logic if any (currently only winner gets exp)
     if loser_id == 0:
         print("[CharService] Battle vs Bot finished. Winner: Human")
         
@@ -370,7 +374,11 @@ async def process_battle_result(db: AsyncSession, winner_id: int, loser_id: int)
 async def process_battle_draw(db: AsyncSession, user_id1: int, user_id2: int):
     rewards = {}
     
-    stmt = select(Character).where(Character.user_id.in_([user_id1, user_id2]))
+    stmt = (
+        select(Character)
+        .options(selectinload(Character.stat))
+        .where(Character.user_id.in_([user_id1, user_id2]))
+    )
     result = await db.execute(stmt)
     chars = result.scalars().all()
     
