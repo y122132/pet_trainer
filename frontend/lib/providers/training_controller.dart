@@ -101,6 +101,11 @@ class TrainingController extends ChangeNotifier {
     _charProvider = provider;
   }
   
+  // [NEW] Visual Interpolation State (60FPS)
+  Timer? _uiTimer;
+  List<dynamic> _targetBbox = [];
+  List<dynamic> _targetPetKeypoints = [];
+  
   // --- Control Methods ---
 
   Future<void> startTraining(String petType, String difficulty, String mode) async {
@@ -110,10 +115,15 @@ class TrainingController extends ChangeNotifier {
     feedback = "트레이닝 시작...";
     debugLog = "";
     bbox = [];
+    _targetBbox = []; // Reset Target
     petKeypoints = [];
+    _targetPetKeypoints = []; // Reset Target
     humanKeypoints = [];
     _canSendFrame = true;
     _currentFrameId = 0;
+    
+    // [NEW] Start UI Animation Loop
+    _startUiLoop(); 
     
     // Connect Socket if needed (Legacy backup)
     if (!_socketClient.isConnected) {
@@ -128,7 +138,85 @@ class TrainingController extends ChangeNotifier {
     trainingState = TrainingStatus.ready;
     feedback = "";
     _canSendFrame = true;
+    
+    // [NEW] Stop UI Loop
+    _uiTimer?.cancel();
+    _uiTimer = null;
+    
     notifyListeners();
+  }
+  
+  // [NEW] UI Animation Loop (60FPS)
+  void _startUiLoop() {
+      _uiTimer?.cancel();
+      // 16ms ~= 60fps
+      _uiTimer = Timer.periodic(Duration(milliseconds: 16), (timer) {
+          _uiTick();
+      });
+  }
+  
+  void _uiTick() {
+      if (!isAnalyzing) return;
+      
+      bool needsUpdate = false;
+      
+      // 1. Interpolate BBox
+      // Strategy: If count matches, lerp. Else snap.
+      if (bbox.length == _targetBbox.length) {
+          for(int i=0; i<bbox.length; i++) {
+              // Check consistency (Class ID match)
+              // Box format: [x1, y1, x2, y2, conf, cls]
+              var cur = bbox[i];
+              var tgt = _targetBbox[i];
+              
+              if (cur.length > 5 && tgt.length > 5 && cur[5] == tgt[5]) {
+                  // Same object -> Lerp
+                  double alpha = 0.2; // Speed factor (Adjustable)
+                  
+                  cur[0] += (tgt[0] - cur[0]) * alpha;
+                  cur[1] += (tgt[1] - cur[1]) * alpha;
+                  cur[2] += (tgt[2] - cur[2]) * alpha;
+                  cur[3] += (tgt[3] - cur[3]) * alpha;
+                  // Conf & Cls are copied immediately or ignored in lerp
+                  cur[4] = tgt[4]; 
+                  
+                  needsUpdate = true;
+              } else {
+                  // Mismatch -> Snap
+                  bbox[i] = List.from(tgt);
+                  needsUpdate = true;
+              }
+          }
+      } else {
+           // Structure Change -> Snap
+           bbox = List.from(_targetBbox.map((e) => List.from(e)));
+           needsUpdate = true;
+      }
+      
+      // 2. Interpolate Keypoints
+      if (petKeypoints.length == _targetPetKeypoints.length) {
+           for(int i=0; i<petKeypoints.length; i++) {
+               var cur = petKeypoints[i]; // [x, y, c]
+               var tgt = _targetPetKeypoints[i];
+               
+               if (cur.length >= 2 && tgt.length >= 2) {
+                   double alpha = 0.2;
+                   cur[0] += (tgt[0] - cur[0]) * alpha;
+                   cur[1] += (tgt[1] - cur[1]) * alpha;
+                   // Conf
+                   if (cur.length > 2 && tgt.length > 2) cur[2] = tgt[2];
+                   needsUpdate = true;
+               }
+           }
+      } else {
+           // Snap
+           petKeypoints = List.from(_targetPetKeypoints.map((e) => List.from(e)));
+           needsUpdate = true;
+      }
+      
+      if (needsUpdate) {
+          notifyListeners();
+      }
   }
   
   // --- Logging ---
@@ -247,6 +335,14 @@ class TrainingController extends ChangeNotifier {
                          // [Smoothing] Use Helper
                          _applySmoothing(edgeResult['bbox']);
                     }
+                    
+                    // [Smoothing] Keypoints (Sync with Box)
+                    if (edgeResult['pet_keypoints'] != null && (edgeResult['pet_keypoints'] as List).isNotEmpty) {
+                        var rawPets = edgeResult['pet_keypoints'] as List; 
+                        if (rawPets.isNotEmpty && rawPets[0] is List) {
+                             _smoothKeypoints(rawPets[0]);
+                        }
+                    }
 
                     // Success -> Save State
                     lastEdgeResult = Map<String, dynamic>.from(edgeResult);
@@ -293,10 +389,13 @@ class TrainingController extends ChangeNotifier {
                    return; 
                 }
                 
-                // [FIX] ===== IMMEDIATELY UPDATE UI WITH EDGE RESULTS =====
+                // [FIX] ===== IMMEDIATELY UPDATE TARGET STATE (AI Data) =====
                 
-                // Update Detection Data
-                if (edgeResult.containsKey('bbox')) bbox = edgeResult['bbox'] ?? [];
+                // Update Detection Data (Target)
+                if (edgeResult.containsKey('bbox')) {
+                    _targetBbox = edgeResult['bbox'] ?? []; // Update Target
+                }
+                
                 if (edgeResult.containsKey('pet_keypoints')) {
                     var rawPets = edgeResult['pet_keypoints'];
                     // Edge sends List of List (per pet). Server checks 1 pet.
@@ -308,9 +407,9 @@ class TrainingController extends ChangeNotifier {
                         for(int i=0; i<count; i++) {
                             structured.add([flat[i*3], flat[i*3+1], flat[i*3+2]]);
                         }
-                        petKeypoints = structured;
+                        _targetPetKeypoints = structured; // Update Target
                     } else {
-                        petKeypoints = [];
+                        _targetPetKeypoints = [];
                     }
                 }
                 if (edgeResult.containsKey('human_keypoints')) { 
@@ -323,7 +422,7 @@ class TrainingController extends ChangeNotifier {
                         for(int i=0; i<count; i++) {
                             structured.add([flat[i*3], flat[i*3+1], flat[i*3+2]]);
                         }
-                        humanKeypoints = structured;
+                        humanKeypoints = structured; // Human keypoints need targeting too? For now direct is fine or add target
                      } else {
                         humanKeypoints = [];
                      }
@@ -353,15 +452,15 @@ class TrainingController extends ChangeNotifier {
                 }
                 
                 // [NEW] ===== LOCAL GAME LOGIC for Edge AI =====
-                // Process game logic locally 
+                // Process game logic locally using TARGET State (Fresh Data)
                 final gameResult = EdgeGameLogic.processGameLogic(
-                   bbox: bbox,
+                   bbox: _targetBbox, // Use Target (AI) State
                    mode: _currentMode,
                    targetClassId: -1, // [Fix] Support All Pets (Dog, Cat, Bird)
                    difficulty: 'easy', // TODO: Get from user settings
                    imageWidth: imageWidth,
                    imageHeight: imageHeight,
-                   petKeypoints: petKeypoints,
+                   petKeypoints: _targetPetKeypoints, // Use Target (AI) State
                 );
                 
                 // Update Status locally
@@ -402,8 +501,8 @@ class TrainingController extends ChangeNotifier {
                 // [FIX] Unlock frame lock IMMEDIATELY
                 _canSendFrame = true;
                 
-                // [FIX] Update UI IMMEDIATELY
-                notifyListeners();
+                // [Optimization] No need to notifyListeners() here.
+                // The UI Loop (60FPS) will pick up the state changes automatically.
                 
                 // [OPTIONAL] Send to server ONLY for SUCCESS 
                 if (status == 'success') {
@@ -504,11 +603,9 @@ class TrainingController extends ChangeNotifier {
            }
 
            if (jsonMap.containsKey('bbox')) {
-               bbox = jsonMap['bbox'];
-               // [UX] Apply Smoothing to Server Results too
-               _applySmoothing(bbox);
+               _targetBbox = jsonMap['bbox']; // Update Target
            }
-           if (jsonMap.containsKey('pet_keypoints')) petKeypoints = jsonMap['pet_keypoints'];
+           if (jsonMap.containsKey('pet_keypoints')) _targetPetKeypoints = jsonMap['pet_keypoints']; // Update Target
            if (jsonMap.containsKey('human_keypoints')) humanKeypoints = jsonMap['human_keypoints'];
            
            // Fallback
@@ -558,7 +655,7 @@ class TrainingController extends ChangeNotifier {
            feedback = "Server Error: $err"; 
        }
 
-       notifyListeners();
+       // notifyListeners(); // Handled by UI Loop
 
      } catch (e) {
        print("JSON Parse Error: $e");
@@ -585,14 +682,18 @@ class TrainingController extends ChangeNotifier {
   // Helper for JSON decode
   dynamic typeof(dynamic obj) => obj.runtimeType.toString();
   
+  // [NEW] One Euro Filter State for Keypoints (17 points * 2 coords = 34 filters)
+  List<OneEuroFilter>? _keypointFilters;
+  
   // [NEW] Unified Smoothing Helper
   void _applySmoothing(List<dynamic> targetBboxList) {
+       // ... (existing logic) ...
       if (_boxFilters == null) {
           _boxFilters = [
-             OneEuroFilter(minCutoff: 1.0, beta: 0.1),
-             OneEuroFilter(minCutoff: 1.0, beta: 0.1),
-             OneEuroFilter(minCutoff: 1.0, beta: 0.1),
-             OneEuroFilter(minCutoff: 1.0, beta: 0.1),
+             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
+             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
+             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
+             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
           ];
       }
       
@@ -626,6 +727,40 @@ class TrainingController extends ChangeNotifier {
            targetBboxList[bestIdx][1] = fy1;
            targetBboxList[bestIdx][2] = fx2;
            targetBboxList[bestIdx][3] = fy2;
+      }
+  }
+
+  // [NEW] Keypoint Smoothing Helper
+  void _smoothKeypoints(List<dynamic> rawFlatKeypoints) {
+      // Expecting [x, y, conf, x, y, conf, ...] for 17 keypoints
+      int numPoints = 17;
+      if (rawFlatKeypoints.length < numPoints * 3) return;
+
+      // Lazy Init
+      if (_keypointFilters == null) {
+          _keypointFilters = [];
+          for(int i=0; i<numPoints * 2; i++) { // 2 filters per point (x, y)
+             // Use same parameters as Box for Sync
+             _keypointFilters!.add(OneEuroFilter(minCutoff: 0.5, beta: 0.007));
+          }
+      }
+
+      int now = DateTime.now().millisecondsSinceEpoch;
+      
+      for (int i = 0; i < numPoints; i++) {
+          int baseIdx = i * 3;
+          int filterIdx = i * 2;
+          
+          double rawX = (rawFlatKeypoints[baseIdx] as num).toDouble();
+          double rawY = (rawFlatKeypoints[baseIdx + 1] as num).toDouble();
+          // Conf at baseIdx + 2 (skip)
+
+          double smoothX = _keypointFilters![filterIdx].filter(rawX, now);
+          double smoothY = _keypointFilters![filterIdx+1].filter(rawY, now);
+
+          // Update In-Place
+          rawFlatKeypoints[baseIdx] = smoothX;
+          rawFlatKeypoints[baseIdx + 1] = smoothY;
       }
   }
 }
