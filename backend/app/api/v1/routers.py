@@ -28,4 +28,8 @@ api_router.include_router(config.router, prefix="/config", tags=["config"])
 # 7. 방명록 라우터 (NEW)
 api_router.include_router(guestbook.router, prefix="/guestbook", tags=["guestbook"])
 
+# 8. 공지사항 라우터 (NEW)
+from app.api.v1 import notices
+api_router.include_router(notices.router)
+
 # [정리] 기존의 임시 user_router는 auth.py가 역할을 대신하므로 삭제했습니다.

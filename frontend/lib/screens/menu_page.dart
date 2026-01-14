@@ -18,6 +18,7 @@ import '../providers/chat_provider.dart';
 import '../providers/battle_provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'notice_list_screen.dart';
 import 'package:pet_trainer_frontend/api_config.dart'; 
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
@@ -216,9 +217,10 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
           _BoneWidget(text: '$name ($type)'),
           Row(
             children: [
-              _buildHeaderIcon(FontAwesomeIcons.envelope),
-              const SizedBox(width: 18),
-              _buildHeaderIcon(FontAwesomeIcons.bell),
+              GestureDetector(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NoticeListScreen())),
+                child: _buildHeaderIcon(FontAwesomeIcons.bell),
+              ),
               const SizedBox(width: 12),
               GestureDetector(
                 onTap: _showSettingsDialog,
