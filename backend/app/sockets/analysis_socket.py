@@ -247,6 +247,7 @@ async def analysis_endpoint(
             
             # A. Control Message Handling
             if "text" in message:
+                is_control = False
                 try:
                     data = json.loads(message["text"])
                     if data.get("type") == "change_mode":
@@ -265,13 +266,17 @@ async def analysis_endpoint(
                                 "status": "info",
                                 "message": f"모드가 '{mode}'로 변경되었습니다."
                             })
+                            is_control = True
                             
                     elif data.get("type") == "ping":
                         # Keep-alive
+                        is_control = True
                         pass
                 except:
                     pass
-                continue # Skip vision processing for control messages
+                
+                if is_control:
+                    continue # Skip vision processing for control messages
 
             # B. Image Data Handling
             if "bytes" in message:

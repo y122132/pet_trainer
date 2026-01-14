@@ -662,11 +662,7 @@ class TrainingController extends ChangeNotifier {
      
      // [NEW] Parse Check
      try {
-       final data = typeof(message) == 'string' ? jsonDecode(message) : message; // Handle both types if needed, usually string
-       // But _socketClient likely returns String. 
-       
-       // Handle binary? No, we expect JSON text usually. 
-       // If it's binary, jsonDecode throws.
+       // Handle both types if needed, usually string
        final Map<String, dynamic> jsonMap = (message is String) ? jsonDecode(message) : (message is Map ? message : {});
        
        final int responseFrameId = jsonMap['frame_id'] ?? -1;
@@ -752,7 +748,7 @@ class TrainingController extends ChangeNotifier {
              lastReward = {
                'base': base, 
                'bonus': bonus,
-               'level_up_info': data['level_up_info'] // [New]
+               'level_up_info': jsonMap['level_up_info'] // [New]
              };
 
              _charProvider?.gainReward(base, bonus); 
