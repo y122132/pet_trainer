@@ -37,7 +37,7 @@ class EdgeGameConfig {
   // [NEW] Config Loader
   static Future<void> loadFromBackend() async {
       try {
-        final url = Uri.parse("${AppConfig.apiUrl}/config/game_logic");
+        final url = Uri.parse("${AppConfig.baseUrl}/config/game_logic");
         final response = await http.get(url).timeout(const Duration(seconds: 5));
         
         if (response.statusCode == 200) {
