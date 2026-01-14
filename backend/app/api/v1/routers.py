@@ -21,7 +21,11 @@ api_router.include_router(battle.router, prefix="/battle", tags=["battle"])
 # 5. 일기장 라우터 (NEW)
 api_router.include_router(diaries.router)
 
-# 6. 방명록 라우터 (NEW)
+# 6. 설정 라우터 (NEW - Edge AI용 Config Sync)
+from app.api.v1 import config
+api_router.include_router(config.router, prefix="/config", tags=["config"])
+
+# 7. 방명록 라우터 (NEW)
 api_router.include_router(guestbook.router, prefix="/guestbook", tags=["guestbook"])
 
 # [정리] 기존의 임시 user_router는 auth.py가 역할을 대신하므로 삭제했습니다.

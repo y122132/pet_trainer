@@ -54,7 +54,7 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     super.initState();
     _cameraController = CameraController(
       widget.cameras.first,
-      ResolutionPreset.medium, // High -> Medium for performance
+      ResolutionPreset.medium, // High (720p) -> Best for 1280px inference
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
@@ -99,19 +99,29 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
     super.dispose();
   }
 
-  void _toggleTraining() {
+  Future<void> _toggleTraining() async {
     final ctrl = Provider.of<TrainingController>(context, listen: false);
     final charProvider = Provider.of<CharProvider>(context, listen: false);
     
     if (ctrl.isAnalyzing) {
       ctrl.stopTraining();
-      _cameraController.stopImageStream();
+      await _cameraController.stopImageStream();
       charProvider.updateStatusMessage("분석 중지됨.");
     } else {
-      ctrl.startTraining(charProvider.currentPetType, widget.difficulty, widget.mode);
-      _cameraController.startImageStream((image) {
-          ctrl.processFrame(image, _cameraController.description.sensorOrientation, _currentOrientation);
-      });
+      // [DEBUG] PROBE 1: User Clicked Start
+      print("⭕ [PROBE 1] User Pressed START");
+      
+      // [Fix] Await initialization so EdgeDetector is ready before frames flow
+      await ctrl.startTraining(charProvider.currentPetType, widget.difficulty, widget.mode);
+      
+      // Only start stream if training started successfully
+      if (ctrl.isAnalyzing) {
+          print("⭕ [PROBE 3] Starting Camera Stream...");
+          await _cameraController.startImageStream((image) {
+              // print("⭕ [PROBE 4] Camera Yielded Frame"); // Comment out to avoid spam, or keep for 1st frame check
+              ctrl.processFrame(image, _cameraController.description.sensorOrientation, _currentOrientation);
+          });
+      }
     }
   }
 
@@ -158,6 +168,31 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                         isFrontCamera: widget.cameras.first.lensDirection == CameraLensDirection.front,
                                         imgRatio: _cameraController.value.aspectRatio,
                                      )),
+                                   
+                                   // [NEW] Model Input Image Thumbnail
+                                   if (trainingCtrl.debugInputImage != null)
+                                      Positioned(top: 10, right: 10, child: Container(
+                                         decoration: BoxDecoration(
+                                            border: Border.all(color: Colors.yellowAccent, width: 2),
+                                            borderRadius: BorderRadius.circular(8),
+                                         ),
+                                         child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                               Container(
+                                                  padding: const EdgeInsets.all(4),
+                                                  color: Colors.black87,
+                                                  child: const Text("모델 입력", style: TextStyle(color: Colors.yellowAccent, fontSize: 10, fontWeight: FontWeight.bold))
+                                               ),
+                                               Image.memory(
+                                                  trainingCtrl.debugInputImage!,
+                                                  width: 120,
+                                                  height: 120,
+                                                  fit: BoxFit.cover,
+                                               ),
+                                            ],
+                                         ),
+                                      )),
                                      
                                   // Human Skeleton (Legacy or New)
                                   if (trainingCtrl.humanKeypoints.isNotEmpty || trainingCtrl.keypoints.isNotEmpty)
@@ -188,9 +223,10 @@ class _CameraViewState extends State<_CameraView> with TickerProviderStateMixin 
                                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                         Text("Status: ${trainingCtrl.trainingState.name.toUpperCase()}", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                         Text("Score: ${(trainingCtrl.confScore * 100).toStringAsFixed(1)}%", style: const TextStyle(color: Colors.greenAccent, fontSize: 10)),
-                                        Text("Latency: ${trainingCtrl.latency}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                        Text("Lat: ${trainingCtrl.inferenceMs}ms", style: const TextStyle(color: Colors.white, fontSize: 10)),
                                      ])
-                                  ))
+                                  )),
+                                  
                             ]
                          )),
                          // Character Area

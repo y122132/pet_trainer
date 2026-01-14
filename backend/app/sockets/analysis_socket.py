@@ -55,8 +55,9 @@ async def analysis_endpoint(
         print(f"[FSM_WS] 연결 실패: {e}")
         return
 
-    # 대소문자 무시 및 기본값 설정 (기본값: 16 - 강아지)
-    target_class_id = PET_CLASS_MAP.get(pet_type.lower(), 16)
+    # [TEST] Force Auto-Detection (Detect Dog/Cat/Bird dynamically)
+    # Original: target_class_id = PET_CLASS_MAP.get(pet_type.lower(), 16)
+    target_class_id = -1
     
     # --- FSM 상태 변수 ---
     state = "READY"              # 현재 상태: READY, DETECTING, STAY, SUCCESS
@@ -161,8 +162,56 @@ async def analysis_endpoint(
             # Idle 처리를 위해 asyncio.wait_for를 쓸 수도 있음.
             # [Fix] 타임아웃 방식이 아닌, 프레임 수신 여부와 관계없이 시간 체크
             try:
-                # [UX Improvement] Handle both Text (Control) and Binary (Image)
+                # [Modified] Support both Bytes (Image) and Text (JSON Result)
+                # `receive()` returns a dict: {'type': 'websocket.receive', 'bytes': ..., 'text': ...}
                 message = await websocket.receive()
+                
+                if 'bytes' in message and message['bytes']:
+                    image_bytes = message['bytes']
+                    # [Server-side Logic]
+                    
+                elif 'text' in message and message['text']:
+                    # [Edge AI Logic]
+                    # Client sent pre-processed result (JSON)
+                    import json
+                    edge_result = json.loads(message['text'])
+                    
+                    # [Fix] Construct base_response with dimensions for Logic Aspect Ratio safety
+                    # Default to 640 if missing (but Frontend sends it now)
+                    base_resp_input = {
+                        "width": edge_result.get("width", 640),
+                        "height": edge_result.get("height", 640),
+                        "bbox": edge_result.get('bbox', []),
+                        "pet_keypoints": edge_result.get('pet_keypoints', []),
+                        "human_keypoints": edge_result.get('human_keypoints', [])
+                    }
+
+                    # [Fix] Invoke Logic Layer (Server-side Logic Reuse)
+                    result = await run_in_threadpool(
+                        detector.process_logic_only,
+                        detected_objects=edge_result.get('bbox', []),
+                        mode=mode,
+                        target_class_id=target_class_id,
+                        difficulty=difficulty,
+                        vision_state=vision_state,
+                        base_response=base_resp_input # [NEW] Pass dimensions
+                    )
+                    
+                    # Ensure minimal keys exist (Should be handled by process_logic_only, but safe check)
+                    if "success" not in result: result["success"] = False
+                    
+                    # [Fix] Propagate Frame ID for Latency Calculation
+                    # Frontend expects 'frame_id' to match the request to calculate latency
+                    if 'frame_id' in edge_result:
+                        result['frame_id'] = edge_result['frame_id']
+                    
+                    # Pass through to FSM Logic below (Skip 'run_in_threadpool(detector...)')
+                    image_bytes = None # Skip decoding
+                    
+                else:
+                    # Ping/Pong or Empty
+                    continue
+                    
             except Exception:
                 break
             
@@ -217,52 +266,57 @@ async def analysis_endpoint(
             
             current_time = time.time()
             
-            # [NEW] Frame ID Extraction (Last 4 bytes)
-            frame_id = -1
-            if len(image_bytes) > 4:
-                # Big Endian Integer parsing (Signed)
-                frame_id = int.from_bytes(image_bytes[-4:], byteorder='big', signed=True)
-                # Remove ID from image data
-                image_bytes = image_bytes[:-4]
-            
-            # [UX Improvement] Cooldown State Handling
-            if state == "COOLDOWN":
-                elapsed = current_time - state_start_time
-                if elapsed < 3.0: # 3초 쿨타임
-                    # 쿨타임 중에는 이미지 처리를 건너뛰고 쉬게 함
-                    if frame_count % 10 == 0: # 가끔 메시지
-                         await websocket.send_json({
-                            "status": "info",
-                            "message": f"잠시 휴식... {3.0 - elapsed:.1f}초",
-                            "frame_id": frame_id
-                        })
-                    continue
-                else:
-                    # 쿨타임 종료 -> READY
-                    state = "READY"
-                    state_start_time = None
-                    await websocket.send_json({
-                        "status": "info", 
-                        "message": "준비... 시작!",
-                        "frame_id": frame_id
-                    })
+            # [Branching] Server-side Inference vs Edge Result
+            if image_bytes is not None:
+                # [Server-side Inference]
+                
+                # [NEW] Frame ID Extraction (Last 4 bytes)
+                frame_id = -1
+                if len(image_bytes) > 4:
+                    # Big Endian Integer parsing
+                    frame_id = int.from_bytes(image_bytes[-4:], byteorder='big')
+                    # Remove ID from image data
+                    image_bytes = image_bytes[:-4]
 
-            # 비전 처리 (CPU/GPU)
-            result = await run_in_threadpool(
-                detector.process_frame, 
-                image_bytes, 
-                mode, 
-                target_class_id, 
-                difficulty,
-                frame_index=frame_count,
-                process_interval=PROCESS_INTERVAL,
-                frame_id=frame_id,  # [NEW] Pass ID
-                vision_state=vision_state # [NEW] Inject State
-            )
+                # 비전 처리 (CPU/GPU)
+                result = await run_in_threadpool(
+                    detector.process_frame, 
+                    image_bytes, 
+                    mode, 
+                    target_class_id, 
+                    difficulty,
+                    frame_index=frame_count,
+                    process_interval=PROCESS_INTERVAL,
+                    frame_id=frame_id,  # [NEW] Pass ID
+                    vision_state=vision_state # [NEW] Inject State
+                )
+            
+            # [Common] Post-Inference FSM Logic
+
+
 
             if result.get("skipped", False):
                 continue
             is_success_vision = result.get("success", False)
+
+            # --- COOLDOWN Logic ---
+            if state == "COOLDOWN":
+                elapsed = current_time - state_start_time
+                if elapsed >= 3.0:
+                    state = "READY"
+                    state_start_time = None
+                    # Transition to READY allows immediate re-detection in next lines
+                    # Optional: Send "Ready" message
+                else:
+                    # Still in cooldown - block other states
+                    response = result.copy()
+                    response.update({
+                        "status": "stay", 
+                        "message": f"잠시 휴식... {3.0 - elapsed:.1f}초",
+                        "is_specific_feedback": True
+                    })
+                    await websocket.send_json(response)
+                    continue
 
             # --- FSM 로직 ---
             response = result.copy()

@@ -15,6 +15,11 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../widgets/common/stat_widgets.dart';
 import '../widgets/char_message_bubble.dart';
 import '../widgets/stat_distribution_dialog.dart';
+import '../api_config.dart';
+import '../api_config.dart';
+import '../config/theme.dart'; // AppColors를 위해 유지
+import '../config/global_settings.dart';
+
 
 class MyRoomPage extends StatefulWidget {
   const MyRoomPage({super.key});
@@ -91,7 +96,23 @@ class _MyRoomPageState extends State<MyRoomPage> with SingleTickerProviderStateM
                   leading: const Icon(Icons.logout, color: Colors.redAccent),
                   title: Text("로그아웃", style: GoogleFonts.jua(color: Colors.redAccent, fontSize: 18)),
                   onTap: () => _handleLogout(context),
+
                 ),
+                StatefulBuilder(
+                  builder: (BuildContext context, StateSetter setModalState) {
+                     return SwitchListTile(
+                        title: Text("Edge AI 모드 (Beta)", style: GoogleFonts.jua(fontSize: 18, color: const Color(0xFF4E342E))),
+                        subtitle: const Text("기기 내부에서 추론하여 서버 부하를 줄입니다.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        value: GlobalSettings.useEdgeAI,
+                        activeColor: const Color(0xFF4E342E),
+                        onChanged: (bool value) async {
+                           await GlobalSettings.setEdgeAI(value);
+                           setModalState(() {}); // settings sheet update
+                        },
+                     );
+                  }
+                ),
+
               ],
             ),
           ),

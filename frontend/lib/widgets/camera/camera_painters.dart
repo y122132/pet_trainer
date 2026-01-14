@@ -205,16 +205,21 @@ class PosePainter extends CustomPainter {
        if (kp is List && kp.length >= 2) {
          double normX = (kp[0] as num).toDouble();
          double normY = (kp[1] as num).toDouble();
+         // [Fix] Check Confidence to avoid exploding lines
+         double conf = (kp.length > 2) ? (kp[2] as num).toDouble() : 1.0;
          
-         double finalX;
-         if (isFrontCamera) {
-              finalX = (1.0 - normX) * renderW + dx;
+         if (conf > 0.25) { // Threshold matches Detect/Logic
+             double finalX;
+             if (isFrontCamera) {
+                  finalX = (1.0 - normX) * renderW + dx;
+             } else {
+                  finalX = normX * renderW + dx;
+             }
+             double finalY = normY * renderH + dy;
+             points.add(Offset(finalX, finalY));
          } else {
-              finalX = normX * renderW + dx;
+             points.add(Offset.zero);
          }
-         double finalY = normY * renderH + dy;
-         
-         points.add(Offset(finalX, finalY));
        } else {
          points.add(Offset.zero); // Placeholder
        }
@@ -271,23 +276,21 @@ class PetPosePainter extends CustomPainter {
       ..color = color.withOpacity(0.8)
       ..strokeWidth = 2.5;
 
-    // Topology: 1-based provided by user -> 0-based
-    // Nose(2) - LeftEye(0), Nose(2) - RightEye(1)
-    // Nose(2) - Neck(3)
-    // Neck(3) - TailRoot(4)
-    // FrontLeft: Neck(3)-Sh(5)-El(6)-Paw(7)
-    // FrontRight: Neck(3)-Sh(8)-El(9)-Paw(10)
-    // BackLeft: Tail(4)-Hip(11)-Kn(12)-Paw(13)
-    // BackRight: Tail(4)-Hip(14)-Kn(15)-Paw(16)
+    // Topology: COCO 17-Keypoints (Standard YOLO Pose)
+    // 0:Nose, 1:LEye, 2:REye, 3:LEar, 4:REar
+    // 5:LSh, 6:RSh, 7:LEl, 8:REl, 9:LWri, 10:RWri
+    // 11:LHip, 12:RHip, 13:LKnee, 14:RKnee, 15:LAnkle, 16:RAnkle
     
     final connections = [
-        [2, 0], [2, 1], // Face
-        [2, 3], // Nose-Neck
-        [3, 4], // Spine (Neck-Tail)
-        [3, 5], [5, 6], [6, 7], // FL
-        [3, 8], [8, 9], [9, 10], // FR
-        [4, 11], [11, 12], [12, 13], // BL
-        [4, 14], [14, 15], [15, 16], // BR
+        [0, 1], [0, 2], // Nose to Eyes
+        [1, 3], [2, 4], // Eyes to Ears
+        [5, 6], // Shoulders
+        [5, 7], [7, 9], // Front Left Leg (Arm)
+        [6, 8], [8, 10], // Front Right Leg (Arm)
+        [11, 12], // Hips
+        [11, 13], [13, 15], // Back Left Leg
+        [12, 14], [14, 16], // Back Right Leg
+        [5, 11], [6, 12] // Torso
     ];
 
     // Re-use logic (duplicated for safety as class method is private inside PosePainter)

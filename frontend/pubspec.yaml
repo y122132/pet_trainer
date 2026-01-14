@@ -20,10 +20,14 @@ dependencies:
   camera: ^0.10.5
   web_socket_channel: ^2.4.0
   fl_chart: ^0.66.0
+  tflite_flutter: ^0.11.0 # Edge AI Inference (Dart 3 Support)
+
 
   cupertino_icons: ^1.0.2
   image: ^4.7.2
   flutter_secure_storage: ^9.0.0 # 기기 내부 데이터 안전하게 보관
+  shared_preferences: ^2.2.0
+
   video_player: ^2.10.1
   google_fonts: ^6.3.3
   image_picker: ^1.2.1
@@ -43,6 +47,8 @@ flutter:
     - assets/images/
     - assets/data/
     - assets/data/skills.json
+    - assets/models/ # TFLite Models
+
 
 
 flutter_launcher_icons:
