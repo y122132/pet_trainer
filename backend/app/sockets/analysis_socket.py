@@ -208,6 +208,19 @@ async def analysis_endpoint(
                     if 'frame_id' in edge_result:
                         result['frame_id'] = edge_result['frame_id']
                     
+                    # [NEW] Edge Mode Best Shot Handling
+                    # Client sends best shot as Base64 because Server can't see the stream
+                    if 'best_shot_base64' in edge_result and edge_result['best_shot_base64']:
+                        try:
+                            import base64
+                            # Decode Base64 to Bytes
+                            img_data = base64.b64decode(edge_result['best_shot_base64'])
+                            vision_state["best_frame_data"] = img_data
+                            vision_state["best_conf"] = edge_result.get('conf_score', 1.0) # Use current conf as best
+                            # print(f"[Edge BestShot] Received {len(img_data)} bytes", flush=True)
+                        except Exception as e:
+                            print(f"[Edge BestShot] Decode Error: {e}")
+
                     
                     # [Fix] Trust Client's Success Decision (Edge AI Timer Completion)
                     
@@ -246,8 +259,8 @@ async def analysis_endpoint(
             except Exception:
                 break
             
-            image_bytes = None
-            
+            # image_bytes = None # [Fix] Removed redundant reset that might cause issues
+
             # A. Control Message Handling
             if "text" in message:
                 is_control = False
@@ -329,8 +342,6 @@ async def analysis_endpoint(
             
             # [Common] Post-Inference FSM Logic
 
-
-
             if result.get("skipped", False):
                 continue
             is_success_vision = result.get("success", False)
@@ -380,13 +391,14 @@ async def analysis_endpoint(
                         response.update({"status": "stay", "message": f"자세 유지... {3 - hold_duration:.1f}초"})
                         
                         # [NEW] Best Shot Selection
-                        # 현재 프레임의 자신감(Conf)이 기존 최고치보다 높으면 갱신
                         current_conf = result.get("conf_score", 0.0)
-                        if image_bytes and current_conf > vision_state["best_conf"]:
+                        
+                        # [Fix] Capture FIRST frame or BETTER frame
+                        if image_bytes and (vision_state["best_frame_data"] is None or current_conf > vision_state["best_conf"]):
                             vision_state["best_conf"] = current_conf
-                            vision_state["best_frame_data"] = image_bytes # Keep binary
+                            vision_state["best_frame_data"] = image_bytes
                             vision_state["best_bbox"] = result.get("bbox", [])
-                            # print(f"[BestShot] Updated: {current_conf:.4f}", flush=True)
+                            print(f"[BestShot] Updated! Conf: {current_conf:.4f}", flush=True)
 
                         await websocket.send_json(response)
             

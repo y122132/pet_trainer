@@ -4,9 +4,9 @@ class AppConfig {
 
   // [중요] AWS 탄력적 IP(Elastic IP) 또는 도메인을 여기에 입력하세요.
   // Web(Chrome)일 경우 localhost, 안드로이드 에뮬레이터일 경우 10.0.2.2 사용
-  static String get serverIp => 'localhost'; // 웹 개발(Chrome) 시 사용
+  // static String get serverIp => 'localhost'; // 웹 개발(Chrome) 시 사용
   // static String get serverIp => '10.0.2.2'; // Android 에뮬레이터용
-  // static const String serverIp = '54.116.28.3'; // AWS 배포용 
+  static const String serverIp = '54.116.28.3'; // AWS 배포용 
   static const int serverPort = 8000;
 
   // 1. API 기본 경로 (v1 프리픽스 포함)

@@ -31,6 +31,10 @@ class TrainingController extends ChangeNotifier {
   TrainingStatus trainingState = TrainingStatus.ready;
   String _currentMode = "playing"; // Default
   
+  // [NEW] Best Shot (Edge Mode)
+  Map<String, dynamic>? _bestFrameData; // Cached Frame Data for generic isolation
+  double _bestConf = 0.0;
+  
   // Stats
   double confScore = 0.0;
   String feedback = "";
@@ -418,6 +422,37 @@ class TrainingController extends ChangeNotifier {
                    isGpu = debugInfo['use_gpu'] ?? false; // [NEW]
                 }
                 
+                // [NEW] Best Shot Selection (Edge Mode)
+                if (trainingState == TrainingStatus.stay) {
+                    double currentConf = (edgeResult['conf_score'] as num?)?.toDouble() ?? 0.0;
+                    // Fallback if conf_score is missing: use max bbox conf
+                    if (currentConf == 0.0 && edgeResult['bbox'] != null) {
+                         for (var box in edgeResult['bbox']) {
+                             if (box.length > 4) {
+                                 double boxConf = (box[4] as num).toDouble();
+                                 if (boxConf > currentConf) currentConf = boxConf;
+                             }
+                         }
+                    }
+
+                    if (_bestFrameData == null || currentConf > _bestConf) {
+                        _bestConf = currentConf;
+                        // Deep Copy to persist past frame recycling
+                        _bestFrameData = {
+                            'width': image.width,
+                            'height': image.height,
+                            'planes': image.planes.map((p) => {
+                                'bytes': Uint8List.fromList(p.bytes),
+                                'bytesPerRow': p.bytesPerRow,
+                                'bytesPerPixel': p.bytesPerPixel
+                            }).toList(),
+                            'rotationAngle': rotationAngle,
+                            'frameId': thisFrameId
+                        };
+                        print("[TrainingController] Best Shot Cached: $_bestConf");
+                    }
+                }
+                
                 // [NEW] Anti-Flickering (Persistence) Logic
                 // If detection failed (no bbox), check if we can reuse last result
                 bool isValidDetection = false;
@@ -612,6 +647,7 @@ class TrainingController extends ChangeNotifier {
                 // The UI Loop (60FPS) will pick up the state changes automatically.
                 
                 // [OPTIONAL] Send to server ONLY for SUCCESS 
+                // [OPTIONAL] Send to server ONLY for SUCCESS 
                 if (status == 'success') {
                    // Create a minimal success packet
                    final successPacket = {
@@ -623,9 +659,32 @@ class TrainingController extends ChangeNotifier {
                        'difficulty': 'easy',
                        'bbox': bbox,
                        'pet_keypoints': petKeypoints,
-                       'human_keypoints': humanKeypoints
+                       'human_keypoints': humanKeypoints,
+                       'conf_score': confScore
                    };
                    
+                   // [NEW] Attach Best Shot Logic
+                   if (_bestFrameData != null) {
+                       try {
+                           // Convert YUV to JPEG (background isolate)
+                           final Uint8List jpegWithId = await compute(resizeAndCompressImage, _bestFrameData!);
+                           
+                           // Strip last 4 bytes (Frame ID) for clean JPEG
+                           final Uint8List cleanJpeg = jpegWithId.sublist(0, jpegWithId.length - 4);
+                           
+                           successPacket['best_shot_base64'] = base64Encode(cleanJpeg);
+                           successPacket['best_conf'] = _bestConf; // Inform server
+                           print("[Edge] Sent Best Shot Base64 (${cleanJpeg.length} bytes)");
+                           
+                           // Reset Cache
+                           _bestFrameData = null;
+                           _bestConf = 0.0;
+                           
+                       } catch (e) {
+                           print("[Edge] Best Shot Encode Error: $e");
+                       }
+                   }
+
                    _socketClient.sendMessage(jsonEncode(successPacket));
                 }
             } else {

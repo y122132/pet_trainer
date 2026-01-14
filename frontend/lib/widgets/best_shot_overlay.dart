@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pet_trainer_frontend/config/theme.dart';
+import 'package:pet_trainer_frontend/config/design_system.dart';
 import 'package:pet_trainer_frontend/api_config.dart';
 
 class BestShotOverlay extends StatelessWidget {
@@ -64,7 +65,7 @@ class BestShotOverlay extends StatelessWidget {
                     Text(
                       "미니홈피 다이어리에\n자동으로 기록되었습니다 📝",
                       textAlign: TextAlign.center,
-                      style: AppTextStyles.bodyMain.copyWith(fontSize: 14, color: AppColors.textMain),
+                      style: AppTextStyles.body.copyWith(fontSize: 14, color: AppColors.textMain),
                     ),
                   ],
                 ),
