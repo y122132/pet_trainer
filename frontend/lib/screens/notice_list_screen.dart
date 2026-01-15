@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../api_config.dart';
 import '../models/notice_model.dart';
 import '../services/auth_service.dart';
@@ -39,6 +40,12 @@ class _NoticeListScreenState extends State<NoticeListScreen> {
           _notices = data.map((item) => NoticeModel.fromJson(item)).toList();
           _isLoading = false;
         });
+
+        // [New] Update last seen notice ID
+        if (_notices.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setInt('last_seen_notice_id', _notices.first.id);
+        }
       } else {
         throw Exception("Failed to load notices");
       }
