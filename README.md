@@ -14,7 +14,8 @@
 ## 🚀 주요 기능 (Key Features)
 
 ### 1. 📷 실시간 AI 훈련 (Real-time Training)
-- **YOLOv11** 기반의 객체 탐지(Object Detection) 및 포즈 추정(Pose Estimation).
+- **Hybrid AI System:** 상황에 따라 **서버(Server Mode)**와 **온디바이스(Edge AI Mode)**를 오가며 최적의 성능을 냅니다.
+- **YOLOv11 (Server) & TFLite (Edge)** 기반의 객체 탐지(Object Detection) 및 포즈 추정(Pose Estimation).
 - **3가지 훈련 모드:**
   - **🎾 놀이 (Playing):** 강아지가 공/장난감을 가지고 노는지 인식.
   - **🥣 식사 (Feeding):** 반려동물이 밥그릇에 다가가 밥을 먹는지 인식.
@@ -28,13 +29,21 @@
 - 훈련 보상으로 얻은 포인트로 캐릭터의 **근력, 지능, 민첩, 행복도**를 성장시킵니다.
 - **레이더 차트(육각형 그래프)**를 통해 성장 밸런스를 한눈에 확인할 수 있습니다.
 - 레벨업 시스템과 칭호 부여 (예: "초보 트레이너" -> "근육대장님").
+### 4. 🔗 AI 기술 융합 전략 (AI Synergy)
+- **자동 추억 생성:** 훈련 중 **YOLO**가 포착한 베스트 샷에 **LLM**이 감성 멘트를 입혀 **미니홈피**에 자동 업로드합니다.
+- **소셜 리텐션:** "놀기만 해도 추억이 쌓이는" 경험을 통해 친구들에게 자랑하고 재방문하게 만듭니다.
 
+### 5. 🛠️ 관리자 페이지 (Admin)
+- `SQLAdmin`을 통한 백엔드 데이터 관리 (유저, 스킬, 아이템 등).
+
+---
 ---
 
 ## 🛠 기술 스택 (Tech Stack)
 
 ### Frontend (App)
 - **Framework:** Flutter (Dart)
+- **Edge AI:** TensorFlow Lite (tflite_flutter)
 - **State Management:** Provider
 - **Networking:** WebSocket (실시간 스트리밍), HTTP (REST API)
 - **Charts:** fl_chart (레이더 차트 구현)
@@ -65,6 +74,8 @@ pet_trainer/
 │   │   └── main.py           # 앱 진입점
 │   ├── Dockerfile            # 서버 배포용 도커 파일
 │   └── requirements.txt      # 의존성 패키지
+│
+├── edge_ai/                  # 온디바이스 AI 모델 (TFLite, ONNX 등)
 │
 └── frontend/                 # Flutter 모바일 앱
     ├── lib/
@@ -119,9 +130,11 @@ flutter run
 ---
 
 ## 🚧 추후 업데이트 계획 (Roadmap)
-- [ ] **배틀 시스템 (Battle Arena):** 키운 캐릭터로 다른 유저와 대결
+- [x] **Edge AI 모드:** 인터넷 없이도 동작하는 온디바이스 AI 훈련 (TFLite)
+- [x] **베스트 샷 (Best Shot):** 훈련 중 가장 멋진 순간을 자동 캡처 및 업로드
+- [x] **배틀 시스템 (Battle Arena):** 키운 캐릭터로 다른 유저와 대결 (PVP)
+- [x] **미니홈피 (Mini-Homepage):** 다이어리, 방명록, 랭킹 시스템
 - [ ] **다양한 동물 추가:** 앵무새, 햄스터 등 YOLO 모델 학습 강화
-- [ ] **소셜 기능:** 친구의 마이룸 방문 및 방명록
 
 ---
 

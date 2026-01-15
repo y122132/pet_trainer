@@ -10,13 +10,26 @@
 이 프로젝트는 **Flutter (App)**, **Python FastAPI (Backend)**, 그리고 **Vision/LLM AI**로 구성됩니다.
 
 ```mermaid
-graph LR
-    App[Flutter App] -->|Socket (Image)| Vision[Vision AI (YOLO)]
-    Vision -->|Detect (Pet+Obj)| Logic[Behavior Logic (Distance/Overlap)]
-    Logic -->|Result (Success/Fail)| Socket[Socket Server]
-    Socket -->|Request Dialogue| Brain[Brain AI (LangGraph/LLM)]
-    Brain -->|Persona Text| Socket
-    Socket -->|Feedback & Audio| App
+graph TD
+    User[User Camera] -->|Choice| Mode{Server or Edge?}
+    
+    subgraph Server Mode
+    Mode -->|WebSocket| S_Vision[Server YOLOv11]
+    S_Vision -->|Detect| S_Logic[Server Logic]
+    S_Logic -->|Result| S_Socket[Socket]
+    S_Socket -->|Persona| Brain[LLM Brain]
+    Brain --> S_Socket
+    end
+    
+    subgraph Edge Mode
+    Mode -->|Local| E_Vision[TFLite Model]
+    E_Vision -->|Detect| E_Logic[Local Logic]
+    E_Logic -->|Result/BestShot| Adapter[Sync Adapter]
+    end
+    
+    S_Socket --> App[Flutter UI]
+    E_Logic --> App
+    Adapter -.->|Upload BestShot| S_Socket
 ```
 
 ### 📂 핵심 디렉토리 설명
@@ -43,6 +56,20 @@ graph LR
     *   **거리(Distance)**: 펫과 장난감이 얼마나 가까운가? (`playing`, `interaction` 모드)
     *   **겹침(Overlap)**: 펫이 밥그릇 위에 있는가? (`feeding` 모드)
 4.  **[Feedback]** 조건(임계값)을 만족하면 "성공", 아니면 "더 가까이 가세요" 같은 피드백을 보냅니다.
+    
+### A-2. 엣지 모드 (Edge Training)
+서버 통신 없이 폰에서 바로 분석합니다.
+
+1.  **[TFLite]** 폰에 내장된 `.tflite` 모델이 0.1초 안에 반려동물 자세를 찾습니다.
+2.  **[Local Logic]** 앱 내부 코드(`edge_detector_native.dart`)가 거리와 각도를 계산합니다.
+3.  **[Sync]** 훈련이 성공하면 점수와 베스트 샷(사진)만 나중에 서버로 보냅니다.
+
+### A-3. 자동 추억 생성 (AI Synergy) 📸
+**"Vision이 찍고, LLM이 쓴다."**
+1.  **[Capture]** 훈련 중 Confidence(확신도)가 가장 높은 프레임을 `Best Shot`으로 선정하여 임시 저장합니다.
+2.  **[Upload]** 훈련이 성공적으로 끝나면, 백엔드(`analysis_socket.py`)가 이 사진과 훈련 결과를 받습니다.
+3.  **[Captioning]** 서버가 LLM에게 "이 상황(성공, 높은 정확도)에 어울리는 일기 내용을 써줘"라고 요청합니다.
+4.  **[Archive]** 사진 + LLM이 쓴 일기가 DB(`diaries` 테이블)에 저장되어 미니홈피에 자동으로 올라갑니다.
 
 > **🛠️ 인식이 너무 빡빡하다면?**
 > *   `backend/app/ai_core/vision/detector.py` 파일의 `MIN_DISTANCE`(최소 거리)나 `LOGIC_CONF`(인식 정확도 기준) 값을 수정하세요.

@@ -18,7 +18,7 @@
 
 ### 📂 Frontend (앱 - 화면 표시)
 `frontend/lib/` 폴더입니다.
-- **`models/skill_data.dart`** 👈 **중요!** 앱에서 보여줄 스킬 이름과 설명이 들어있습니다.
+- **`frontend/assets/data/skills.json`** 👈 **중요!** 앱에서 보여줄 스킬 이름과 설명이 들어있습니다. (JSON 형식)
 
 ---
 
@@ -90,24 +90,24 @@ MOVE_DATA = {
 }
 ```
 
-#### 2단계 (Frontend): `skill_data.dart` 열기
-앱에서도 이 스킬의 이름과 설명을 알아야 표시해 줄 수 있습니다.
+#### 2단계 (Frontend): `skills.json` 열기
+앱에서도 이 스킬의 이름과 설명을 알아야 표시해 줄 수 있습니다. JSON 형식이므로 문법에 주의하세요.
 
-```dart
-// frontend/lib/models/skill_data.dart
+```json
+// frontend/assets/data/skills.json
 
-const Map<int, Map<String, dynamic>> SKILL_DATA = {
-  // 기존 스킬들...
-  
-  // ID가 서버와 똑같아야 합니다!
-  999: {
-    "name": "핵꿀밤", 
-    "power": 120, 
-    "accuracy": 80, 
-    "type": "fighting", 
-    "description": "아주 아픈 꿀밤을 때린다." // 앱에서 보여줄 설명
-  },
-};
+{
+    // 기존 스킬들...
+    
+    // ID가 서버와 똑같아야 합니다! (숫자도 따옴표 안에 넣어야 함)
+    "999": {
+        "name": "핵꿀밤",
+        "power": 120,
+        "accuracy": 80,
+        "type": "fighting",
+        "description": "아주 아픈 꿀밤을 때린다." 
+    }
+}
 ```
 🎉 **끝!** 이제 게임 내에서 ID 999번 스킬을 배우거나 사용하면 "핵꿀밤"이 나갑니다.
 
