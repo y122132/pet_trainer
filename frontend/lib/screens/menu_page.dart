@@ -18,8 +18,13 @@ import '../providers/chat_provider.dart';
 import '../providers/battle_provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:pet_trainer_frontend/api_config.dart';
+import 'notice_list_screen.dart';
+import 'package:pet_trainer_frontend/api_config.dart'; 
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import '../models/notice_model.dart';
 
 import '../config/design_system.dart';
 import 'character_image_update_screen.dart';
@@ -43,6 +48,7 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
   late AnimationController _breathingController;
   late Animation<double> _breathingAnimation;
   StreamSubscription? _chatSubscription;
+  bool _hasNewNotice = false; // [New]
 
   @override
   void initState() {
@@ -62,7 +68,35 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
         }
         
         _initChatConnection(); // [New]
+        _checkForNewNotices(); // [New]
     });
+  }
+
+  Future<void> _checkForNewNotices() async {
+    try {
+      final token = await AuthService().getToken();
+      final response = await http.get(
+        Uri.parse('${AppConfig.baseUrl}/notices/'),
+        headers: {"Authorization": "Bearer $token"},
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+        if (data.isNotEmpty) {
+          final notices = data.map((item) => NoticeModel.fromJson(item)).toList();
+          final latestNoticeId = notices.first.id;
+
+          final prefs = await SharedPreferences.getInstance();
+          final lastSeenId = prefs.getInt('last_seen_notice_id') ?? 0;
+
+          setState(() {
+            _hasNewNotice = latestNoticeId > lastSeenId;
+          });
+        }
+      }
+    } catch (e) {
+      print("Error checking for new notices: $e");
+    }
   }
 
   Future<void> _initChatConnection() async {
@@ -261,9 +295,34 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
           BoneWidget(text: '$name ($type)'),
           Row(
             children: [
-              _buildHeaderIcon(FontAwesomeIcons.envelope),
-              const SizedBox(width: 12),
-              _buildHeaderIcon(FontAwesomeIcons.bell),
+              GestureDetector(
+                onTap: () async {
+                  await Navigator.push(context, MaterialPageRoute(builder: (_) => const NoticeListScreen()));
+                  // Refresh badge status when coming back from notice list
+                  _checkForNewNotices();
+                },
+                child: Stack(
+                  children: [
+                    _buildHeaderIcon(FontAwesomeIcons.bell),
+                    if (_hasNewNotice)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 12,
+                            minHeight: 12,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
               const SizedBox(width: 12),
               GestureDetector(
                 onTap: _showSettingsDialog,

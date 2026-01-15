@@ -24,7 +24,7 @@ from app.db.database_redis import RedisManager # 추가
 # Admin
 from sqladmin import Admin
 from app.db.database import engine
-from app.admin_panel import UserAdmin, CharacterAdmin, StatAdmin, ActionLogAdmin, DiaryAdmin, DiaryLikeAdmin
+from app.admin_panel import UserAdmin, CharacterAdmin, StatAdmin, ActionLogAdmin, DiaryAdmin, DiaryLikeAdmin, NoticeAdmin
 
 
 app = FastAPI(title="PetTrainer API")
@@ -44,7 +44,7 @@ if "origins" not in locals() or origins == ["*"]:
     # [*] Wildcard with credentials is invalid. Use regex for localhost dev.
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?",
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|10\.0\.2\.2|192\.168\.\d+\.\d+)(:\d+)?",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -88,6 +88,7 @@ admin.add_view(StatAdmin)
 admin.add_view(ActionLogAdmin)
 admin.add_view(DiaryAdmin)
 admin.add_view(DiaryLikeAdmin)
+admin.add_view(NoticeAdmin)
 
 @app.get("/")
 async def root():
