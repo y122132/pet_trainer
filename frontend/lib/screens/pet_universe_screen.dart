@@ -1818,7 +1818,9 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
 
   Future<void> _submit() async {
 
-    if (_contentController.text.isEmpty) {
+    final String content = _contentController.text.trim();
+
+    if (content.isEmpty) {
 
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("내용을 입력해주세요.")));
 
@@ -1844,6 +1846,14 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
 
       final token = await AuthService().getToken();
 
+      if (token == null) {
+
+         throw Exception("로그인 세션이 만료되었습니다. 다시 로그인해주세요.");
+
+      }
+
+
+
       var uri = Uri.parse("${AppConfig.baseUrl}/diaries/");
 
       var request = http.MultipartRequest("POST", uri);
@@ -1852,7 +1862,7 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
 
       request.headers.addAll({"Authorization": "Bearer $token"});
 
-      request.fields['content'] = _contentController.text;
+      request.fields['content'] = content;
 
       request.fields['tag'] = _getAutomaticTag();
 
@@ -1870,6 +1880,10 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
 
         } else {
 
+            // [Check] 이미지 크기 제한 이슈 가능성
+
+            debugPrint("📤 업로드 시도: ${_image!.path}");
+
             var multipartFile = await http.MultipartFile.fromPath('image', _image!.path);
 
             request.files.add(multipartFile);
@@ -1880,31 +1894,63 @@ class _AddDiarySheetState extends State<_AddDiarySheet> {
 
 
 
-      var response = await request.send();
+      // [Stability] 타임아웃 30초 설정
+
+      var streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+
+      var response = await http.Response.fromStream(streamedResponse);
 
 
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
 
-        final respStr = await response.stream.bytesToString();
-
-        final newDiary = jsonDecode(respStr);
-
-        
+        final newDiary = jsonDecode(utf8.decode(response.bodyBytes));
 
         widget.onSave(newDiary);
 
         if(mounted) Navigator.pop(context);
 
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("일기가 기록되었습니다!")));
+
+      } else if (response.statusCode == 413) {
+
+        throw Exception("이미지 용량이 너무 큽니다. 다른 사진을 선택하거나 크기를 줄여주세요.");
+
       } else {
 
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("업로드 실패")));
+        final errorMsg = json.decode(utf8.decode(response.bodyBytes))['detail'] ?? "업로드 실패";
+
+        throw Exception(errorMsg);
 
       }
 
     } catch (e) {
 
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("에러: $e")));
+      debugPrint("❌ Diary Submit Error: $e");
+
+      if(mounted) {
+
+        showDialog(
+
+          context: context,
+
+          builder: (ctx) => AlertDialog(
+
+            title: const Text("기록 실패"),
+
+            content: Text(e.toString().replaceAll("Exception: ", "")),
+
+            actions: [
+
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("확인"))
+
+            ],
+
+          )
+
+        );
+
+      }
 
     } finally {
 

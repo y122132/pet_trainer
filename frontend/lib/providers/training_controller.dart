@@ -85,7 +85,7 @@ class TrainingController extends ChangeNotifier {
   
   // [NEW] Local Timer State
   int _stayStartTime = 0;
-  static const int _stayDuration = 2000; // 2 seconds
+  static const int _stayDuration = 1000; // 1 seconds
   
   // [NEW] One Euro Filter State (Class ID -> [x1, y1, x2, y2])
   Map<int, List<OneEuroFilter>>? _boxFilters;

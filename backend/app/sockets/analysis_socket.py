@@ -426,7 +426,7 @@ async def analysis_endpoint(
                         hold_duration = current_time - state_start_time
                         response.update({
                             "status": "stay", 
-                            "message": f"자세 유지... {3 - hold_duration:.1f}초 (인식 불안정)"
+                            "message": f"자세 유지... {1 - hold_duration:.1f}초 (인식 불안정)"
                         })
                         await websocket.send_json(response)
                         

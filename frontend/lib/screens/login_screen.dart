@@ -75,13 +75,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       }
     } else {
       if (!mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            "로그인 실패! 아이디와 비밀번호를 확인하세요.",
-            style: GoogleFonts.jua(color: Colors.white, fontSize: 16),
+            "로그인에 실패했습니다. 아이디/비밀번호를 다시 확인하시거나 서버 연결 상태를 점검해주세요.",
+            style: GoogleFonts.jua(color: Colors.white, fontSize: 14),
           ),
           backgroundColor: AppColors.danger,
+          duration: const Duration(seconds: 4),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(20),

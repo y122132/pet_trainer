@@ -1,6 +1,7 @@
 // frontend/lib/providers/chat_provider.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import '../api_config.dart';
 import 'package:flutter/material.dart';
 import 'package:overlay_support/overlay_support.dart';
@@ -57,15 +58,42 @@ class ChatProvider extends ChangeNotifier {
     _activeChatUserId = null;
   }
 
+  Timer? _heartbeatTimer;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 5;
+
   @override
   void dispose() {
+    _stopHeartbeat();
     _channel?.sink.close();
     _messageController.close();
     super.dispose();
   }
 
+  void _startHeartbeat() {
+    _stopHeartbeat();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (_isConnected && _channel != null) {
+        try {
+          _channel!.sink.add(jsonEncode({"type": "PING"}));
+        } catch (e) {
+          debugPrint("💓 Heartbeat Failed: $e");
+          _handleConnectionLoss();
+        }
+      }
+    });
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+  }
+
   void connect(int userId) {
-    if (_isConnected && _currentUserId == userId) return;
+    if (_isConnected && _currentUserId == userId) {
+      debugPrint("이미 연결되어 있습니다: $userId");
+      return;
+    }
     
     _currentUserId = userId;
     final url = AppConfig.chatSocketUrl(userId);
@@ -74,26 +102,48 @@ class ChatProvider extends ChangeNotifier {
     try {
       _channel = WebSocketChannel.connect(Uri.parse(url));
       _isConnected = true;
+      _reconnectAttempts = 0; // 연결 성공 시 시도 횟수 초기화
+      _startHeartbeat();
       notifyListeners();
 
-      _channel!.stream.listen((data) {
-        _onMessageReceived(data);
-      }, onError: (error) {
-        debugPrint("ChatProvider Error: $error");
-        _isConnected = false;
-        notifyListeners();
-      }, onDone: () {
-        debugPrint("ChatProvider Closed");
-        _isConnected = false;
-        notifyListeners();
-      });
+      _channel!.stream.listen(
+        (data) => _onMessageReceived(data), 
+        onError: (error) {
+          debugPrint("ChatProvider Error: $error");
+          _handleConnectionLoss();
+        }, 
+        onDone: () {
+          debugPrint("ChatProvider Connection Closed by Server");
+          _handleConnectionLoss();
+        }
+      );
     } catch (e) {
       debugPrint("ChatProvider Connection Failed: $e");
-      _isConnected = false;
+      _handleConnectionLoss();
+    }
+  }
+
+  void _handleConnectionLoss() {
+    _isConnected = false;
+    _stopHeartbeat();
+    notifyListeners();
+
+    // 지수 백오프로 재연결 시도
+    if (_currentUserId != null && _reconnectAttempts < _maxReconnectAttempts) {
+      _reconnectAttempts++;
+      int delay = math.pow(2, _reconnectAttempts).toInt(); // 2, 4, 8, 16, 32초
+      debugPrint("🔌 연결 유실: ${delay}초 후 재연결 시도 ($_reconnectAttempts/$_maxReconnectAttempts)");
+      
+      Timer(Duration(seconds: delay), () {
+        if (_currentUserId != null && !_isConnected) {
+          connect(_currentUserId!);
+        }
+      });
     }
   }
 
   void disconnect() {
+    _stopHeartbeat();
     _channel?.sink.close();
     _channel = null;
     _isConnected = false;
@@ -101,6 +151,7 @@ class ChatProvider extends ChangeNotifier {
     _onlineStatus.clear();  
     _unreadCounts.clear();    
     _activeChatUserId = null; 
+    _reconnectAttempts = 0;
     
     debugPrint("🧹 ChatProvider: 소켓 연결 해제 및 모든 데이터 초기화 완료");
     notifyListeners();
@@ -113,7 +164,7 @@ class ChatProvider extends ChangeNotifier {
       if (decoded['type'] == 'INITIAL_ONLINE_LIST') {
         List<dynamic> userIds = decoded['user_ids'];
         for (var id in userIds) {
-          _onlineStatus[id as int] = true;
+          _onlineStatus[(id as num).toInt()] = true;
         }
         debugPrint("📋 초기 온라인 명단 수신: $userIds");
         notifyListeners();
@@ -121,7 +172,7 @@ class ChatProvider extends ChangeNotifier {
       }
 
       if (decoded['type'] == 'USER_STATUS') {
-        int uid = decoded['user_id'];
+        int uid = (decoded['user_id'] as num).toInt();
         bool isOnline = decoded['online'];
         _onlineStatus[uid] = isOnline; 
         debugPrint("👤 유저 $uid 상태 변경 수신: ${isOnline ? '온라인' : '오프라인'}");
