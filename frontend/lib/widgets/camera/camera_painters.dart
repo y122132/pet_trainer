@@ -19,7 +19,6 @@ const Map<int, String> yoloClasses = {
   49: 'Orange',
   50: 'Broccoli',
   51: 'Carrot',
-  77: 'Teddy',
 };
 
 // Bounding Box Visualizer

@@ -576,7 +576,7 @@ void _isolateEntry(_IsolateInitData initData) async {
                _outputBufferObj!, 80, 0.55, 0.40, shape: outputShape
             );
             
-            const Set<int> allowedProps = {29, 32, 39, 41, 45, 46, 47, 48, 49, 50, 51, 77};
+            const Set<int> allowedProps = {29, 32, 39, 41, 45, 46, 47, 48, 49, 50, 51};
             
              // [NEW] Top-1 Per Class Filtering for Props
              final Map<int, dynamic> bestProps = {};
