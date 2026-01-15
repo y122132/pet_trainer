@@ -31,6 +31,10 @@ class TrainingController extends ChangeNotifier {
   TrainingStatus trainingState = TrainingStatus.ready;
   String _currentMode = "playing"; // Default
   
+  // [NEW] Best Shot (Edge Mode)
+  Map<String, dynamic>? _bestFrameData; // Cached Frame Data for generic isolation
+  double _bestConf = 0.0;
+  
   // Stats
   double confScore = 0.0;
   String feedback = "";
@@ -63,12 +67,17 @@ class TrainingController extends ChangeNotifier {
   String progressText = "";
   Map<String, dynamic>? lastReward;
   VoidCallback? onSuccessCallback;
+  String? bestShotUrl; // [NEW] Best Shot URL
   
   // Debug
   String debugLog = "";
   double maxConfAny = 0.0;
   int maxConfCls = -1;
   Uint8List? debugInputImage;
+  
+  // 성공 트리거 잠금 (중복 전송 방지)
+  bool _successTriggered = false;
+  String? cachedCharMessage;
 
   // [NEW] Persistence State
   Map<String, dynamic>? lastEdgeResult;
@@ -76,12 +85,119 @@ class TrainingController extends ChangeNotifier {
   
   // [NEW] Local Timer State
   int _stayStartTime = 0;
-  static const int _stayDuration = 3000; // 3 seconds
+  static const int _stayDuration = 1000; // 1 seconds
   
-  // [NEW] One Euro Filter State
-  List<OneEuroFilter>? _boxFilters;
+  // [NEW] One Euro Filter State (Class ID -> [x1, y1, x2, y2])
+  Map<int, List<OneEuroFilter>>? _boxFilters;
+  // Pet Keypoints (17 * 2)
+  List<OneEuroFilter>? _keypointFilters;
+  // Human Keypoints (17 * 2)
+  List<OneEuroFilter>? _humanKeypointFilters;
+  
+  // [NEW] Unified Smoothing Helper
+  void _applySmoothing(List<dynamic> targetBboxList) {
+      if (_boxFilters == null) {
+          _boxFilters = {};
+      }
+      
+      int now = DateTime.now().millisecondsSinceEpoch;
+      
+      for(int i=0; i<targetBboxList.length; i++) {
+          var box = targetBboxList[i]; 
+          // [x1, y1, x2, y2, conf, cls]
+          if (box.length > 5) {
+              int cls = (box[5] as num).toInt();
+              double conf = (box[4] as num).toDouble();
+              
+              // Only smooth high confidence inputs to avoid dragging ghosts
+              // (Threshold matches Edge logic)
+              if (conf < 0.25) continue;
+              
+              // Init filters for this class if missing
+              if (!_boxFilters!.containsKey(cls)) {
+                  _boxFilters![cls] = [
+                     OneEuroFilter(minCutoff: 0.5, beta: 0.007), // x1
+                     OneEuroFilter(minCutoff: 0.5, beta: 0.007), // y1
+                     OneEuroFilter(minCutoff: 0.5, beta: 0.007), // x2
+                     OneEuroFilter(minCutoff: 0.5, beta: 0.007), // y2
+                  ];
+              }
+              
+              final filters = _boxFilters![cls]!;
+              
+              double fx1 = filters[0].filter((box[0] as num).toDouble(), now);
+              double fy1 = filters[1].filter((box[1] as num).toDouble(), now);
+              double fx2 = filters[2].filter((box[2] as num).toDouble(), now);
+              double fy2 = filters[3].filter((box[3] as num).toDouble(), now);
+              
+              // Update In-Place
+              box[0] = fx1;
+              box[1] = fy1;
+              box[2] = fx2;
+              box[3] = fy2;
+          }
+      }
+  }
 
-  // --- Internal Flags & Flow Control ---
+  // [NEW] Keypoint Smoothing Helper (Pet)
+  void _smoothKeypoints(List<dynamic> rawFlatKeypoints) {
+      // Expecting [x, y, conf, x, y, conf, ...] for 17 keypoints
+      int numPoints = 17;
+      if (rawFlatKeypoints.length < numPoints * 3) return;
+
+      // Lazy Init
+      if (_keypointFilters == null) {
+          _keypointFilters = [];
+          for(int i=0; i<numPoints * 2; i++) { // 2 filters per point (x, y)
+             _keypointFilters!.add(OneEuroFilter(minCutoff: 0.5, beta: 0.007));
+          }
+      }
+
+      int now = DateTime.now().millisecondsSinceEpoch;
+      
+      for (int i = 0; i < numPoints; i++) {
+          int baseIdx = i * 3;
+          int filterIdx = i * 2;
+          
+          double rawX = (rawFlatKeypoints[baseIdx] as num).toDouble();
+          double rawY = (rawFlatKeypoints[baseIdx + 1] as num).toDouble();
+          
+          double smoothX = _keypointFilters![filterIdx].filter(rawX, now);
+          double smoothY = _keypointFilters![filterIdx+1].filter(rawY, now);
+          
+          rawFlatKeypoints[baseIdx] = smoothX;
+          rawFlatKeypoints[baseIdx + 1] = smoothY;
+      }
+  }
+  
+  // [NEW] Keypoint Smoothing Helper (Human)
+  void _smoothHumanKeypoints(List<dynamic> rawFlatKeypoints) {
+      int numPoints = 17;
+      if (rawFlatKeypoints.length < numPoints * 3) return;
+
+      if (_humanKeypointFilters == null) {
+          _humanKeypointFilters = [];
+          for(int i=0; i<numPoints * 2; i++) { 
+             _humanKeypointFilters!.add(OneEuroFilter(minCutoff: 0.5, beta: 0.007));
+          }
+      }
+
+      int now = DateTime.now().millisecondsSinceEpoch;
+      
+      for (int i = 0; i < numPoints; i++) {
+          int baseIdx = i * 3;
+          int filterIdx = i * 2;
+          
+          double rawX = (rawFlatKeypoints[baseIdx] as num).toDouble();
+          double rawY = (rawFlatKeypoints[baseIdx + 1] as num).toDouble();
+
+          double smoothX = _humanKeypointFilters![filterIdx].filter(rawX, now);
+          double smoothY = _humanKeypointFilters![filterIdx+1].filter(rawY, now);
+          
+          rawFlatKeypoints[baseIdx] = smoothX;
+          rawFlatKeypoints[baseIdx + 1] = smoothY;
+      }
+  }
   bool _isProcessingFrame = false;
   bool _canSendFrame = true; // Lock mechanism
   int _frameInterval = 100; // ms
@@ -120,7 +236,9 @@ class TrainingController extends ChangeNotifier {
     _targetPetKeypoints = []; // Reset Target
     humanKeypoints = [];
     _canSendFrame = true;
-    _currentFrameId = 0;
+    bestShotUrl = null; // Reset
+    _successTriggered = false;
+    cachedCharMessage = null;
     
     // [NEW] Start UI Animation Loop
     _startUiLoop(); 
@@ -160,24 +278,28 @@ class TrainingController extends ChangeNotifier {
       
       bool needsUpdate = false;
       
+      // [NEW] Adaptive Alpha Calculation
+      // Target: Smooth movement over the specific inference duration
+      // If inference takes 200ms, and UI tick is 16ms, we want to move ~1/12th per tick.
+      // alpha = dt / latency
+      
+      // Safety: Min Latency 50ms (avoid div by zero or super fast jitter)
+      int safeLatency = (inferenceMs > 50) ? inferenceMs : 50;
+      double alpha = (16.0 / safeLatency).clamp(0.01, 0.25); 
+      
       // 1. Interpolate BBox
-      // Strategy: If count matches, lerp. Else snap.
       if (bbox.length == _targetBbox.length) {
           for(int i=0; i<bbox.length; i++) {
-              // Check consistency (Class ID match)
-              // Box format: [x1, y1, x2, y2, conf, cls]
               var cur = bbox[i];
               var tgt = _targetBbox[i];
               
               if (cur.length > 5 && tgt.length > 5 && cur[5] == tgt[5]) {
                   // Same object -> Lerp
-                  double alpha = 0.2; // Speed factor (Adjustable)
                   
                   cur[0] += (tgt[0] - cur[0]) * alpha;
                   cur[1] += (tgt[1] - cur[1]) * alpha;
                   cur[2] += (tgt[2] - cur[2]) * alpha;
                   cur[3] += (tgt[3] - cur[3]) * alpha;
-                  // Conf & Cls are copied immediately or ignored in lerp
                   cur[4] = tgt[4]; 
                   
                   needsUpdate = true;
@@ -188,7 +310,6 @@ class TrainingController extends ChangeNotifier {
               }
           }
       } else {
-           // Structure Change -> Snap
            bbox = List.from(_targetBbox.map((e) => List.from(e)));
            needsUpdate = true;
       }
@@ -196,20 +317,17 @@ class TrainingController extends ChangeNotifier {
       // 2. Interpolate Keypoints
       if (petKeypoints.length == _targetPetKeypoints.length) {
            for(int i=0; i<petKeypoints.length; i++) {
-               var cur = petKeypoints[i]; // [x, y, c]
+               var cur = petKeypoints[i]; 
                var tgt = _targetPetKeypoints[i];
                
                if (cur.length >= 2 && tgt.length >= 2) {
-                   double alpha = 0.2;
                    cur[0] += (tgt[0] - cur[0]) * alpha;
                    cur[1] += (tgt[1] - cur[1]) * alpha;
-                   // Conf
                    if (cur.length > 2 && tgt.length > 2) cur[2] = tgt[2];
                    needsUpdate = true;
                }
            }
       } else {
-           // Snap
            petKeypoints = List.from(_targetPetKeypoints.map((e) => List.from(e)));
            needsUpdate = true;
       }
@@ -243,7 +361,8 @@ class TrainingController extends ChangeNotifier {
     if (!isAnalyzing || 
         isThrottled || 
         _isProcessingFrame || 
-        !_canSendFrame) {
+        !_canSendFrame ||
+        _successTriggered) { // [FIX] 성공 트리거 이후 추가 프레임 분석 완전 중단
       return;
     }
 
@@ -292,7 +411,12 @@ class TrainingController extends ChangeNotifier {
                 
                 final edgeResult = await EdgeDetector().processFrame(image, _currentMode, rotationAngle);
                 
-                // [FIX] Update Latency for EVERY frame
+                // [FIX] 비동기 작업 후 상태 재확인 (레이스 컨디션 방지)
+                if (!isAnalyzing || _successTriggered) {
+                   _isProcessingFrame = false;
+                   _canSendFrame = true;
+                   return;
+                }
                 if (edgeResult.containsKey('debug_info') && edgeResult['debug_info'] != null) {
                    final debugInfo = edgeResult['debug_info'];
                    if (debugInfo.containsKey('inference_ms')) {
@@ -309,38 +433,65 @@ class TrainingController extends ChangeNotifier {
                    isGpu = debugInfo['use_gpu'] ?? false; // [NEW]
                 }
                 
+                // [NEW] Best Shot Selection (Edge Mode)
+                if (trainingState == TrainingStatus.stay) {
+                    double currentConf = (edgeResult['conf_score'] as num?)?.toDouble() ?? 0.0;
+                    // Fallback if conf_score is missing: use max bbox conf
+                    if (currentConf == 0.0 && edgeResult['bbox'] != null) {
+                         for (var box in edgeResult['bbox']) {
+                             if (box.length > 4) {
+                                 double boxConf = (box[4] as num).toDouble();
+                                 if (boxConf > currentConf) currentConf = boxConf;
+                             }
+                         }
+                    }
+
+                    if (_bestFrameData == null || currentConf > _bestConf) {
+                        _bestConf = currentConf;
+                        // Deep Copy to persist past frame recycling
+                        _bestFrameData = {
+                            'width': image.width,
+                            'height': image.height,
+                            'planes': image.planes.map((p) => {
+                                'bytes': Uint8List.fromList(p.bytes),
+                                'bytesPerRow': p.bytesPerRow,
+                                'bytesPerPixel': p.bytesPerPixel
+                            }).toList(),
+                            'rotationAngle': rotationAngle,
+                            'frameId': thisFrameId
+                        };
+                        print("[TrainingController] Best Shot Cached: $_bestConf");
+                    }
+                }
+                
                 // [NEW] Anti-Flickering (Persistence) Logic
                 // If detection failed (no bbox), check if we can reuse last result
                 bool isValidDetection = false;
                 if (edgeResult['bbox'] != null && (edgeResult['bbox'] as List).isNotEmpty) {
                    isValidDetection = true;
                    // --- One Euro Filter (UX Smoothing) ---
-                // [NEW] Define filters if not exists (Lazy Load)
-                _boxFilters ??= [
-                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // x1
-                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // y1
-                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // x2
-                   OneEuroFilter(minCutoff: 1.0, beta: 0.1), // y2
-                ];
+
                 }
                 
                 if (isValidDetection) {
-                    // [Smoothing] Apply One Euro Filter to Pet Box
-                    // edgeResult['bbox'] is List<dynamic> (List of Boxes)
-                    // We need to find the "Primary Pet" box and smooth it.
-                    // EdgeGameLogic usually picks the best one. 
-                    // But here we are BEFORE EdgeGameLogic.
-                    
+                    // [Smoothing] Apply One Euro Filter to All Boxes (Pet, Human, Props)
                     if (edgeResult['bbox'] != null) {
-                         // [Smoothing] Use Helper
                          _applySmoothing(edgeResult['bbox']);
                     }
                     
-                    // [Smoothing] Keypoints (Sync with Box)
+                    // [Smoothing] Pet Keypoints
                     if (edgeResult['pet_keypoints'] != null && (edgeResult['pet_keypoints'] as List).isNotEmpty) {
                         var rawPets = edgeResult['pet_keypoints'] as List; 
                         if (rawPets.isNotEmpty && rawPets[0] is List) {
                              _smoothKeypoints(rawPets[0]);
+                        }
+                    }
+                    
+                    // [Smoothing] Human Keypoints
+                    if (edgeResult['human_keypoints'] != null && (edgeResult['human_keypoints'] as List).isNotEmpty) {
+                        var rawHumans = edgeResult['human_keypoints'] as List; 
+                        if (rawHumans.isNotEmpty && rawHumans[0] is List) {
+                             _smoothHumanKeypoints(rawHumans[0]);
                         }
                     }
 
@@ -367,7 +518,9 @@ class TrainingController extends ChangeNotifier {
                         
                         // [Reset] Filters to prevent jump on next detection
                         if (_boxFilters != null) {
-                             for(var f in _boxFilters!) f.reset();
+                             for(var list in _boxFilters!.values) {
+                                for(var f in list) f.reset();
+                             }
                         }
                     }
                 }
@@ -382,14 +535,21 @@ class TrainingController extends ChangeNotifier {
                 // [DEBUG] Check for Edge Errors IMMEDIATELY
                 if (edgeResult.containsKey('error') && edgeResult['error'] != null) {
                    final err = edgeResult['error'];
-                   // [User Request] Show error in Overlay Log
-                   // addLog("⚠️ CRITICAL: $err");
                    errorMessage = "Edge Err: $err";
-                   notifyListeners(); // Force UI Update
+                   notifyListeners(); 
+                   _isProcessingFrame = false; // [FIX] Lock Recovery
+                   _canSendFrame = true;
                    return; 
                 }
                 
-                // [FIX] ===== IMMEDIATELY UPDATE TARGET STATE (AI Data) =====
+                // [FIX] 핵심 안정화: 이미 성공했거나 분석이 중지된 경우 이 프레임의 데이터로 상태를 오염시키지 않음
+                if (!isAnalyzing || _successTriggered) {
+                   _isProcessingFrame = false;
+                   _canSendFrame = true;
+                   return;
+                }
+                
+                // [FIX] ===== 이 시점부터만 상태 업데이트 가능 (성공 전까지만) =====
                 
                 // Update Detection Data (Target)
                 if (edgeResult.containsKey('bbox')) {
@@ -487,15 +647,24 @@ class TrainingController extends ChangeNotifier {
                         status = 'success';
                         stayProgress = 1.0;
                         progressText = "완료!";
-                        _stayStartTime = 0; // Reset
+                        // [FIX] 여기서 _stayStartTime = 0 리셋을 하지 않아야 다음 프레임이 'stay'로 역행하지 않음
                     }
                 } else {
-                   // Distance Bad or No Pet -> Reset Timer
-                   _stayStartTime = 0;
-                   stayProgress = 0.0;
-                   progressText = "";
+                   // [FIX] 이미 성공 트리거가 된 경우 타이머를 리셋하지 않음 (지터 방지)
+                   if (!_successTriggered) {
+                      _stayStartTime = 0;
+                      stayProgress = 0.0;
+                      progressText = "";
+                   }
                 }
                 
+                // [FINAL CHECK] 상태 업데이트 직전 한 번 더 성공 여부 확인
+                if (_successTriggered) {
+                    _isProcessingFrame = false;
+                    _canSendFrame = true;
+                    return;
+                }
+
                 trainingState = _parseStatus(status);
                 
                 // [FIX] Unlock frame lock IMMEDIATELY
@@ -505,7 +674,9 @@ class TrainingController extends ChangeNotifier {
                 // The UI Loop (60FPS) will pick up the state changes automatically.
                 
                 // [OPTIONAL] Send to server ONLY for SUCCESS 
-                if (status == 'success') {
+                if (status == 'success' && !_successTriggered) {
+                   _successTriggered = true; // 잠금 활성화
+                   
                    // Create a minimal success packet
                    final successPacket = {
                        'frame_id': thisFrameId,
@@ -516,9 +687,32 @@ class TrainingController extends ChangeNotifier {
                        'difficulty': 'easy',
                        'bbox': bbox,
                        'pet_keypoints': petKeypoints,
-                       'human_keypoints': humanKeypoints
+                       'human_keypoints': humanKeypoints,
+                       'conf_score': confScore
                    };
                    
+                   // [NEW] Attach Best Shot Logic
+                   if (_bestFrameData != null) {
+                       try {
+                           // Convert YUV to JPEG (background isolate)
+                           final Uint8List jpegWithId = await compute(resizeAndCompressImage, _bestFrameData!);
+                           
+                           // Strip last 4 bytes (Frame ID) for clean JPEG
+                           final Uint8List cleanJpeg = jpegWithId.sublist(0, jpegWithId.length - 4);
+                           
+                           successPacket['best_shot_base64'] = base64Encode(cleanJpeg);
+                           successPacket['best_conf'] = _bestConf; // Inform server
+                           print("[Edge] Sent Best Shot Base64 (${cleanJpeg.length} bytes)");
+                           
+                           // Reset Cache
+                           _bestFrameData = null;
+                           _bestConf = 0.0;
+                           
+                       } catch (e) {
+                           print("[Edge] Best Shot Encode Error: $e");
+                       }
+                   }
+
                    _socketClient.sendMessage(jsonEncode(successPacket));
                 }
             } else {
@@ -557,11 +751,7 @@ class TrainingController extends ChangeNotifier {
      
      // [NEW] Parse Check
      try {
-       final data = typeof(message) == 'string' ? jsonDecode(message) : message; // Handle both types if needed, usually string
-       // But _socketClient likely returns String. 
-       
-       // Handle binary? No, we expect JSON text usually. 
-       // If it's binary, jsonDecode throws.
+       // Handle both types if needed, usually string
        final Map<String, dynamic> jsonMap = (message is String) ? jsonDecode(message) : (message is Map ? message : {});
        
        final int responseFrameId = jsonMap['frame_id'] ?? -1;
@@ -576,10 +766,16 @@ class TrainingController extends ChangeNotifier {
             inferenceMs = latency; 
           }
        } else if (responseFrameId != -1 && responseFrameId != _pendingFrameId) {
-          // Stale frame response
-          print("Ignored Stale Frame: Resp($responseFrameId) != Pending($_pendingFrameId)");
-          return; 
-       }
+           // [Fix] 성공 메시지라면 프레임 ID가 달라도 무시하지 않고 처리
+           if (jsonMap['status'] == 'success') {
+              print("Processing Stale Frame for Success: Resp($responseFrameId) != Pending($_pendingFrameId)");
+              // 계속 진행 (return 안함)
+           } else {
+              // Stale frame response
+              print("Ignored Stale Frame: Resp($responseFrameId) != Pending($_pendingFrameId)");
+              return; 
+           }
+        }
        
        if (!GlobalSettings.useEdgeAI) {
            // Only update state from server if NOT using Edge AI (or if it's a success confirmation)
@@ -593,8 +789,8 @@ class TrainingController extends ChangeNotifier {
               final msg = jsonMap['message'] as String? ?? '';
               final match = RegExp(r'(\d+\.\d+)').firstMatch(msg);
               if (match != null) {
-                  final remaining = double.tryParse(match.group(1) ?? '3.0') ?? 3.0;
-                  stayProgress = (3.0 - remaining) / 3.0;
+                  final remaining = double.tryParse(match.group(1) ?? '2.0') ?? 2.0;
+                  stayProgress = (2.0 - remaining) / 2.0;
                   progressText = "${remaining.toStringAsFixed(1)}초 유지 중...";
               }
            } else if (trainingState != TrainingStatus.success) {
@@ -621,17 +817,19 @@ class TrainingController extends ChangeNotifier {
            if (jsonMap.containsKey('debug_max_cls')) maxConfCls = (jsonMap['debug_max_cls'] as num).toInt();
        }
 
-       // Handle LLM/System Messages (Always allow these)
-       if (jsonMap.containsKey('char_message')) {
-          _charProvider?.updateStatusMessage(jsonMap['char_message']);
-       }
-       if (jsonMap.containsKey('message')) { 
-          _charProvider?.updateStatusMessage(jsonMap['message']);
-       }
+        // Handle LLM/System Messages (Always allow these)
+        if (jsonMap.containsKey('char_message')) {
+           cachedCharMessage = jsonMap['char_message']; // 캐싱
+           _charProvider?.updateStatusMessage(jsonMap['char_message']);
+        }
+        if (jsonMap.containsKey('message')) { 
+           _charProvider?.updateStatusMessage(jsonMap['char_message'] ?? jsonMap['message']);
+        }
 
        // Success Handling (Server Auth)
        final statusStr = jsonMap['status'] as String?;
        if (statusStr == 'success') {
+          print("Received Success Status! keys: ${jsonMap.keys}");
           if (jsonMap.containsKey('base_reward')) {
              final base = jsonMap['base_reward'];
              final bonus = jsonMap['bonus_points'] ?? 0;
@@ -640,16 +838,27 @@ class TrainingController extends ChangeNotifier {
              lastReward = {
                'base': base, 
                'bonus': bonus,
-               'level_up_info': data['level_up_info'] // [New]
+               'level_up_info': jsonMap['level_up_info'] // [New]
              };
 
-             _charProvider?.gainReward(base, bonus); 
+             // [NEW] Parse Best Shot URL
+             if (jsonMap.containsKey('best_shot_url')) {
+                 bestShotUrl = jsonMap['best_shot_url'];
+             }
+
+             _charProvider?.gainReward(base, bonus);  
              
              if (onSuccessCallback != null) {
+                print("Calling onSuccessCallback...");
                 onSuccessCallback?.call(); 
+             } else {
+                print("onSuccessCallback is NULL");
              }
              
+             print("Calling stopTraining...");
              stopTraining(); 
+          } else {
+             print("Success received but NO base_reward in map!");
           }
        }
        
@@ -687,85 +896,5 @@ class TrainingController extends ChangeNotifier {
   // Helper for JSON decode
   dynamic typeof(dynamic obj) => obj.runtimeType.toString();
   
-  // [NEW] One Euro Filter State for Keypoints (17 points * 2 coords = 34 filters)
-  List<OneEuroFilter>? _keypointFilters;
-  
-  // [NEW] Unified Smoothing Helper
-  void _applySmoothing(List<dynamic> targetBboxList) {
-       // ... (existing logic) ...
-      if (_boxFilters == null) {
-          _boxFilters = [
-             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
-             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
-             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
-             OneEuroFilter(minCutoff: 0.5, beta: 0.007),
-          ];
-      }
-      
-      int bestIdx = -1;
-      double maxConf = -1.0;
-      
-      for(int i=0; i<targetBboxList.length; i++) {
-          var box = targetBboxList[i]; 
-          if (box.length > 5) {
-              int cls = (box[5] as num).toInt();
-              double conf = (box[4] as num).toDouble();
-              // [Fix] Smooth ANY Pet (Dog, Cat, Bird)
-              if ([14, 15, 16].contains(cls) && conf > maxConf) {
-                  maxConf = conf;
-                  bestIdx = i;
-              }
-          }
-      }
-      
-      if (bestIdx != -1) {
-           var rawBox = targetBboxList[bestIdx];
-           int now = DateTime.now().millisecondsSinceEpoch;
-           
-           double fx1 = _boxFilters![0].filter((rawBox[0] as num).toDouble(), now);
-           double fy1 = _boxFilters![1].filter((rawBox[1] as num).toDouble(), now);
-           double fx2 = _boxFilters![2].filter((rawBox[2] as num).toDouble(), now);
-           double fy2 = _boxFilters![3].filter((rawBox[3] as num).toDouble(), now);
-           
-           // Update In-Place
-           targetBboxList[bestIdx][0] = fx1;
-           targetBboxList[bestIdx][1] = fy1;
-           targetBboxList[bestIdx][2] = fx2;
-           targetBboxList[bestIdx][3] = fy2;
-      }
-  }
 
-  // [NEW] Keypoint Smoothing Helper
-  void _smoothKeypoints(List<dynamic> rawFlatKeypoints) {
-      // Expecting [x, y, conf, x, y, conf, ...] for 17 keypoints
-      int numPoints = 17;
-      if (rawFlatKeypoints.length < numPoints * 3) return;
-
-      // Lazy Init
-      if (_keypointFilters == null) {
-          _keypointFilters = [];
-          for(int i=0; i<numPoints * 2; i++) { // 2 filters per point (x, y)
-             // Use same parameters as Box for Sync
-             _keypointFilters!.add(OneEuroFilter(minCutoff: 0.5, beta: 0.007));
-          }
-      }
-
-      int now = DateTime.now().millisecondsSinceEpoch;
-      
-      for (int i = 0; i < numPoints; i++) {
-          int baseIdx = i * 3;
-          int filterIdx = i * 2;
-          
-          double rawX = (rawFlatKeypoints[baseIdx] as num).toDouble();
-          double rawY = (rawFlatKeypoints[baseIdx + 1] as num).toDouble();
-          // Conf at baseIdx + 2 (skip)
-
-          double smoothX = _keypointFilters![filterIdx].filter(rawX, now);
-          double smoothY = _keypointFilters![filterIdx+1].filter(rawY, now);
-
-          // Update In-Place
-          rawFlatKeypoints[baseIdx] = smoothX;
-          rawFlatKeypoints[baseIdx + 1] = smoothY;
-      }
-  }
 }

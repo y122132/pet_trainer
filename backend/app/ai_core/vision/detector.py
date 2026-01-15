@@ -232,6 +232,10 @@ def process_frame(
         # [Fix] Name-Based Mapping applied
         names = results_pet[0].names
         
+        # [NEW] Top-1 Selection Logic
+        best_pet_det = None
+        best_pet_conf_local = -1.0
+        
         for i, box in enumerate(results_pet[0].boxes):
             cls_source = int(box.cls[0])
             conf = float(box.conf[0])
@@ -252,62 +256,88 @@ def process_frame(
             # Target Check & Confidence Check
             # [Anti-Flickering] Use dynamic LOGIC_CONF (0.35 or 0.20)
             if mapped_cls in [14, 15, 16] and conf >= LOGIC_CONF:
-                # 1. BBox Construction
-                x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
-                nx1, ny1, nx2, ny2 = np.clip([x1, y1, x2, y2], 0.0, 1.0)
-                current_pet_box = [float(nx1), float(ny1), float(nx2), float(ny2), float(conf), float(mapped_cls)]
+                # [NEW] Only track the BEST pet (Top-1)
+                # If target_class_id is specified, prioritize that class.
+                # Else, prioritize highest confidence.
                 
-                # Add to total detections (for visualization of ALL pets)
-                detected_objects.append(current_pet_box)
-
-                # 2. Keypoint Logic (Select PRIMARY pet for interaction)
-                # If target_class_id is -1, we pick the highest confidence pet automatically
-                is_target = False
-                if target_class_id == -1:
-                    if conf > best_conf: is_target = True
-                elif mapped_cls == target_class_id:
-                    if conf > best_conf: is_target = True
+                is_better = False
+                if best_pet_det is None:
+                    is_better = True
+                else:
+                    # Compare with current best
+                    prev_conf = best_pet_det["conf"]
+                    prev_cls = best_pet_det["cls"]
+                    
+                    if target_class_id != -1:
+                        # Priority to Target Class
+                        if mapped_cls == target_class_id and prev_cls != target_class_id:
+                             is_better = True
+                        elif mapped_cls == target_class_id and prev_cls == target_class_id:
+                             if conf > prev_conf: is_better = True
+                        elif mapped_cls != target_class_id and prev_cls != target_class_id:
+                             if conf > prev_conf: is_better = True
+                    else:
+                        # No target? Just Max Conf
+                        if conf > prev_conf: is_better = True
                 
-                if is_target:
-                    best_conf = conf
-                        
-                    # [NEW] Temporal Smoothing
-                    if vision_state:
-                         smoothed_box, smoothed_cls = apply_temporal_smoothing(current_pet_box, mapped_cls, vision_state)
-                         pet_info["box"] = smoothed_box
-                         mapped_cls = smoothed_cls # Update class for logic
-                         # Re-add smoothed box to detected_objects for visualization (replacing the raw one is hard, so we just append. 
-                         # Actually logic below adds it. But detected_objects has raw. 
-                         # Ideally we want visualization to show the smoothed output for the target.
-                         # Simple hack: detected_objects.append(smoothed_box) allows visualizing both or just smoothed if we filter.
-                         # For now, let's just use it for logic.
-                    
-                    found_pet = True
-                    if "box" not in pet_info or len(pet_info["box"]) == 0: pet_info["box"] = current_pet_box # Fallback
+                if is_better:
+                    best_pet_det = {
+                        "box": box,
+                        "conf": conf,
+                        "cls": mapped_cls,
+                        "index": i
+                    }
 
-                    # [Dynamic Config Update] Auto-detect mode (-1)
-                    # If we found a specific pet (e.g. Bird), switch to its specific config
-                    if target_class_id == -1:
-                         real_cls_id = int(mapped_cls)
-                         if real_cls_id in PET_BEHAVIORS:
-                             pet_config = PET_BEHAVIORS[real_cls_id]
-                             # Re-load mode settings
-                             mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
-                             target_props = mode_config["targets"]
+        # [NEW] Process Only the Best Pet
+        if best_pet_det:
+             box = best_pet_det["box"]
+             conf = best_pet_det["conf"]
+             mapped_cls = best_pet_det["cls"]
+             i = best_pet_det["index"]
+             
+             # 1. BBox Construction
+             x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
+             nx1, ny1, nx2, ny2 = np.clip([x1, y1, x2, y2], 0.0, 1.0)
+             current_pet_box = [float(nx1), float(ny1), float(nx2), float(ny2), float(conf), float(mapped_cls)]
+             
+             # Add to total detections (Top-1 Only)
+             detected_objects.append(current_pet_box)
 
-                    # Keypoints
-                    pet_info["keypoints"] = []
-                    pet_info["paws"] = []
-                    
-                    if results_pet[0].keypoints is not None and len(results_pet[0].keypoints.data) > i:
-                        kps = results_pet[0].keypoints.data[i].cpu().numpy()
-                        for k_idx, kp in enumerate(kps):
-                            nx, ny, c = float(kp[0])/width, float(kp[1])/height, float(kp[2])
-                            pet_info["keypoints"].append([nx, ny, c])
-                            
-                            if c > 0.30: # [Tuning] Raised to 0.30 as requested
-                                if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
-                                if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
+             # 2. Keypoint Logic (Select PRIMARY pet for interaction)
+             # Since we filtered to Top-1, this logic is simplified
+             
+             # [NEW] Temporal Smoothing
+             if vision_state:
+                  smoothed_box, smoothed_cls = apply_temporal_smoothing(current_pet_box, mapped_cls, vision_state)
+                  pet_info["box"] = smoothed_box
+                  mapped_cls = smoothed_cls # Update class for logic
+             
+             found_pet = True
+             if "box" not in pet_info or len(pet_info["box"]) == 0: pet_info["box"] = current_pet_box # Fallback
+
+             # [Dynamic Config Update] Auto-detect mode (-1)
+             if target_class_id == -1:
+                  real_cls_id = int(mapped_cls)
+                  if real_cls_id in PET_BEHAVIORS:
+                      pet_config = PET_BEHAVIORS[real_cls_id]
+                      # Re-load mode settings
+                      mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+                      target_props = mode_config["targets"]
+
+             # Keypoints
+             pet_info["keypoints"] = []
+             pet_info["paws"] = []
+             
+             if results_pet[0].keypoints is not None and len(results_pet[0].keypoints.data) > i:
+                 kps = results_pet[0].keypoints.data[i].cpu().numpy()
+                 for k_idx, kp in enumerate(kps):
+                     nx, ny, c = float(kp[0])/width, float(kp[1])/height, float(kp[2])
+                     pet_info["keypoints"].append([nx, ny, c])
+                     
+                     if c > 0.30: 
+                         if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
+                         if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
+
         
         # [Anti-Flickering] Persistence Logic (단기 기억)
         if found_pet:

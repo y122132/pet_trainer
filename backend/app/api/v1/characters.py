@@ -127,6 +127,7 @@ async def manual_level_up(char_id: int, db: AsyncSession = Depends(get_db)):
     await db.refresh(char)
     return {
         "id": char.id,
+        "user_id": char.user_id,
         "name": char.name,
         "pet_type": char.pet_type,
         "learned_skills": char.learned_skills,

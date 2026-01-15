@@ -51,11 +51,32 @@ class CommentResponse(BaseModel): # 댓글 응답 스키마
     children: List["CommentResponse"] = []
 
 # --- Helpers ---
+import mimetypes
+
 async def _save_upload_file(file: UploadFile, diary_id: int) -> str:
     filename = file.filename
-    ext = filename.rsplit('.', 1)[1].lower()
+    
+    # 1. 파일명에서 확장자 추출 시도
+    if '.' in filename:
+        ext = filename.rsplit('.', 1)[1].lower()
+    else:
+        # 2. 확장자가 없으면 MIME 타입을 기반으로 추론
+        guessed_ext = mimetypes.guess_extension(file.content_type)
+        if guessed_ext:
+            ext = guessed_ext.lstrip('.').lower()
+        else:
+            ext = 'jpg' # 기본값
+            
+    # jpe -> jpg 변환 등 표준화
+    if ext == 'jpe' or ext == 'jpeg':
+        ext = 'jpg'
+
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"File type not allowed: {ext}")
+        # 허용되지 않는 확장자일 경우, MIME 타입이 이미지라면 강제로 jpg로 취급 시도
+        if file.content_type.startswith('image/'):
+            ext = 'jpg'
+        else:
+            raise HTTPException(status_code=400, detail=f"File type not allowed: {ext}")
     
     # timestamp for unique filename
     ts = int(datetime.utcnow().timestamp())

@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:pet_trainer_frontend/api_config.dart';
 import 'package:pet_trainer_frontend/config/theme.dart';
+import 'package:pet_trainer_frontend/config/design_system.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:pet_trainer_frontend/screens/battle_page.dart';
 import 'package:pet_trainer_frontend/services/auth_service.dart';
-import 'package:pet_trainer_frontend/screens/user_list_screen.dart'; // For friend selection
+import 'package:pet_trainer_frontend/screens/user_list_screen.dart'; 
 import 'package:pet_trainer_frontend/providers/battle_provider.dart';
 
 class BattleLobbyScreen extends StatefulWidget {
@@ -26,17 +28,13 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
   late Animation<double> _pulseAnimation;
   final AuthService _authService = AuthService();
 
-  // --- 색상 및 테마 상수 ---
-  static const Color creamBackground = Color(0xFFFFF9E6);
-  static const Color darkBrown = Color(0xFF5D4037);
-
   @override
   void initState() {
     super.initState();
     _pulseController =
-        AnimationController(vsync: this, duration: const Duration(seconds: 1));
+        AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
     _pulseAnimation =
-        Tween<double>(begin: 1.0, end: 1.1).animate(CurvedAnimation(
+        Tween<double>(begin: 0.95, end: 1.05).animate(CurvedAnimation(
       parent: _pulseController,
       curve: Curves.easeInOut,
     ));
@@ -50,7 +48,7 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
     super.dispose();
   }
 
-  // --- 기존 로직 (변경 없음) ---
+  // --- Logic Methods (Preserved) ---
   void _startRandomMatch() async {
     setState(() => _isSearching = true);
 
@@ -70,7 +68,6 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
     debugPrint("Connecting to Matchmaker: $socketUrl");
 
     try {
-      // [Fix] Close existing socket before new connection
       _matchSocket?.sink.close();
       _matchSocket = WebSocketChannel.connect(Uri.parse(socketUrl));
 
@@ -107,7 +104,6 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
     if (!mounted) return;
     setState(() => _isSearching = false);
     
-    // [Fix] Close lobby socket before entering battle to prevent leak
     _matchSocket?.sink.close();
     _matchSocket = null;
 
@@ -135,7 +131,6 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
 
     final socketUrl = AppConfig.matchMakingSocketUrl(userId);
     try { 
-      // [Fix] Close existing socket before new connection
       _matchSocket?.sink.close();
       _matchSocket = WebSocketChannel.connect(Uri.parse(socketUrl));
       
@@ -149,7 +144,6 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
         }
       });
       
-      // [Key] Send AI_BATTLE Request
       _matchSocket!.sink.add("AI_BATTLE");
       
     } catch (e) {
@@ -158,36 +152,52 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
   }
 
   void _onInviteFriend() {
-
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const FriendPlayScreen()),
     );
   }
 
-  // --- UI 빌더 ---
+  // --- UI Builder ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: creamBackground,
+      backgroundColor: AppColors.background,
       body: Stack(
         children: [
+          // 1. [Background] Studio Gradient
+          // 1. [Background] Exact Friend Page Style
           Container(
             decoration: const BoxDecoration(
+              color: AppColors.background,
               image: DecorationImage(
                 image: AssetImage('assets/images/login_bg.png'),
                 fit: BoxFit.cover,
-                filterQuality: FilterQuality.high,
-                opacity: 0.2,
+                opacity: 0.3,
               ),
             ),
           ),
+
           SafeArea(
             child: Center(
-              child:
-                  _isSearching ? _buildSearchingUI() : _buildSelectionUI(),
+              child: _isSearching ? _buildSearchingUI() : _buildSelectionUI(),
             ),
           ),
+
+          // Back Button
+          if (!_isSearching)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 10,
+              left: 20,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textMain),
+                onPressed: () => Navigator.pop(context),
+                style: IconButton.styleFrom(
+                   backgroundColor: Colors.white.withValues(alpha: 0.5),
+                   padding: const EdgeInsets.all(12),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -196,181 +206,185 @@ class _BattleLobbyScreenState extends State<BattleLobbyScreen>
   Widget _buildSelectionUI() {
     return Column(
       children: [
-        const SizedBox(height: 40),
-        _buildHeader(),
-        Expanded(
+        const SizedBox(height: 60),
+        
+        // Header
+        ScaleTransition(
+          scale: _pulseAnimation,
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildModeCard(
-                title: "랜덤 매칭",
-                subtitle: "전 세계의 친구들과 대결해보세요!",
-                icon: Icons.public,
-                onTap: _startRandomMatch,
+               const FaIcon(FontAwesomeIcons.flagCheckered, color: AppColors.primary, size: 40),
+               const SizedBox(height: 10),
+               Text(
+                "READY TO BATTLE?",
+                style: GoogleFonts.jua(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textMain,
+                ),
               ),
-              const SizedBox(height: 24),
-              _buildModeCard(
-                title: "친구 대전",
-                subtitle: "친구와 함께 즐겨요!",
-                icon: Icons.person,
-                onTap: _onInviteFriend,
-              ),
-              const SizedBox(height: 24),
-              _buildModeCard(
-                title: "AI 대전 (연습)",
-                subtitle: "봇과 함께 스킬을 테스트해보세요!",
-                icon: Icons.smart_toy_rounded,
-                onTap: _startAIBattle,
+              Text(
+                "친구들과 실력을 겨뤄보세요!",
+                style: GoogleFonts.jua(
+                  fontSize: 14,
+                  color: AppColors.textSub,
+                ),
               ),
             ],
           ),
         ),
-      ],
-    );
-  }
 
-  Widget _buildHeader() {
-    return Column(
-      children: [
-        Text(
-          "BATTLE ARENA",
-          style: GoogleFonts.jua(
-            fontSize: 32,
-            fontWeight: FontWeight.bold,
-            color: darkBrown,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          width: 60,
-          height: 4,
-          decoration: BoxDecoration(
-            color: darkBrown,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-      ],
-    );
-  }
+        const SizedBox(height: 40),
 
-  Widget _buildModeCard(
-      {required String title,
-      required String subtitle,
-      required IconData icon,
-      required VoidCallback onTap}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20.0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(30.0),
-          border: Border.all(color: darkBrown, width: 2.0),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(28.0),
+        Expanded(
           child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
-            child: Row(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: ListView(
               children: [
-                Icon(icon, size: 40, color: darkBrown),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: GoogleFonts.jua(
-                          color: darkBrown,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        subtitle,
-                        style: GoogleFonts.jua(
-                          color: darkBrown.withOpacity(0.7),
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
+                _buildTypeCard(
+                  title: "랜덤 매칭",
+                  subtitle: "새로운 친구 만나기",
+                  icon: FontAwesomeIcons.earthAmericas,
+                  color: AppColors.primary,
+                  onTap: _startRandomMatch,
                 ),
-                const Icon(Icons.arrow_forward_ios_rounded,
-                    color: darkBrown, size: 20)
+                const SizedBox(height: 20),
+                _buildTypeCard(
+                  title: "친구 대전",
+                  subtitle: "베스트 프렌드와 한판!",
+                  icon: FontAwesomeIcons.userGroup,
+                  color: AppColors.accent,
+                  onTap: _onInviteFriend,
+                ),
+                const SizedBox(height: 20),
+                _buildTypeCard(
+                  title: "AI 연습",
+                  subtitle: "로봇과 훈련하기",
+                  icon: FontAwesomeIcons.robot,
+                  color: AppColors.textSub,
+                  onTap: _startAIBattle,
+                ),
               ],
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildTypeCard({required String title, required String subtitle, required IconData icon, required Color color, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 100,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.2),
+              blurRadius: 15,
+              offset: const Offset(0, 8),
+            )
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 100,
+              decoration: BoxDecoration(
+                 color: color.withValues(alpha: 0.1),
+                 borderRadius: const BorderRadius.only(topLeft: Radius.circular(22), bottomLeft: Radius.circular(22)),
+              ),
+              child: Center(
+                child: FaIcon(icon, color: color, size: 36),
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: AppTextStyles.title.copyWith(fontSize: 20)),
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: AppTextStyles.body.copyWith(fontSize: 12, color: AppColors.textSub)),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 20),
+              child: const FaIcon(FontAwesomeIcons.circlePlay, color: AppColors.textSub, size: 20),
+            )
+          ],
+        ),
       ),
     );
   }
-  
-  // 기존 검색 UI는 테마 일관성을 위해 약간만 수정
+
   Widget _buildSearchingUI() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        ScaleTransition(
-          scale: _pulseAnimation,
-          child: Container(
-            width: 160,
-            height: 160,
-            decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white,
-                border: Border.all(color: darkBrown.withOpacity(0.5), width: 6),
-                boxShadow: [
-                  BoxShadow(
-                      color: darkBrown.withOpacity(0.2),
-                      blurRadius: 20,
-                      spreadRadius: 5)
-                ]),
-            child: const Center(
-                child: Icon(Icons.search_rounded, size: 80, color: darkBrown)),
-          ),
+        // Pulsing Paw Ripple
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            ScaleTransition(
+              scale: _pulseAnimation,
+              child: Container(
+                width: 200, height: 200,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.secondary.withValues(alpha: 0.1),
+                ),
+              ),
+            ),
+             Container(
+                width: 140, height: 140,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.secondary.withValues(alpha: 0.2),
+                ),
+              ),
+             Container(
+                width: 100, height: 100,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  boxShadow: AppDecorations.softShadow,
+                ),
+                child: Center(child: FaIcon(FontAwesomeIcons.paw, color: AppColors.primary, size: 40)),
+              ),
+          ],
         ),
+        
         const SizedBox(height: 40),
-        Text("상대를 찾는 중...",
-            style: GoogleFonts.jua(
-                color: darkBrown,
-                fontSize: 24,
-                fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
-        Text("잠시만 기다려주세요",
-            style: GoogleFonts.jua(color: Colors.grey[700], fontSize: 16)),
-        const SizedBox(height: 40),
+        
+        Text("친구를 찾는 중...", style: AppTextStyles.title.copyWith(fontSize: 24)),
+        const SizedBox(height: 8),
+        Text("잠시만 기다려주세요", style: AppTextStyles.body),
+        
+        const SizedBox(height: 60),
+        
         SizedBox(
-          width: 140,
+          width: 160,
+          height: 50,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
-              foregroundColor: Colors.redAccent,
-              padding: const EdgeInsets.symmetric(vertical: 14),
+              foregroundColor: AppColors.danger,
               elevation: 4,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                  side: const BorderSide(color: Colors.redAccent, width: 1.5)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
             ),
             onPressed: _cancelMatch,
-            child: Text("취소",
-                style: GoogleFonts.jua(
-                    fontWeight: FontWeight.bold, fontSize: 18)),
+            child: Text("그만하기", style: GoogleFonts.jua(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
         )
       ],
     );
   }
-
-
 }

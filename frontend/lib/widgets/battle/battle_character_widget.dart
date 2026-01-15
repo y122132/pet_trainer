@@ -42,26 +42,35 @@ class BattleAvatarWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Stack(
-      alignment: Alignment.bottomCenter,
+      alignment: Alignment.center,
       children: [
-        // Shadow (Dynamic size based on char size)
-        Transform.translate(
-          offset: const Offset(0, 10),
-          child: Container(
-            width: size * 0.6, 
-            height: size * 0.15,
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.3),
-              borderRadius: BorderRadius.all(Radius.elliptical(size*0.6, size*0.15)),
-              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 15)],
-            ),
-          ),
-        ),
-        // Image with Animation
+        // 1. Circular Frame (MyRoom Style)
         ScaleTransition(
           scale: idleAnimation,
-          alignment: Alignment.bottomCenter,
-          child: _buildCharImage(),
+          alignment: Alignment.center,
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withOpacity(0.8), // Softer look
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 20,
+                  spreadRadius: 2,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+              border: Border.all(
+                color: Colors.white,
+                width: size * 0.03, // Responsive border width
+              ),
+            ),
+            child: ClipOval(
+              child: _buildCharImage(),
+            ),
+          ),
         ),
       ],
     );

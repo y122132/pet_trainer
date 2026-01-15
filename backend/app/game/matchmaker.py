@@ -1,3 +1,4 @@
+# backend/app/game/matchmaker.py
 import asyncio
 import uuid
 from typing import List, Dict, Optional
@@ -40,6 +41,11 @@ class Matchmaker:
             
             # 고유 Room ID 생성
             room_id = str(uuid.uuid4())
+            print(f"\n[MATCH_DEBUG] =========================================")
+            print(f"🚩 매칭 성사! 방 ID: {room_id}")
+            print(f"🚩 플레이어 1: {p1_id}")
+            print(f"🚩 플레이어 2: {p2_id}")
+            print(f"========================================================\n")
             
             print(f"[Matchmaker] Match found! Room: {room_id}, Players: {p1_id} vs {p2_id}")
             
@@ -51,12 +57,14 @@ class Matchmaker:
             }
             try:
                 await p1_ws.send_json(match_data)
+                print(f"🚩 [MATCH_DEBUG] P1({p1_id})에게 MATCH_FOUND 전송 완료")
             except Exception as e:
                 print(f"[Matchmaker] Failed to notify p1: {e}")
                 
             match_data["opponent_id"] = p1_id # p2에게는 p1이 상대
             try:
                 await p2_ws.send_json(match_data)
+                print(f"🚩 [MATCH_DEBUG] P2({p2_id})에게 MATCH_FOUND 전송 완료")
             except Exception as e:
                 print(f"[Matchmaker] Failed to notify p2: {e}")
 

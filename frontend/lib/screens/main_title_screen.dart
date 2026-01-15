@@ -90,14 +90,16 @@ class _MainTitleScreenState extends State<MainTitleScreen>
       // [Optimized] 서버 엄격 검사(validateToken) 대신 로컬 토큰 존재 여부만 확인
       // 이유: 서버가 끊겨 있어도, 이미 로그인된 유저는 앱을 쓸 수 있어야 합니다.
       // 서버 연결이 필요한 시점에 에러가 나더라도 입장부터 막으면 안 됩니다.
-      final String? token = await authService.getToken();
       final String? charId = await authService.getCharacterId();
+      
+      // [Security Enhanced] 서버에 직접 토큰 유효성 문의
+      final bool isValid = await authService.validateToken();
 
-      print("[MainTitle] Token: $token, CharId: $charId"); // [Debug]
-
+      print("[MainTitle] Valid Session: $isValid, CharId: $charId"); // [Debug]
+      
       if (!mounted) return;
 
-      if (token != null) {
+      if (isValid) {
         if (charId != null) {
           // 1. 캐릭터 보유 -> 메인 로비
           Navigator.pushReplacement(

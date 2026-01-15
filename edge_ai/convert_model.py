@@ -1,16 +1,19 @@
+## 가상환경 따로 만들어서 해야함.(버전 충돌 문제 때문에)
+# tensorflow 2.16.x 로 해야함(이 버전과 충돌되지 않는 numpy, openCV 등 설치해야함)
+
 from ultralytics import YOLO
 
 # 1. 모델별 특화 설정을 정의합니다.
 # 모델파일명: [입력크기, 교정용_데이터]
 model_config = {
     # 반려동물 행동 분석용 (사용자 커스텀 모델)
-    #'pet_pose.pt': [640, '/home/yang/PROJECT/finetuning/calib.yaml'],
+    'pet_pose.pt': [640, '/home/yang/PROJECT/finetuning/calib.yaml'],
     
     # 사람-반려동물 인터랙션용 (사람 포즈 표준)
     'yolo11n-pose.pt': [640, 'coco8-pose.yaml'],
     
     # 사물 탐지용 (범용 사물 표준)
-    #'yolo11n.pt': [640, 'coco128.yaml']
+    'yolo11n.pt': [640, 'coco128.yaml']
 }
 
 for model_name, config in model_config.items():

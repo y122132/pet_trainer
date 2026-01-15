@@ -18,7 +18,7 @@ class EdgeGameConfig {
   // Pet별 Mode별 Target Props
   static Map<int, Map<String, List<int>>> petBehaviors = {
     16: { // Dog
-      'playing': [32, 29, 77, 39, 41], 
+      'playing': [32, 29, 39, 41], 
       'feeding': [45, 41, 39, 46, 47, 48, 49, 50, 51], 
       'interaction': [0],
     },

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../config/design_system.dart';
+import 'package:pet_trainer_frontend/config/theme.dart';
+import 'package:pet_trainer_frontend/config/design_system.dart';
 import '../services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -46,7 +47,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (result['success']) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text("회원가입 성공! 로그인해주세요.", style: AppTextStyles.button),
+            content: Text("회원가입 완료되었습니다. 로그인해주세요!", style: AppTextStyles.button.copyWith(color: Colors.white)),
             backgroundColor: AppColors.primaryBrown,
             shape: RoundedRectangleBorder(borderRadius: AppDecorations.cardRadius),
             behavior: SnackBarBehavior.floating,
@@ -177,7 +178,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 shape: RoundedRectangleBorder(borderRadius: AppDecorations.cardRadius),
                 elevation: 0,
               ),
-              child: Text("가입하기", style: AppTextStyles.button.copyWith(fontSize: 22)),
+              child: Text("가입하기", style: AppTextStyles.button.copyWith(fontSize: 22, color: Colors.white)),
             ),
           );
   }

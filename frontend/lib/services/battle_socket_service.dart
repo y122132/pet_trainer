@@ -9,6 +9,7 @@ class BattleSocketService {
   WebSocketChannel? _channel;
   final StreamController<dynamic> _messageController = StreamController<dynamic>.broadcast();
   
+  Stream<dynamic> get stream => _messageController.stream;
   Stream<dynamic> get messageStream => _messageController.stream;
   
   bool _isConnected = false;
@@ -27,6 +28,8 @@ class BattleSocketService {
   }
 
   void connect(String url) {
+    debugPrint("\n🌐 [BattleSocket] connect 호출됨!");
+    debugPrint("🚩 전달된 최종 URL: $url");
     _lastUrl = url;
     _retryCount = 0;
     _attemptConnect();
@@ -40,6 +43,9 @@ class BattleSocketService {
     debugPrint("[BattleSocket] Connecting to $_lastUrl (Attempt ${_retryCount + 1})");
     
     try {
+      final uri = Uri.parse(_lastUrl!);
+      debugPrint("🚩 파싱된 URI: $uri");
+
       _channel = WebSocketChannel.connect(Uri.parse(_lastUrl!));
       _isConnected = true;
       _connectionStatusCallback?.call(true);
@@ -47,19 +53,20 @@ class BattleSocketService {
 
       _channel!.stream.listen(
         (message) {
+          debugPrint("📥 [BattleSocket] 서버 원시 메시지 수신: $message");
           _messageController.add(message);
         },
         onError: (error) {
-          debugPrint("[BattleSocket] Error: $error");
+          debugPrint("❌ [BattleSocket] 스트림 에러 발생: $error");
           _handleDisconnect();
         },
         onDone: () {
-          debugPrint("[BattleSocket] Closed.");
+          debugPrint("🔌 [BattleSocket] 서버에 의해 연결이 종료되었습니다. (onDone)");
           _handleDisconnect();
         },
       );
     } catch (e) {
-      debugPrint("[BattleSocket] Connect Exception: $e");
+      debugPrint("⚠️ [BattleSocket] 연결 예외 발생: $e");
       _handleDisconnect();
     }
   }
@@ -74,7 +81,7 @@ class BattleSocketService {
     if (_retryCount < _maxRetries) {
       // Exponential Backoff: 1s, 2s, 4s, 8s, 16s
       int delay = pow(2, _retryCount).toInt();
-      debugPrint("[BattleSocket] Reconnecting in ${delay}s...");
+      debugPrint("[BattleSocket] ${delay}초 후 재연결 시도 예정...");
       
       _reconnectTimer?.cancel();
       _reconnectTimer = Timer(Duration(seconds: delay), () {
@@ -82,15 +89,17 @@ class BattleSocketService {
         _attemptConnect();
       });
     } else {
-      debugPrint("[BattleSocket] Max retries reached.");
+      debugPrint("[BattleSocket] 최대 재연결 시도 횟수 초과. 연결 종료.");
     }
   }
 
   void sendMessage(Map<String, dynamic> data) {
     if (_channel != null && _isConnected) {
+      final jsonStr = jsonEncode(data);
+      debugPrint("📤 [BattleSocket] 메시지 전송: $jsonStr");
       _channel!.sink.add(jsonEncode(data));
     } else {
-      debugPrint("[BattleSocket] Cannot send, disconnected.");
+      debugPrint("⚠️ [BattleSocket] 전송 실패: 연결되지 않음.");
     }
   }
 
@@ -100,6 +109,7 @@ class BattleSocketService {
   }
 
   void dispose() {
+    debugPrint("🧹 [BattleSocket] 서비스 종료 (dispose)");
     _reconnectTimer?.cancel();
     _cleanUpSocket();
     _messageController.close();

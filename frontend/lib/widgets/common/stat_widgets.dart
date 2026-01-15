@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../../config/design_system.dart'; // Import design system for colors
+import 'package:pet_trainer_frontend/config/design_system.dart'; 
+import 'package:pet_trainer_frontend/config/theme.dart';
 
 // --- 스탯 색상 매퍼 ---
 class StatColorMapper {
@@ -9,29 +10,29 @@ class StatColorMapper {
       case 'STR':
       case 'STRENGTH':
       case '근력':
-        return AppColors.statStr;
+        return AppColors.danger; // Red-ish
       case 'INT':
       case 'INTELLIGENCE':
       case '지능':
-        return AppColors.statInt;
+        return AppColors.info; // Blue-ish
       case 'DEX':
       case 'AGILITY':
       case '민첩':
-        return AppColors.statDex;
+        return AppColors.success; // Green-ish
       case 'DEF':
       case 'DEFENSE':
       case '방어':
-        return AppColors.statDef;
+        return AppColors.warning; // Yellow-ish
       case 'LUK':
       case 'LUCK':
       case '운':
-        return const Color(0xFFD7CCC8); // Use DEF color for LUK as per design
+        return AppColors.secondaryPink; // Pink-ish
       case 'HAP':
       case 'HAPPINESS':
       case '행복':
-        return AppColors.statDef;
+        return AppColors.secondaryPink;
       default:
-        return AppColors.secondaryBrown;
+        return AppColors.textSub;
     }
   }
 }
@@ -72,10 +73,10 @@ class StatRadarChart extends StatelessWidget {
     // Determine colors based on input or default
     final fillColor = (graphColors != null && graphColors!.isNotEmpty)
         ? graphColors![0]
-        : AppColors.statInt.withOpacity(0.2);
+        : AppColors.info.withOpacity(0.2);
     final borderColor = (graphColors != null && graphColors!.length > 1)
         ? graphColors![1]
-        : AppColors.secondaryBrown;
+        : AppColors.textSub;
 
     return RadarChart(
       RadarChartData(
@@ -103,7 +104,7 @@ class StatRadarChart extends StatelessWidget {
         },
         tickCount: 1,
         ticksTextStyle: const TextStyle(color: Colors.transparent),
-        gridBorderData: BorderSide(color: Colors.grey.withOpacity(0.2), width: 1),
+        gridBorderData: const BorderSide(color: Colors.transparent),
       ),
     );
   }
@@ -134,7 +135,7 @@ class StatProgressBar extends StatelessWidget {
         children: [
           SizedBox(
             width: 45,
-            child: Text(label, style: AppTextStyles.base.copyWith(color: color, fontSize: 14)),
+            child: Text(label, style: AppTextStyles.body.copyWith(color: color, fontSize: 14)),
           ),
           Expanded(
             child: Container(
@@ -155,7 +156,7 @@ class StatProgressBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 16),
-          Text("$value", style: AppTextStyles.base.copyWith(fontSize: 14, color: AppColors.secondaryBrown)),
+          Text("$value", style: AppTextStyles.body.copyWith(fontSize: 14, color: AppColors.textSub)),
         ],
       ),
     );

@@ -129,6 +129,10 @@ class _CharacterImageUpdateScreenState extends State<CharacterImageUpdateScreen>
 
   @override
   Widget build(BuildContext context) {
+    // 🔴 중요: widget.character(정적) 대신 Provider의 최신 데이터를 구독(watch)합니다.
+    final charProvider = Provider.of<CharProvider>(context);
+    final character = charProvider.character ?? widget.character;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("캐릭터 사진 변경"),
@@ -144,16 +148,16 @@ class _CharacterImageUpdateScreenState extends State<CharacterImageUpdateScreen>
           String? currentImageUrl;
           switch (key) {
             case 'front_url':
-              currentImageUrl = widget.character.frontUrl;
+              currentImageUrl = character.frontUrl;
               break;
             case 'back_url':
-              currentImageUrl = widget.character.backUrl;
+              currentImageUrl = character.backUrl;
               break;
             case 'side_url':
-              currentImageUrl = widget.character.sideUrl;
+              currentImageUrl = character.sideUrl;
               break;
             case 'face_url':
-              currentImageUrl = widget.character.faceUrl;
+              currentImageUrl = character.faceUrl;
               break;
           }
 

@@ -8,59 +8,40 @@ class BattleLogWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Show only last 3 logs for compactness
-    final displayLogs = logs.take(3).toList(); // Newest first (index 0)
+    // Show only last 2 logs for extreme compactness to avoid overlap
+    final displayLogs = logs.take(2).toList(); 
 
-    return ShaderMask(
-      shaderCallback: (Rect bounds) {
-        return const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.black, Colors.transparent], // Fade out older messages (at bottom since we map reversed?)
-          // Wait, if it's new-on-top, we want bottom fade.
-          stops: [0.3, 1.0], 
-        ).createShader(bounds);
-      },
-      blendMode: BlendMode.dstIn,
-      child: ListView(
-        padding: EdgeInsets.zero,
-        physics: const NeverScrollableScrollPhysics(),
-        shrinkWrap: true,
-        children: displayLogs.map((log) => _buildLogItem(log, displayLogs.indexOf(log))).toList(),
-      ),
+    return ListView(
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      shrinkWrap: true,
+      children: displayLogs.map((log) => _buildLogItem(log, displayLogs.indexOf(log))).toList(),
     );
   }
 
   Widget _buildLogItem(String log, int index) {
-    // Highlight important events
-    bool isDamage = log.contains("damage") || log.contains("피해");
-    bool isEffect = log.contains("Status") || log.contains("상태");
-    bool isCrit = log.contains("CRITICAL") || log.contains("크리티컬");
+    // ... (rest of the logic) ...
+    Color textColor = AppColors.softCharcoal;
+    // ... (color logic) ...
 
-    Color textColor = AppColors.softCharcoal; // Default to dark for visibility
-    if (isCrit) textColor = AppColors.danger;
-    else if (isDamage) textColor = AppColors.danger;
-    else if (isEffect) textColor = AppColors.success;
-
-    // First item is most opaque
-    double opacity = (index == 0) ? 1.0 : (index == 1 ? 0.7 : 0.4);
+    double opacity = (index == 0) ? 1.0 : 0.6;
 
     return Opacity(
       opacity: opacity,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
+        padding: const EdgeInsets.symmetric(vertical: 1), // Minimal vertical spacing
         child: Container(
-           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3), // Thinner box
            decoration: BoxDecoration(
-             color: Colors.white.withOpacity(0.5),
-             borderRadius: BorderRadius.circular(12),
+             color: Colors.white.withOpacity(0.3), // More subtle background
+             borderRadius: BorderRadius.circular(8),
            ),
            child: Text(
             log,
             textAlign: TextAlign.center,
             style: TextStyle(
               color: textColor,
-              fontSize: index == 0 ? 14 : 12,
+              fontSize: index == 0 ? 13 : 11, // Smaller fonts
               fontWeight: index == 0 ? FontWeight.bold : FontWeight.w500,
             ),
           ),

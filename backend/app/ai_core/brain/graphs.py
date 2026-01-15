@@ -23,14 +23,34 @@ RULE_TEMPLATES = {
         "바로 그거예요! 완벽합니다! ✨",
         "훈련 성공! 간식을 주고 싶네요! 🍖",
         "점점 더 잘하는데요? 대단해요! 👍",
-        "오늘 컨디션 최고인데요? 계속 가봅시다! 🔥"
+        "오늘 컨디션 최고인데요? 계속 가봅시다! 🔥",
+        "와! 방금 동작 정말 멋졌어요! 💖",
+        "호흡이 척척 맞네요! 우린 최고의 콤비! 🤝",
+        "이대로라면 금방 만렙 찍겠어요! 🚀",
+        "꼬리가 멈추질 않아요! 너무 잘했어요! 🐕",
+        "주인님 실력이 일취월장인데요? 👏",
+        "완벽해요! 제가 본 것 중 최고였어요! 🌟",
+        "기분이 너무 좋아요! 멍멍! 😆",
+        "방금 보셨어요? 우린 천재인가 봐요! 🧠",
+        "짝짝짝! 정말 고생 많으셨어요! 🎉",
+        "한 번 더 하면 완벽해지겠어요! 가볼까요? 🐾"
     ],
     "fail": [
         "조금만 더 가까이 와보세요! 👀",
         "아쉽네요, 다시 한 번 해볼까요? 💪",
         "거의 다 왔어요! 힘내세요! 🐾",
         "반려동물이 잘 보이게 해주세요! 📷",
-        "포기하지 마세요! 할 수 있어요! ✨"
+        "포기하지 마세요! 할 수 있어요! ✨",
+        "음, 방금은 제가 잠깐 한눈을 팔았나 봐요! 😅",
+        "조금만 더 힘내면 성공할 수 있어요! 🐶",
+        "괜찮아요, 원래 처음은 다 어려운 법이죠! 🌱",
+        "방향을 살짝 바꿔보는 건 어떨까요? 🔄",
+        "주인님! 포기하면 안 돼요! 😭",
+        "아차! 한 끗 차이였는데 아쉽네요! ⚡",
+        "제가 응원하고 있어요! 다시 가봐요! 📣",
+        "심호흡 한 번 하고 다시 해볼까요? 🧘",
+        "실패는 성공의 어머니랬어요! 화이팅! 🔥",
+        "천천히 해도 괜찮아요. 기다리고 있을게요! ⏳"
     ]
 }
 
@@ -46,7 +66,9 @@ class AgentState(TypedDict):
     milestone_reached: bool 
     messages: list          
     last_interaction_timestamp: float 
-    is_long_absence: bool             
+    is_long_absence: bool
+    best_shot_url: Optional[str] # [New]
+             
 
 # LLM 모델 초기화
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7, api_key=OPENAI_API_KEY)
@@ -74,6 +96,10 @@ def route_step(state: AgentState) -> Literal["llm_node", "rule_node"]:
     if stats.get("happiness", 0) >= 80:
         return "llm_node"
         
+    # 3-1. 베스트샷(사진)이 있는 경우 -> LLM (사진에 대한 언급)
+    if state.get("best_shot_url"):
+        return "llm_node"
+
     # 4. 그 외 단순 반복적 성공/실패 -> Rule Based
     return "rule_node"
 
@@ -88,6 +114,7 @@ def generate_llm_message(state: AgentState):
     daily_count = state.get("daily_count", 1)
     milestone_reached = state.get("milestone_reached", False)
     is_long_absence = state.get("is_long_absence", False)
+    best_shot_url = state.get("best_shot_url")
     
     # 히스토리 로드 (최근 6개 대화만 유지)
     history = state.get("messages", [])
@@ -118,6 +145,8 @@ def generate_llm_message(state: AgentState):
         )
         if daily_count > 1: situation_prompt += DAILY_STREAK_ADDON.format(daily_count=daily_count)
         if milestone_reached: situation_prompt += MILESTONE_ADDON
+        if best_shot_url:
+             situation_prompt += "\n(참고: 방금 정말 멋진 훈련 모습이 사진으로 찍혔어요! '인생샷', '화보' 등을 언급하며 칭찬해주세요.)"
             
     elif action == "idle":
         situation_prompt = IDLE_TEMPLATE
@@ -201,7 +230,8 @@ async def get_character_response(
     reward_info: dict = {},
     feedback_detail: str = "",
     daily_count: int = 1,
-    milestone_reached: bool = False
+    milestone_reached: bool = False,
+    best_shot_url: Optional[str] = None # [New] Best Shot URL
 ) -> str:
     """
     Redis를 사용하여 대화 맥락(State)을 로드하고 LangGraph를 실행한 뒤 결과를 저장합니다.
@@ -235,7 +265,10 @@ async def get_character_response(
         "reward_info": reward_info,
         "feedback_detail": feedback_detail,
         "daily_count": daily_count,
+        "feedback_detail": feedback_detail,
+        "daily_count": daily_count,
         "milestone_reached": milestone_reached,
+        "best_shot_url": best_shot_url, # [New] Add to inputs
         "last_interaction_timestamp": time.time(),
         "is_long_absence": is_long_absence,
         "messages": saved_state.get("messages", []) # 기존 대화 히스토리 주입

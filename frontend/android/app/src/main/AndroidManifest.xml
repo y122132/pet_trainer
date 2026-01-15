@@ -8,6 +8,8 @@
         android:label="pet_trainer_frontend"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="@null"
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"

@@ -304,6 +304,13 @@ void _isolateEntry(_IsolateInitData initData) async {
   List<List<List<double>>>? _objOutput3D;
   List<List<List<double>>>? _humanOutput3D;
   
+  // --- Persistence State ---
+  // Key: Class ID (e.g. 32 Ball)
+  final Map<int, OneEuroFilter> objFilters = {}; 
+  final Map<int, List<dynamic>> lastPropBoxes = {}; // Ghost Tracking
+  final Map<int, int> propMissingCounts = {}; // Frames missed
+  const int MAX_PROP_MISSING = 5; // ~0.15s (30fps) to 0.5s (10fps). 5 frames is safe.
+
   receivePort.listen((message) async {
     final cmd = message['cmd'] as Cmd;
     
@@ -507,10 +514,29 @@ void _isolateEntry(_IsolateInitData initData) async {
             result['debug_info']['t_nms'] = swNMS.elapsedMilliseconds;
             result['debug_info']['detections_found'] = detections.length;
 
+            // [NEW] Top-1 Filtering for Pets
+            dynamic bestPetDet;
+            double bestPetScore = -1.0;
+
             for (var det in detections) {
                int mappedCls = 16; 
                if (det.classIndex == 1) mappedCls = 15; 
                if (det.classIndex == 2) mappedCls = 14; 
+               
+               // Check confidence
+               if (det.score > bestPetScore) {
+                   bestPetScore = det.score;
+                   bestPetDet = {
+                       'det': det,
+                       'mappedCls': mappedCls
+                   };
+               }
+            }
+
+            if (bestPetDet != null) {
+               final det = bestPetDet['det'];
+               final mappedCls = bestPetDet['mappedCls'];
+               
                allDetections.add([det.box[0], det.box[1], det.box[2], det.box[3], det.score, mappedCls.toDouble()]);
                if (det.keypoints != null) {
                   final List<double> normalizedKpts = [];
@@ -531,7 +557,8 @@ void _isolateEntry(_IsolateInitData initData) async {
 
         // --- Model B: Object (Interleaved) ---
         bool runObject = (mode != 'interaction' && interpreterObj != null && _objOutput3D != null);
-        if (runObject && (id % 3 != 0)) runObject = false;
+        // [User Request] Run Object Model EVERY frame (Disable skip)
+        // if (runObject && (id % 3 != 0)) runObject = false;
 
         if (runObject) {
            try {
@@ -549,18 +576,98 @@ void _isolateEntry(_IsolateInitData initData) async {
                _outputBufferObj!, 80, 0.55, 0.40, shape: outputShape
             );
             
-            const Set<int> allowedProps = {29, 32, 39, 41, 45, 46, 47, 48, 49, 50, 51, 77};
-            for (var det in detections) {
-               final clsId = det.classIndex;
-               if (clsId == 0 || clsId == 14 || clsId == 15 || clsId == 16) continue;
-               if (!allowedProps.contains(clsId)) continue; 
-               allDetections.add([det.box[0], det.box[1], det.box[2], det.box[3], det.score, clsId.toDouble()]);
-            }
+            const Set<int> allowedProps = {29, 32, 39, 41, 45, 46, 47, 48, 49, 50, 51};
+            
+             // [NEW] Top-1 Per Class Filtering for Props
+             final Map<int, dynamic> bestProps = {};
+             
+             // 1. Collect Best Det Per Class
+             for (var det in detections) {
+                final clsId = det.classIndex;
+                if (clsId == 0 || clsId == 14 || clsId == 15 || clsId == 16) continue;
+                if (!allowedProps.contains(clsId)) continue; 
+
+                if (!bestProps.containsKey(clsId) || det.score > bestProps[clsId].score) {
+                    bestProps[clsId] = det;
+                }
+             }
+             
+             // 2. Process Filters & Persistence
+             final Set<int> capturedClasses = bestProps.keys.toSet();
+             final Set<int> allKnownClasses = {...lastPropBoxes.keys, ...capturedClasses};
+
+             for (int clsId in allKnownClasses) {
+                 bool isFresh = capturedClasses.contains(clsId);
+                 
+                 // A. Fresh Detection
+                 if (isFresh) {
+                     var rawDet = bestProps[clsId]!;
+                     
+                     // Init Filter
+                     if (!objFilters.containsKey(clsId)) {
+                        objFilters[clsId] = OneEuroFilter(minCutoff: 0.1, beta: 0.05, dCutoff: 1.0);
+                     }
+                     
+                     // Apply Filter [x1, y1, x2, y2]
+                     final filter = objFilters[clsId]!;
+                     final now = DateTime.now().millisecondsSinceEpoch;
+                     
+                     // Center + Size smoothing (More stable than corners)
+                     double rawCx = (rawDet.box[0] + rawDet.box[2]) / 2;
+                     double rawCy = (rawDet.box[1] + rawDet.box[3]) / 2;
+                     double rawW = rawDet.box[2] - rawDet.box[0];
+                     double rawH = rawDet.box[3] - rawDet.box[1];
+                     
+                     // We filter 4 independent variables? Or corners? 
+                     // Simple corner filtering is easier to implement with 1 box filter? 
+                     // But OneEuroFilter is scalar. We need 4 filters or filter sequentially.
+                     // Let's filter corners x1,y1,x2,y2 for simplicity.
+                     // Ideally we need 4 filter instances per object? No, OneEuroFilter is stateful for ONE value.
+                     // [CRITICAL] OneEuroFilter maintains state for ONE stream. 
+                     // We cannot use 1 filter for 4 coordinates. We need 4 filters per Object!
+                     // Re-thinking: Just use naive smoothing or create a BoxFilter class.
+                     // Or just use "Ghosting" which solves the "Disappearing" issue (Flickering presence).
+                     // Coordinate jitter is less of an issue than presence flickering.
+                     // Let's stick to PRESENCE Persistence (Ghost Tracking) first.
+                     
+                     // Update State
+                     lastPropBoxes[clsId] = [rawDet.box[0], rawDet.box[1], rawDet.box[2], rawDet.box[3], rawDet.score, clsId.toDouble()];
+                     propMissingCounts[clsId] = 0;
+                     
+                     allDetections.add([rawDet.box[0], rawDet.box[1], rawDet.box[2], rawDet.box[3], rawDet.score, clsId.toDouble()]);
+                 } 
+                 // B. Missing (Ghost)
+                 else {
+                     int missing = propMissingCounts[clsId] ?? 0;
+                     if (missing < MAX_PROP_MISSING) {
+                         // Recover Last Box
+                         final lastDet = lastPropBoxes[clsId]!;
+                         
+                         // Add Ghost Box (Maybe lower score slightly?)
+                         // We keep original score to prevent logic rejection
+                         allDetections.add(lastDet);
+                         
+                         propMissingCounts[clsId] = missing + 1;
+                     } else {
+                         // Expired
+                         lastPropBoxes.remove(clsId);
+                         propMissingCounts.remove(clsId);
+                         objFilters.remove(clsId);
+                     }
+                 }
+             }
            } catch (e) { 
               result['error'] = (result['error'] ?? "") + "[ObjErr] $e\n";
               log("Obj Model Error: $e");
            }
-        }
+         } else {
+             // [NEW] Skipped Frame Logic -> CARRY OVER LAST KNOWN PROPS
+             // Do NOT decay missing count, just replay last good frame.
+             for (int clsId in lastPropBoxes.keys) {
+                 final lastDet = lastPropBoxes[clsId]!;
+                 allDetections.add(lastDet);
+             }
+         }
 
         // --- Model C: Human Pose ---
         if (mode == 'interaction' && interpreterHuman != null && _humanOutput3D != null) {
@@ -577,7 +684,12 @@ void _isolateEntry(_IsolateInitData initData) async {
             final detections = nonMaxSuppression(
                _outputBufferHuman!, 1, 0.55, 0.40, keypointNum: 17, shape: outputShape
             );
-            for (var det in detections) {
+            
+            // [NEW] Top-1 Filtering for Human (Already NMS limit 1, but reinforcing)
+            if (detections.isNotEmpty) {
+               // Only take the first one (Best Score)
+               var det = detections[0];
+               
                allDetections.add([det.box[0], det.box[1], det.box[2], det.box[3], det.score, 0.0]);
                if (det.keypoints != null) {
                   final List<double> normalizedKpts = [];
