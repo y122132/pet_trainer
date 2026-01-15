@@ -82,20 +82,35 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+        final prefs = await SharedPreferences.getInstance();
+        final lastSeenId = prefs.getInt('last_seen_notice_id') ?? 0;
+
         if (data.isNotEmpty) {
           final notices = data.map((item) => NoticeModel.fromJson(item)).toList();
-          final latestNoticeId = notices.first.id;
-
-          final prefs = await SharedPreferences.getInstance();
-          final lastSeenId = prefs.getInt('last_seen_notice_id') ?? 0;
+          
+          // any notice has an ID greater than last seen
+          bool hasNew = false;
+          for (var n in notices) {
+            if (n.id > lastSeenId) {
+              hasNew = true;
+              break;
+            }
+          }
 
           setState(() {
-            _hasNewNotice = latestNoticeId > lastSeenId;
+            _hasNewNotice = hasNew;
+          });
+          print("[NOTICE] New notice check: $_hasNewNotice (Last seen: $lastSeenId)");
+        } else {
+          setState(() {
+            _hasNewNotice = false;
           });
         }
+      } else {
+        print("[NOTICE] Failed to fetch notices: ${response.statusCode}");
       }
     } catch (e) {
-      print("Error checking for new notices: $e");
+      print("[NOTICE] Error checking for new notices: $e");
     }
   }
 

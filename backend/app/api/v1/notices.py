@@ -25,7 +25,7 @@ async def check_admin(user_id: int, db: AsyncSession):
 @router.get("/", response_model=List[NoticeRead])
 async def get_notices(db: AsyncSession = Depends(get_db)):
     """Fetch active notices"""
-    stmt = select(Notice).where(Notice.is_active == True).order_by(Notice.created_at.desc())
+    stmt = select(Notice).where(Notice.is_active == True).order_by(Notice.created_at.desc(), Notice.id.desc())
     result = await db.execute(stmt)
     return result.scalars().all()
 

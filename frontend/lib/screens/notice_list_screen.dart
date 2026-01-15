@@ -41,10 +41,12 @@ class _NoticeListScreenState extends State<NoticeListScreen> {
           _isLoading = false;
         });
 
-        // [New] Update last seen notice ID
+        // [New] Update last seen notice ID (find max ID in the list)
         if (_notices.isNotEmpty) {
+          final maxId = _notices.map((n) => n.id).reduce((a, b) => a > b ? a : b);
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setInt('last_seen_notice_id', _notices.first.id);
+          await prefs.setInt('last_seen_notice_id', maxId);
+          print("[NOTICE] Updated last_seen_notice_id to: $maxId");
         }
       } else {
         throw Exception("Failed to load notices");
