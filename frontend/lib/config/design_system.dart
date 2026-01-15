@@ -74,6 +74,8 @@ class GlassContainer extends StatelessWidget {
   final EdgeInsetsGeometry? margin;
   final double? width;
   final double? height;
+  final BoxBorder? border;
+  final List<BoxShadow>? boxShadow;
 
   const GlassContainer({
     super.key,
@@ -85,6 +87,8 @@ class GlassContainer extends StatelessWidget {
     this.margin,
     this.width,
     this.height,
+    this.border,
+    this.boxShadow,
   });
 
   @override
@@ -103,11 +107,11 @@ class GlassContainer extends StatelessWidget {
               // Warm white tint
               color: AppColors.surface.withOpacity(opacity),
               borderRadius: borderRadius ?? BorderRadius.circular(24),
-              border: Border.all(
+              border: border ?? Border.all(
                 color: Colors.white.withOpacity(0.6),
                 width: 1.5,
               ),
-              boxShadow: [
+              boxShadow: boxShadow ?? [
                 BoxShadow(
                   color: AppColors.primary.withOpacity(0.05),
                   blurRadius: 15,

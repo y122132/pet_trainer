@@ -256,7 +256,7 @@ class _MyRoomPageState extends State<MyRoomPage> with TickerProviderStateMixin {
           
           // 2. [Character] 
           Positioned(
-            top: MediaQuery.of(context).size.height * 0.14, 
+            top: MediaQuery.of(context).size.height * 0.12, // Slightly higher to give room
             left: 0, right: 0,
             child: Center(
               child: GestureDetector(
@@ -266,7 +266,7 @@ class _MyRoomPageState extends State<MyRoomPage> with TickerProviderStateMixin {
                   child: Hero(
                     tag: 'character_avatar',
                     child: SizedBox(
-                      width: 280, height: 280,
+                      width: 260, height: 260, // Slightly smaller to avoid overlap
                       child: _buildCharacterDisplay(character),
                     ),
                   ),
@@ -319,28 +319,32 @@ class _MyRoomPageState extends State<MyRoomPage> with TickerProviderStateMixin {
              ),
           ),
 
-          // 6. [Stats Card] Floating Card
+          // 6. [Stats Card] Floating Glass Card
           Positioned(
             left: 16, right: 16,
             bottom: MediaQuery.of(context).padding.bottom + 16,
-            top: MediaQuery.of(context).size.height * 0.46, 
-            child: Container(
-              decoration: BoxDecoration(
-                 color: Colors.white, // Pure white for flat look
-                 borderRadius: BorderRadius.circular(32),
-                 boxShadow: [
-                   BoxShadow(
-                     color: Colors.black.withOpacity(0.05), // Flat shadow
-                     blurRadius: 20,
-                     offset: const Offset(0, 10),
-                   )
-                 ],
-                 border: Border.all(color: Colors.white, width: 2),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  children: [
+            top: MediaQuery.of(context).size.height * 0.52, // Lowered to avoid character overlap
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(32),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.7), // Natural glass transparency
+                    borderRadius: BorderRadius.circular(32),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      )
+                    ],
+                    border: Border.all(color: Colors.white.withOpacity(0.5), width: 1.5),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      children: [
                     // Header Area
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -408,6 +412,8 @@ class _MyRoomPageState extends State<MyRoomPage> with TickerProviderStateMixin {
               ),
             ),
           ),
+        ),
+      ),
         ],
       ),
     );
@@ -418,22 +424,22 @@ class _MyRoomPageState extends State<MyRoomPage> with TickerProviderStateMixin {
     
     // Create the circular frame wrapper
     return Container(
-      width: 280,
-      height: 280,
+      width: 260,
+      height: 260,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.white,
+        color: Colors.white.withOpacity(0.8), // Softer look
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 20,
-            spreadRadius: 5,
-            offset: const Offset(0, 10),
+            spreadRadius: 2,
+            offset: const Offset(0, 8),
           ),
         ],
         border: Border.all(
           color: Colors.white,
-          width: 8,
+          width: 6,
         ),
       ),
       child: ClipOval(

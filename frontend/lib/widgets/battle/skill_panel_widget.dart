@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:pet_trainer_frontend/config/theme.dart';
 
 class SkillPanelWidget extends StatelessWidget {
@@ -25,10 +26,9 @@ class SkillPanelWidget extends StatelessWidget {
     
     return Container(
       height: 300, 
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
-        boxShadow: [BoxShadow(color: AppColors.primaryMint.withOpacity(0.3), blurRadius: 20, offset: const Offset(0, -5))],
+      decoration: const BoxDecoration(
+        color: Colors.transparent, // Background handled by parent GlassContainer
+        borderRadius: BorderRadius.vertical(top: Radius.circular(40)),
       ),
       child: Center(
         child: Container(
@@ -40,14 +40,15 @@ class SkillPanelWidget extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("SKILLS", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.softCharcoal, letterSpacing: 1.0)),
+                  Text("SKILLS", style: GoogleFonts.jua(fontSize: 22, fontWeight: FontWeight.w900, color: AppColors.softCharcoal, letterSpacing: 1.2)),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
-                      color: isMyTurn ? AppColors.success : AppColors.secondaryPink.withOpacity(0.5),
+                      color: isMyTurn ? AppColors.success.withOpacity(0.2) : AppColors.secondaryPink.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: isMyTurn ? AppColors.success : AppColors.secondaryPink, width: 1.5),
                     ),
-                    child: Text(statusMessage, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
+                    child: Text(statusMessage, style: GoogleFonts.jua(fontSize: 13, fontWeight: FontWeight.bold, color: isMyTurn ? AppColors.success : AppColors.secondaryPink)),
                   ),
                 ],
               ),

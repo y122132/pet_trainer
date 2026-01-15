@@ -1,5 +1,6 @@
 // frontend/lib/screens/battle_page.dart
 import 'dart:ui';
+import 'package:google_fonts/google_fonts.dart';
 import 'dart:async';
 import 'dart:convert';
 import '../../config/theme.dart';
@@ -218,10 +219,11 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
                   children: [
                     _buildBackground(),
                     
-                    // --- Opponent Area (Top Right) ---
+                    // --- Opponent Area (Top Left for HUD, Top Right for Avatar) ---
                     Positioned(
-                      top: constraints.maxHeight * 0.15,
-                      right: constraints.maxWidth * 0.1,
+                      top: MediaQuery.of(context).padding.top + 110, // Lowered to make room for logs
+                      left: constraints.maxWidth * 0.05,
+                      right: constraints.maxWidth * 0.05,
                       child: _buildAvatarWithHud(
                         isMe: false, 
                         state: state, 
@@ -230,10 +232,11 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
                       ),
                     ),
 
-                    // --- Player Area (Bottom Left) ---
+                    // --- Player Area (Middle for HUD, Bottom Left for Avatar) ---
                     Positioned(
-                      bottom: constraints.maxHeight * 0.35, // Give room for skills
-                      left: constraints.maxWidth * 0.1,
+                      bottom: 350, // Raised slightly more as requested
+                      left: constraints.maxWidth * 0.05,
+                      right: constraints.maxWidth * 0.05,
                       child: _buildAvatarWithHud(
                         isMe: true, 
                         state: state, 
@@ -278,43 +281,37 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     required int myId,
     required CharProvider charProvider,
   }) {
-    // Extract Data
     final String name = isMe ? "ME" : state.oppName;
     final int hp = isMe ? state.myHp : state.oppHp;
     final int maxHp = isMe ? state.myMaxHp : state.oppMaxHp;
     final List<dynamic> statuses = isMe ? state.myStatuses : state.oppStatuses;
     final String? faceUrl = isMe ? charProvider.character?.faceUrl : state.oppFaceUrl;
-    
-    // Avatar Logic
     final String petType = isMe ? charProvider.currentPetType : state.oppPetType;
     final String? sideUrl = isMe ? charProvider.character?.sideUrl : state.oppSideUrl;
     
-    // Reverse layout for opponent? No, keeping consistent HUD above/below might be better.
-    // Let's stack HUD above Avatar for Opponent, and HUD below Avatar for Player?
-    // Or simpler: HUD always "outside" the center.
-    // Opponent: HUD top-right relative to avatar
-    // Player: HUD bottom-left relative to avatar
-    
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: isMe ? CrossAxisAlignment.start : CrossAxisAlignment.end,
-      children: [
-        if (!isMe) _buildGlassHud(name: name, hp: hp, maxHp: maxHp, statuses: statuses, faceUrl: faceUrl),
-        if (!isMe) const SizedBox(height: 10),
-        
-        // Avatar Wrapper
-        Transform.scale(
-          scale: isMe ? 1.2 : 0.9,
-          child: _buildAnimatedAvatar(petType, sideUrl, isMe, myId, state),
-        ),
-        
-        if (isMe) const SizedBox(height: 10),
-        if (isMe) _buildGlassHud(name: name, hp: hp, maxHp: maxHp, statuses: statuses, faceUrl: faceUrl),
-      ],
+    // Layout: Avatar on one side, HUD on the other to maximize space
+    return Row(
+      mainAxisAlignment: isMe ? MainAxisAlignment.start : MainAxisAlignment.end,
+      crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: isMe 
+        ? [
+            // My Avatar
+            _buildAnimatedAvatar(petType, sideUrl, isMe, myId, state, 140),
+            const SizedBox(width: 12),
+            // My HUD
+            Expanded(child: _buildGlassHud(name: name, hp: hp, maxHp: maxHp, statuses: statuses, faceUrl: faceUrl, isMe: true)),
+          ]
+        : [
+            // Opponent HUD
+            Expanded(child: _buildGlassHud(name: name, hp: hp, maxHp: maxHp, statuses: statuses, faceUrl: faceUrl, isMe: false)),
+            const SizedBox(width: 12),
+            // Opponent Avatar
+            _buildAnimatedAvatar(petType, sideUrl, isMe, myId, state, 110),
+          ],
     );
   }
 
-  Widget _buildAnimatedAvatar(String petType, String? url, bool isMe, int myId, dynamic state) {
+  Widget _buildAnimatedAvatar(String petType, String? url, bool isMe, int myId, dynamic state, double size) {
     final String fullUrl = (url != null && url.isNotEmpty)
       ? (url.startsWith('http') ? url : "${AppConfig.baseUrl.replaceFirst('/v1', '')}$url")
       : "";
@@ -333,22 +330,25 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
         idleAnimation: _idleAnimation, 
         imageType: 'side', 
         sideUrl: fullUrl, 
-        damageOpacity: 0.0
+        damageOpacity: 0.0,
+        size: size, // [New] Passing the size
       ),
     );
   }
 
   Widget _buildBattleLogArea(List<String> logs, double maxHeight) {
     return Positioned(
-      top: maxHeight * 0.12, 
-      left: 60, 
-      right: 60, 
-      height: 40,
+      top: MediaQuery.of(context).padding.top + 60, // Below AppBar Title
+      left: 70, 
+      right: 70, 
       child: Center(
         child: GlassContainer(
-           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-           opacity: 0.8,
-           borderRadius: BorderRadius.circular(20),
+           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4), // Reduced vertical padding
+           opacity: 0.1,
+           blur: 15,
+           borderRadius: BorderRadius.circular(30),
+           border: Border.all(color: Colors.white.withOpacity(0.15), width: 1.0),
+           boxShadow: [], // Remove shadow to reduce visual volume
            child: BattleLogWidget(logs: logs)
         )
       )
@@ -358,14 +358,11 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
   Widget _buildSkillPanel(List<Map<String, dynamic>?> skills, dynamic state, BattleProvider controller) {
     return Positioned(
       bottom: 0, left: 0, right: 0,
-      child: Container(
+      child: GlassContainer(
         padding: const EdgeInsets.only(bottom: 20, top: 10),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-             begin: Alignment.topCenter, end: Alignment.bottomCenter,
-             colors: [Colors.transparent, Colors.white.withOpacity(0.9)]
-          )
-        ),
+        opacity: 0.4, // Natural transparency
+        blur: 10,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
         child: SkillPanelWidget(
           skills: skills,
           isMyTurn: state.isMyTurn,
@@ -399,43 +396,91 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildGlassHud({required String name, required int hp, required int maxHp, required List<dynamic> statuses, String? faceUrl}) {
+  Widget _buildGlassHud({
+    required String name, 
+    required int hp, 
+    required int maxHp, 
+    required List<dynamic> statuses, 
+    String? faceUrl,
+    required bool isMe
+  }) {
     double hpPercent = (maxHp > 0) ? (hp / maxHp).clamp(0.0, 1.0) : 0.0;
-    Color barColor = hpPercent > 0.5 ? AppColors.success : (hpPercent > 0.2 ? AppColors.warning : AppColors.danger);
+    
+    // Premium Gradient Colors for HP Bar
+    final List<Color> hpGradient = hpPercent > 0.5 
+      ? [const Color(0xFF81C784), const Color(0xFF4CAF50)] // Success Green
+      : (hpPercent > 0.2 
+          ? [const Color(0xFFFFD54F), const Color(0xFFFFA000)] // Warning Yellow
+          : [const Color(0xFFE57373), const Color(0xFFD32F2F)]); // Danger Red
     
     final String fullImageUrl = faceUrl != null && faceUrl.isNotEmpty
         ? "${AppConfig.baseUrl.replaceFirst('/v1', '')}$faceUrl"
         : "";
 
     return GlassContainer(
-      width: 200, padding: const EdgeInsets.all(10),
-      borderRadius: BorderRadius.circular(30),
-      opacity: 0.85,
-      child: Row(
+      padding: const EdgeInsets.all(12),
+      borderRadius: BorderRadius.circular(24),
+      opacity: 0.7,
+      blur: 12,
+      border: Border.all(
+        color: isMe ? AppColors.primaryMint.withOpacity(0.4) : Colors.white.withOpacity(0.4),
+        width: 2
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Circle Avatar
-          Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2), color: Colors.grey[200]),
-            child: ClipOval(
-              child: fullImageUrl.isNotEmpty
-                  ? Image.network(fullImageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.pets, size: 20))
-                  : const Icon(Icons.person, size: 20, color: Colors.grey),
-            ),
+          Row(
+            children: [
+              // Circular Face
+              Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle, 
+                  border: Border.all(color: Colors.white, width: 1.5),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)]
+                ),
+                child: ClipOval(
+                  child: fullImageUrl.isNotEmpty
+                      ? Image.network(fullImageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.pets, size: 18))
+                      : const Icon(Icons.person, size: 18, color: Colors.grey),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: GoogleFonts.jua(fontSize: 14, color: AppColors.softCharcoal, fontWeight: FontWeight.bold)),
+                    Text("$hp / $maxHp", style: GoogleFonts.jua(fontSize: 11, color: AppColors.softCharcoal.withOpacity(0.6))),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textMain)), Text("$hp/$maxHp", style: const TextStyle(fontSize: 10, color: AppColors.textSub))]),
-                const SizedBox(height: 6),
-                Stack(children: [
-                    Container(height: 6, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(5))), 
-                    AnimatedContainer(duration: const Duration(milliseconds: 300), height: 6, width: 120 * hpPercent, decoration: BoxDecoration(color: barColor, borderRadius: BorderRadius.circular(5)))
-                ]),
-              ],
-            ),
+          const SizedBox(height: 10),
+          // Premium HP Bar
+          Stack(
+            children: [
+              Container(
+                height: 10,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 500),
+                height: 10,
+                width: 200 * hpPercent, // Relative width
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: hpGradient),
+                  borderRadius: BorderRadius.circular(5),
+                  boxShadow: [
+                    BoxShadow(color: hpGradient.last.withOpacity(0.4), blurRadius: 6, offset: const Offset(0, 2))
+                  ]
+                ),
+              ),
+            ],
           ),
         ],
       ),
