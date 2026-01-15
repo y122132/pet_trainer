@@ -169,6 +169,7 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
     print(f"🚩 접속 시도 - 방ID(URL에서 추출): {room_id}")
     print(f"========================================================\n")
     if user_id <= 0:
+        print(f"❌ [BATTLE_REJECT] 비정상적인 유저 ID: {user_id} (방ID: {room_id})")
         await websocket.close(code=4000)
         return
     try:

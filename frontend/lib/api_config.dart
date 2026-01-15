@@ -23,7 +23,7 @@ class AppConfig {
 
   // 3. WebSocket URL (분석, 배틀, 채팅)
   // AI 분석 (develop 유지)
-  static String get socketUrl => 'ws://$serverIp:$serverPort/ws/analysis';
+  static String get socketUrl => 'ws://$serverIp:$serverPort/v1/ws/analysis';
   
   // 배틀 시스템 (develop 유지)
   static String get battleSocketUrl => 'ws://$serverIp:$serverPort/v1/ws/battle';
