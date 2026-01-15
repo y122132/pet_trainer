@@ -17,6 +17,7 @@ class CreationNameScreen extends StatefulWidget {
 
 class _CreationNameScreenState extends State<CreationNameScreen> {
   final _nameController = TextEditingController();
+  String _selectedPetType = "dog"; // [New] 기본선택: 강아지
 
   @override
   void dispose() {
@@ -26,14 +27,46 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
 
   void _onNext() {
     final name = _nameController.text.trim();
-    if (name.isEmpty) return;
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('이름을 입력해주세요!', style: GoogleFonts.jua()),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
 
-    // 2단계(사진 등록)로 이름 데이터 전달
+    // 2단계(사진 등록)로 이름과 펫 종류 전달
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => CreationImageScreen(characterName: name),
+        builder: (context) => CreationImageScreen(
+          characterName: name, 
+          petType: _selectedPetType, // [Modified] Pass selected type
+        ),
       ),
+    );
+  }
+
+  Widget _buildPetTypeButton(String petType, String label) {
+    final bool isSelected = _selectedPetType == petType;
+    return ElevatedButton(
+      onPressed: () {
+        setState(() {
+          _selectedPetType = petType;
+        });
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isSelected ? kDarkBrown : Colors.white,
+        foregroundColor: isSelected ? Colors.white : kDarkBrown,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: kDarkBrown),
+        ),
+        elevation: isSelected ? 4 : 0,
+      ),
+      child: Text(label, style: GoogleFonts.jua()),
     );
   }
 
@@ -42,43 +75,62 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
     return Scaffold(
       backgroundColor: kCreamColor,
       appBar: AppBar(
-        title: Text("1단계: 이름 짓기", style: GoogleFonts.jua(color: kBrown)),
+        title: Text("1단계: 캐릭터 생성", style: GoogleFonts.jua(color: kBrown)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        automaticallyImplyLeading: false, // 첫 화면이므로 뒤로가기 없음 (로그아웃 등 필요 시 추가)
+        automaticallyImplyLeading: false, 
       ),
       body: Stack(
         children: [
-          // 배경 장식 (동물 친구들)
+          // 배경 장식
           Align(
             alignment: Alignment.bottomCenter,
             child: Opacity(
-              opacity: 0.3, 
+              opacity: 0.3,
               child: Image.asset(
                 'assets/images/동물이름.png',
                 fit: BoxFit.fitWidth,
                 width: MediaQuery.of(context).size.width,
+                errorBuilder: (c, e, s) => const SizedBox(),
               ),
             ),
           ),
-          
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.start, // [Modified] 위에서 시작
+                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Spacer(flex: 1), // [Modified] 상단 여백 (1/3 지점 배치를 위해)
-                  
+                  const Spacer(flex: 2),
                   Text(
-                    "반려동물의 이름을\n지어주세요!",
+                    "반려동물의 종을 선택하고\n이름을 지어주세요!",
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.jua(fontSize: 28, color: kDarkBrown),
+                    style: GoogleFonts.jua(fontSize: 28, color: kDarkBrown, height: 1.3),
                   ),
                   const SizedBox(height: 40),
                   
+                  // 펫 종류 선택 섹션
+                  Text(
+                    "어떤 친구와 함께할까요?",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.jua(fontSize: 18, color: kDarkBrown.withOpacity(0.8)),
+                  ),
+                  const SizedBox(height: 15),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildPetTypeButton("dog", "🐶 강아지"),
+                      const SizedBox(width: 10),
+                      _buildPetTypeButton("cat", "🐱 고양이"),
+                      const SizedBox(width: 10),
+                      _buildPetTypeButton("bird", "🐦 새"),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 40),
+
                   TextField(
                     controller: _nameController,
                     textAlign: TextAlign.center,
@@ -90,7 +142,11 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
                       fillColor: Colors.white,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
-                        borderSide: const BorderSide(color: kLightBrown),
+                        borderSide: const BorderSide(color: kLightBrown, width: 2),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        borderSide: const BorderSide(color: kLightBrown, width: 2),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
@@ -99,6 +155,8 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
                     ),
                     onSubmitted: (_) => _onNext(),
                   ),
+                  const SizedBox(height: 30),
+                  
                   const SizedBox(height: 40),
 
                   ElevatedButton(
@@ -113,12 +171,12 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
                       elevation: 5,
                     ),
                     child: Text(
-                      "다음으로",
+                      "다음 단계로",
                       style: GoogleFonts.jua(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                   ),
 
-                  const Spacer(flex: 2), // [Modified] 하단 여백 (상단보다 2배 더 주어 위로 올림)
+                  const Spacer(flex: 2), 
                 ],
               ),
             ),

@@ -7,10 +7,16 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'config/theme.dart';
 import 'providers/char_provider.dart';
 import 'providers/chat_provider.dart';
+import 'providers/battle_provider.dart';
 import 'screens/main_title_screen.dart';
+import 'config/global_settings.dart';
+import 'services/edge_game_logic.dart'; // [NEW] Config Sync
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await GlobalSettings.load();
+  await EdgeGameConfig.loadFromBackend(); // [NEW] Sync Server Config
+
   
   runApp(
     OverlaySupport(
@@ -18,6 +24,7 @@ void main() {
         providers: [
           ChangeNotifierProvider(create: (_) => CharProvider()),
           ChangeNotifierProvider(create: (_) => ChatProvider()),
+          ChangeNotifierProvider(create: (_) => BattleProvider()),
         ],
         child: const MyApp(),
       ),

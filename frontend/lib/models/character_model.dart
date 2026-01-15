@@ -50,6 +50,7 @@ class Character {
   final String name;
   final String petType; // 반려동물 종류 (dog, cat 등) - [New]
   final List<int> learnedSkills; // 습득한 기술 ID 목록 - [New]
+  List<int> equippedSkills;
   final Stat? stat; // 연관된 스탯 객체
   final String? imagePath;
 
@@ -63,6 +64,7 @@ class Character {
     required this.id,
     required this.userId,
     required this.name,
+    required this.equippedSkills,
     this.petType = 'dog', // 기본값
     this.learnedSkills = const [],
     this.stat,
@@ -73,6 +75,36 @@ class Character {
     this.faceUrl = "",
   });
 
+  Character copyWith({
+    int? id,
+    int? userId,
+    String? name,
+    String? petType,
+    List<int>? learnedSkills,
+    List<int>? equippedSkills,
+    Stat? stat,
+    String? imagePath,
+    String? frontUrl,
+    String? backUrl,
+    String? sideUrl,
+    String? faceUrl,
+  }) {
+    return Character(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      name: name ?? this.name,
+      petType: petType ?? this.petType,
+      learnedSkills: learnedSkills ?? this.learnedSkills,
+      equippedSkills: equippedSkills ?? this.equippedSkills,
+      stat: stat ?? this.stat,
+      imagePath: imagePath ?? this.imagePath,
+      frontUrl: frontUrl ?? this.frontUrl,
+      backUrl: backUrl ?? this.backUrl,
+      sideUrl: sideUrl ?? this.sideUrl,
+      faceUrl: faceUrl ?? this.faceUrl,
+    );
+  }
+
   // JSON 파싱 (서버 -> 앱)
   factory Character.fromJson(Map<String, dynamic> json) {
     return Character(
@@ -80,10 +112,8 @@ class Character {
       userId: json['user_id'] ?? 0,
       name: json['name'] ?? 'Unknown',
       petType: json['pet_type'] ?? 'dog', // 서버 데이터 반영
-      learnedSkills: json['learned_skills'] != null 
-          ? List<int>.from(json['learned_skills']) 
-          : [],
-      // 중첩된 JSON 처리
+      learnedSkills: List<int>.from(json['learned_skills'] ?? [5]),
+      equippedSkills: List<int>.from(json['equipped_skills'] ?? [5]),
       stat: (json['stats'] ?? json['stat']) != null ? Stat.fromJson(json['stats'] ?? json['stat']) : null,
       imagePath: json['image_path'],
       frontUrl: json['front_url'] ?? "",

@@ -3,15 +3,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'battle_page.dart'; 
 import '../api_config.dart';
-import '../config/theme.dart';
-import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
+import 'package:pet_trainer_frontend/config/theme.dart';
+import 'package:pet_trainer_frontend/services/chat_service.dart';
+import 'package:pet_trainer_frontend/services/auth_service.dart';
 import 'package:provider/provider.dart';
+import 'package:pet_trainer_frontend/providers/chat_provider.dart';
 import 'package:http/http.dart' as http;
-import '../providers/chat_provider.dart';
 import '../providers/battle_provider.dart'; 
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../config/design_system.dart';
 
 class ChatScreen extends StatefulWidget {
   final int myId;
@@ -168,18 +172,20 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background, // e.g. Navy background
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(widget.toUsername, style: const TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: AppColors.navy, 
-        foregroundColor: Colors.white,
+        title: Text(widget.toUsername, style: GoogleFonts.jua(color: AppColors.textMain, fontWeight: FontWeight.bold)),
+        backgroundColor: AppColors.surface.withOpacity(0.8),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: AppColors.textMain),
+        centerTitle: true,
       ),
       body: Column(
         children: [
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               itemCount: messages.length,
               itemBuilder: (context, i) {
                 final msg = messages[i];
@@ -188,12 +194,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 bool isMe = msg['from_user_id'] == widget.myId;
                 bool showDateDivider = false;
                 if (i == 0) {
-                  showDateDivider = true; // 첫 메시지는 무조건 날짜 표시
+                  showDateDivider = true;
                 } else {
                   DateTime prevDate = DateTime.parse(messages[i - 1]['created_at']).toLocal();
                   DateTime currDate = DateTime.parse(msg['created_at']).toLocal();
                   
-                  // 연, 월, 일이 하나라도 다르면 날짜가 바뀐 것임
                   if (prevDate.year != currDate.year || 
                       prevDate.month != currDate.month || 
                       prevDate.day != currDate.day) {
@@ -211,29 +216,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       _buildMessageBubble(msg, isMe),
                   ],
                 );
-
-                return Align(
-                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
-                    decoration: BoxDecoration(
-                      color: isMe ? AppColors.cyberYellow : Colors.white,
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(12),
-                        topRight: const Radius.circular(12),
-                        bottomLeft: isMe ? const Radius.circular(12) : const Radius.circular(0),
-                        bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(12),
-                      ),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))]
-                    ),
-                    child: Text(
-                      msg['message'] ?? '',
-                      style: TextStyle(color: isMe ? AppColors.navy : Colors.black87, fontSize: 16),
-                    ),
-                  ),
-                );
               },
             ),
           ),
@@ -245,22 +227,43 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildMessageBubble(Map<String, dynamic> msg, bool isMe) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (isMe) _buildTimeText(msg['created_at']), // 내 메시지면 시간 먼저
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.6),
-            decoration: BoxDecoration(
-              color: isMe ? AppColors.cyberYellow : Colors.white,
-              borderRadius: BorderRadius.circular(12),
+          if (isMe) _buildTimeText(msg['created_at']),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              decoration: BoxDecoration(
+                color: isMe ? AppColors.secondary : Colors.white, // Soft Salmon for me, White for others
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(20),
+                  topRight: const Radius.circular(20),
+                  bottomLeft: isMe ? const Radius.circular(20) : const Radius.circular(4),
+                  bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(20),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withOpacity(0.08),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  )
+                ],
+              ),
+              child: Text(
+                msg['message'] ?? "",
+                style: GoogleFonts.jua(
+                  color: isMe ? Colors.white : AppColors.textMain,
+                  fontSize: 16,
+                  height: 1.4,
+                ),
+              ),
             ),
-            child: Text(msg['message'] ?? ""),
           ),
-          if (!isMe) _buildTimeText(msg['created_at']), // 상대 메시지면 나중에 시간
+          if (!isMe) _buildTimeText(msg['created_at']),
         ],
       ),
     );
@@ -268,24 +271,27 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildTimeText(String? isoString) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 5),
-      child: Text(_formatTime(isoString), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      child: Text(
+        _formatTime(isoString), 
+        style: GoogleFonts.jua(fontSize: 10, color: AppColors.textSub)
+      ),
     );
   }
 
   Widget _buildDateDivider(String dateStr) {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 20),
+      margin: const EdgeInsets.symmetric(vertical: 24),
       alignment: Alignment.center,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.1),
+          color: AppColors.border.withOpacity(0.5),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
           _formatDate(dateStr),
-          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+          style: GoogleFonts.jua(color: AppColors.textMain, fontSize: 12),
         ),
       ),
     );
@@ -293,37 +299,53 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildInviteMessage(Map<String, dynamic> msg, bool isMe) {
      return Align(
-       alignment: Alignment.center, // Center system messages
+       alignment: Alignment.center,
        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 15),
-          padding: const EdgeInsets.all(16),
-          width: 250,
+          margin: const EdgeInsets.symmetric(vertical: 20),
+          padding: const EdgeInsets.all(20),
+          width: 260,
           decoration: BoxDecoration(
-             color: Colors.black87,
-             borderRadius: BorderRadius.circular(16),
-             border: Border.all(color: AppColors.cyberYellow, width: 2),
-             boxShadow: [BoxShadow(color: AppColors.cyberYellow.withOpacity(0.3), blurRadius: 10)]
+             color: Colors.white,
+             borderRadius: BorderRadius.circular(24),
+             border: Border.all(color: AppColors.accent, width: 2),
+             boxShadow: AppDecorations.softShadow,
           ),
           child: Column(
              mainAxisSize: MainAxisSize.min,
              children: [
-                const Icon(Icons.sports_kabaddi, color: AppColors.cyberYellow, size: 30),
-                const SizedBox(height: 8),
-                Text(msg['message'] ?? "Battle Invitation", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.sports_kabaddi, color: AppColors.accent, size: 32),
+                ),
                 const SizedBox(height: 12),
-                if (!isMe) // 내가 보낸건 버튼 안보임
+                Text(
+                  msg['message'] ?? "대결 신청이 도착했습니다!", 
+                  style: GoogleFonts.jua(color: AppColors.textMain, fontWeight: FontWeight.bold, fontSize: 16), 
+                  textAlign: TextAlign.center
+                ),
+                const SizedBox(height: 16),
+                if (!isMe)
                 SizedBox(
                    width: double.infinity,
                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary, 
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        padding: const EdgeInsets.symmetric(vertical: 12)
+                      ),
                       onPressed: () {
                          final roomId = msg['room_id'];
                          if (roomId != null) {
-                            // Join Battle
                              Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => ChangeNotifierProvider( // Using Provider
+                                builder: (context) => ChangeNotifierProvider(
                                   create: (_) => BattleProvider()..setRoomId(roomId),
                                   child: const BattleView(),
                                 ),
@@ -331,11 +353,11 @@ class _ChatScreenState extends State<ChatScreen> {
                             );
                          }
                       },
-                      child: const Text("FIGHT! (입장)", style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: const Text("도전 받아들이기!", style: TextStyle(fontWeight: FontWeight.bold)),
                    ),
                 )
                 else
-                 const Text("Waiting for opponent...", style: TextStyle(color: Colors.grey, fontSize: 12))
+                 Text("상대방의 수락을 기다리는 중...", style: GoogleFonts.jua(color: AppColors.textSub, fontSize: 12))
              ],
           ),
        ),
@@ -344,36 +366,61 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildMessageInput() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -4),
+          )
+        ],
+      ),
       child: SafeArea(
         child: Row(
           children: [
             Expanded(
-              child: TextField(
-                controller: _msgController,
-                autocorrect: false,
-                enableSuggestions: false,
-                keyboardType: TextInputType.text,
-                enableInteractiveSelection: true,
-                selectionControls: desktopTextSelectionControls,
-                decoration: InputDecoration(
-                  hintText: "메시지를 입력하세요...",
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(25), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: AppColors.border),
                 ),
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _send(),
+                child: TextField(
+                  controller: _msgController,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  style: GoogleFonts.jua(color: AppColors.textMain),
+                  decoration: InputDecoration(
+                    hintText: "메시지를 입력하세요...",
+                    hintStyle: GoogleFonts.jua(color: AppColors.textSub),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => _send(),
+                ),
               ),
             ),
-            const SizedBox(width: 8),
-            CircleAvatar(
-              backgroundColor: AppColors.navy,
-              child: IconButton(
-                icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                onPressed: _send,
+            const SizedBox(width: 12),
+            GestureDetector(
+              onTap: _send,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withOpacity(0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    )
+                  ],
+                ),
+                child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
               ),
             ),
           ],

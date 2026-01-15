@@ -24,6 +24,7 @@ class BattleEvent {
 
 // Full State for the View to render
 class BattleUIState {
+  final int oppId;
   final int myHp;
   final int myMaxHp;
   final int oppHp;
@@ -47,6 +48,7 @@ class BattleUIState {
   final String? oppFaceUrl;
 
   BattleUIState({
+    this.oppId = 0,
     this.myHp = 100,
     this.myMaxHp = 100,
     this.oppHp = 100,
@@ -69,7 +71,7 @@ class BattleUIState {
 
   // CopyWith for immutable updates
   BattleUIState copyWith({
-    int? myHp, int? myMaxHp, int? oppHp, int? oppMaxHp,
+    int? oppId, int? myHp, int? myMaxHp, int? oppHp, int? oppMaxHp,
     String? oppName, String? oppPetType,
     bool? isMyTurn, bool? isConnected, String? statusMessage,
     List<String>? logs, List<Map<String, dynamic>>? mySkills,
@@ -81,6 +83,7 @@ class BattleUIState {
     String? oppFaceUrl,
   }) {
     return BattleUIState(
+      oppId: oppId ?? this.oppId,
       myHp: myHp ?? this.myHp,
       myMaxHp: myMaxHp ?? this.myMaxHp,
       oppHp: oppHp ?? this.oppHp,

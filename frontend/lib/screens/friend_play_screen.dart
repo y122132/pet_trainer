@@ -1,3 +1,4 @@
+// frontend/lib/screens/friend_play_screen.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -19,14 +20,14 @@ class FriendPlayScreen extends StatefulWidget {
 }
 
 class _FriendPlayScreenState extends State<FriendPlayScreen> {
-  List<dynamic> _friends = [];
+  List<dynamic> _friends = []; // 친구 목록 데이터를 담을 리스트
   bool _isLoading = false;
   String? _token;
 
   @override
   void initState() {
     super.initState();
-    _loadFriends();
+    _loadFriends(); // 화면 시작 시 친구 목록 로드
   }
 
   Future<void> _loadFriends() async {
@@ -51,7 +52,7 @@ class _FriendPlayScreenState extends State<FriendPlayScreen> {
     }
     setState(() => _isLoading = false);
   }
-
+  // --- 초대 버튼 클릭 시 처리 함수 ---
   void _handleInvite(dynamic friend) async {
     final battleService = BattleService();
     
@@ -59,20 +60,29 @@ class _FriendPlayScreenState extends State<FriendPlayScreen> {
       SnackBar(content: Text("${friend['nickname']}님에게 도전장을 보냅니다!"))
     );
 
-    final roomId = await battleService.sendInvite(friend['id']);
+    // 1. 서버에 초대 API 호출하여 방 ID(roomId)를 받아옴
+    final String? roomId = await battleService.sendInvite(friend['id']);
+    
+    // 🚩 [TRACKING] 서버가 준 ID 확인
+    debugPrint("🚩 [FriendPlay] 서버 응답 roomId: $roomId");
     
     if (roomId != null && mounted) {
+      debugPrint("🚀 [FriendPlay] 방 생성 성공! BattlePage로 이동합니다.");
+      
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ChangeNotifierProvider(
-            create: (_) => BattleProvider()..setRoomId(roomId),
-            child: const BattleView(),
-          ),
+          builder: (context) {
+            // 🔴 핵심 수정: BattlePage 생성자에 roomId를 직접 전달하세요!
+            return BattlePage(roomId: roomId);
+          }
         ),
       );
+    } else {
+      debugPrint("❌ [FriendPlay] 방 생성 실패 혹은 roomId가 null입니다.");
     }
   }
+  
 
   @override
   Widget build(BuildContext context) {

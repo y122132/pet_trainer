@@ -1,10 +1,12 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+# backend/app/main.py
 import os
-from dotenv import load_dotenv
-
 from pathlib import Path
+from fastapi import FastAPI
+from requests import Request
+from dotenv import load_dotenv
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+
 
 # 현재 파일(main.py)의 위치: backend/app/main.py
 # 루트 .env 위치: backend/app/../../.env -> Project Root
@@ -22,7 +24,7 @@ from app.db.database_redis import RedisManager # 추가
 # Admin
 from sqladmin import Admin
 from app.db.database import engine
-from app.admin_panel import UserAdmin, CharacterAdmin, StatAdmin, ActionLogAdmin, DiaryAdmin, DiaryLikeAdmin
+from app.admin_panel import UserAdmin, CharacterAdmin, StatAdmin, ActionLogAdmin, DiaryAdmin, DiaryLikeAdmin, NoticeAdmin
 
 
 app = FastAPI(title="PetTrainer API")
@@ -42,7 +44,7 @@ if "origins" not in locals() or origins == ["*"]:
     # [*] Wildcard with credentials is invalid. Use regex for localhost dev.
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?",
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|10\.0\.2\.2|192\.168\.\d+\.\d+)(:\d+)?",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -73,8 +75,8 @@ async def on_startup():
 # 라우터 등록
 # REST API와 WebSocket 엔드포인트를 메인 앱에 연결합니다.
 app.include_router(api_router)
-app.include_router(websocket_router)
-app.include_router(battle_router)
+app.include_router(websocket_router, prefix="/v1")
+app.include_router(battle_router, prefix="/v1")
 
 # Admin Panel Setup
 from app.admin_auth import authentication_backend
@@ -86,6 +88,7 @@ admin.add_view(StatAdmin)
 admin.add_view(ActionLogAdmin)
 admin.add_view(DiaryAdmin)
 admin.add_view(DiaryLikeAdmin)
+admin.add_view(NoticeAdmin)
 
 @app.get("/")
 async def root():
@@ -100,3 +103,9 @@ async def on_shutdown():
     서버 종료 시 리소스를 안전하게 해제합니다.
     """
     await RedisManager.close() # Redis 연결 풀 닫기
+
+@app.middleware("http")
+async def update_last_active(request: Request, call_next):
+    # 토큰이 있는 요청인 경우 current_user의 last_active_at을 갱신하는 로직 추가 가능
+    response = await call_next(request)
+    return response

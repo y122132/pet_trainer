@@ -2,6 +2,7 @@ from sqladmin import ModelView
 from app.db.models.user import User
 from app.db.models.character import Character, Stat, ActionLog
 from app.db.models.diary import Diary, DiaryLike
+from app.db.models.notice import Notice
 
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.nickname, User.is_active, User.created_at]
@@ -30,3 +31,9 @@ class DiaryAdmin(ModelView, model=Diary):
 class DiaryLikeAdmin(ModelView, model=DiaryLike):
     column_list = [DiaryLike.id, DiaryLike.diary_id, DiaryLike.user_id]
     icon = "fa-solid fa-heart"
+
+class NoticeAdmin(ModelView, model=Notice):
+    column_list = [Notice.id, Notice.title, Notice.is_active, Notice.created_at]
+    column_searchable_list = [Notice.title, Notice.content]
+    column_sortable_list = [Notice.created_at]
+    icon = "fa-solid fa-bullhorn"

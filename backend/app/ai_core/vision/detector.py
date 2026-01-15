@@ -62,6 +62,43 @@ def calculate_squared_distance(p1, p2, x_scale, y_scale):
     dy = (p1[1] - p2[1]) * y_scale
     return dx*dx + dy*dy
 
+# [Optimization] Temporal Aggregation Function
+def apply_temporal_smoothing(current_box, current_cls, vision_state):
+    if not vision_state: return current_box, current_cls
+    
+    # 1. Initialize History Deques
+    if "history_boxes" not in vision_state: vision_state["history_boxes"] = []
+    if "history_classes" not in vision_state: vision_state["history_classes"] = []
+    if "ema_box" not in vision_state: vision_state["ema_box"] = None
+    
+    # 2. Class Voting (Consensus)
+    history_classes = vision_state["history_classes"]
+    history_classes.append(current_cls)
+    if len(history_classes) > 5: history_classes.pop(0)
+    
+    # Most frequent class
+    from collections import Counter
+    most_common = Counter(history_classes).most_common(1)
+    consensus_cls = most_common[0][0] if most_common else current_cls
+    
+    # 3. EMA Smoothing
+    x1, y1, x2, y2, conf, _ = current_box
+    current_coords = np.array([x1, y1, x2, y2])
+    
+    ema_box = vision_state.get("ema_box")
+    if ema_box is None:
+        ema_box = current_coords
+    else:
+        alpha = 0.6 # Smoothing factor (0.6 = new 60%, old 40%)
+        ema_box = alpha * current_coords + (1 - alpha) * ema_box
+        
+    vision_state["ema_box"] = ema_box
+    
+    # Return smoothed detection
+    # [Fix] Explicit cast to native float for JSON serialization (Numpy types crash json.dumps)
+    smoothed_box = [float(ema_box[0]), float(ema_box[1]), float(ema_box[2]), float(ema_box[3]), float(conf), float(consensus_cls)]
+    return smoothed_box, consensus_cls
+
 def process_frame(
     image_bytes,  # [Modified] bytes or np.ndarray 
     mode: str = "playing", 
@@ -121,45 +158,9 @@ def process_frame(
     else:
         x_scale, y_scale = 1.0, 1.0 / aspect_ratio
     
-    # [Optimization] Temporal Aggregation Function
-    def apply_temporal_smoothing(current_box, current_cls, vision_state):
-        if not vision_state: return current_box, current_cls
-        
-        # 1. Initialize History Deques
-        if "history_boxes" not in vision_state: vision_state["history_boxes"] = []
-        if "history_classes" not in vision_state: vision_state["history_classes"] = []
-        if "ema_box" not in vision_state: vision_state["ema_box"] = None
-        
-        # 2. Class Voting (Consensus)
-        history_classes = vision_state["history_classes"]
-        history_classes.append(current_cls)
-        if len(history_classes) > 5: history_classes.pop(0)
-        
-        # Most frequent class
-        from collections import Counter
-        most_common = Counter(history_classes).most_common(1)
-        consensus_cls = most_common[0][0] if most_common else current_cls
-        
-        # 3. EMA Smoothing
-        x1, y1, x2, y2, conf, _ = current_box
-        current_coords = np.array([x1, y1, x2, y2])
-        
-        ema_box = vision_state.get("ema_box")
-        if ema_box is None:
-            ema_box = current_coords
-        else:
-            alpha = 0.6 # Smoothing factor (0.6 = new 60%, old 40%)
-            ema_box = alpha * current_coords + (1 - alpha) * ema_box
-            
-        vision_state["ema_box"] = ema_box
-        
-        # Return smoothed detection
-        smoothed_box = [ema_box[0], ema_box[1], ema_box[2], ema_box[3], conf, consensus_cls]
-        return smoothed_box, consensus_cls
-
     # 4. 설정값
-    # [Anti-Flickering] 기본 추론은 넓게(0.40), 로직에서 필터링
-    INFERENCE_LOW_CONF = 0.30 # [Tuning] Stricter noise filtering
+    # [Anti-Flickering] 기본 추론은 넓게(0.25), 로직에서 필터링
+    INFERENCE_LOW_CONF = 0.25 # [Tuning] Unify with Easy Mode threshold
     LOGIC_HIGH_CONF = 0.30 # [Tuning] Strict initial check
     LOGIC_LOW_CONF = 0.25  # [Tuning] Maintenance threshold
     
@@ -231,6 +232,10 @@ def process_frame(
         # [Fix] Name-Based Mapping applied
         names = results_pet[0].names
         
+        # [NEW] Top-1 Selection Logic
+        best_pet_det = None
+        best_pet_conf_local = -1.0
+        
         for i, box in enumerate(results_pet[0].boxes):
             cls_source = int(box.cls[0])
             conf = float(box.conf[0])
@@ -251,62 +256,88 @@ def process_frame(
             # Target Check & Confidence Check
             # [Anti-Flickering] Use dynamic LOGIC_CONF (0.35 or 0.20)
             if mapped_cls in [14, 15, 16] and conf >= LOGIC_CONF:
-                # 1. BBox Construction
-                x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
-                nx1, ny1, nx2, ny2 = np.clip([x1, y1, x2, y2], 0.0, 1.0)
-                current_pet_box = [float(nx1), float(ny1), float(nx2), float(ny2), float(conf), float(mapped_cls)]
+                # [NEW] Only track the BEST pet (Top-1)
+                # If target_class_id is specified, prioritize that class.
+                # Else, prioritize highest confidence.
                 
-                # Add to total detections (for visualization of ALL pets)
-                detected_objects.append(current_pet_box)
-
-                # 2. Keypoint Logic (Select PRIMARY pet for interaction)
-                # If target_class_id is -1, we pick the highest confidence pet automatically
-                is_target = False
-                if target_class_id == -1:
-                    if conf > best_conf: is_target = True
-                elif mapped_cls == target_class_id:
-                    if conf > best_conf: is_target = True
+                is_better = False
+                if best_pet_det is None:
+                    is_better = True
+                else:
+                    # Compare with current best
+                    prev_conf = best_pet_det["conf"]
+                    prev_cls = best_pet_det["cls"]
+                    
+                    if target_class_id != -1:
+                        # Priority to Target Class
+                        if mapped_cls == target_class_id and prev_cls != target_class_id:
+                             is_better = True
+                        elif mapped_cls == target_class_id and prev_cls == target_class_id:
+                             if conf > prev_conf: is_better = True
+                        elif mapped_cls != target_class_id and prev_cls != target_class_id:
+                             if conf > prev_conf: is_better = True
+                    else:
+                        # No target? Just Max Conf
+                        if conf > prev_conf: is_better = True
                 
-                if is_target:
-                    best_conf = conf
-                        
-                    # [NEW] Temporal Smoothing
-                    if vision_state:
-                         smoothed_box, smoothed_cls = apply_temporal_smoothing(current_pet_box, mapped_cls, vision_state)
-                         pet_info["box"] = smoothed_box
-                         mapped_cls = smoothed_cls # Update class for logic
-                         # Re-add smoothed box to detected_objects for visualization (replacing the raw one is hard, so we just append. 
-                         # Actually logic below adds it. But detected_objects has raw. 
-                         # Ideally we want visualization to show the smoothed output for the target.
-                         # Simple hack: detected_objects.append(smoothed_box) allows visualizing both or just smoothed if we filter.
-                         # For now, let's just use it for logic.
-                    
-                    found_pet = True
-                    if "box" not in pet_info or len(pet_info["box"]) == 0: pet_info["box"] = current_pet_box # Fallback
+                if is_better:
+                    best_pet_det = {
+                        "box": box,
+                        "conf": conf,
+                        "cls": mapped_cls,
+                        "index": i
+                    }
 
-                    # [Dynamic Config Update] Auto-detect mode (-1)
-                    # If we found a specific pet (e.g. Bird), switch to its specific config
-                    if target_class_id == -1:
-                         real_cls_id = int(mapped_cls)
-                         if real_cls_id in PET_BEHAVIORS:
-                             pet_config = PET_BEHAVIORS[real_cls_id]
-                             # Re-load mode settings
-                             mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
-                             target_props = mode_config["targets"]
+        # [NEW] Process Only the Best Pet
+        if best_pet_det:
+             box = best_pet_det["box"]
+             conf = best_pet_det["conf"]
+             mapped_cls = best_pet_det["cls"]
+             i = best_pet_det["index"]
+             
+             # 1. BBox Construction
+             x1, y1, x2, y2 = box.xyxyn[0].cpu().numpy()
+             nx1, ny1, nx2, ny2 = np.clip([x1, y1, x2, y2], 0.0, 1.0)
+             current_pet_box = [float(nx1), float(ny1), float(nx2), float(ny2), float(conf), float(mapped_cls)]
+             
+             # Add to total detections (Top-1 Only)
+             detected_objects.append(current_pet_box)
 
-                    # Keypoints
-                    pet_info["keypoints"] = []
-                    pet_info["paws"] = []
-                    
-                    if results_pet[0].keypoints is not None and len(results_pet[0].keypoints.data) > i:
-                        kps = results_pet[0].keypoints.data[i].cpu().numpy()
-                        for k_idx, kp in enumerate(kps):
-                            nx, ny, c = float(kp[0])/width, float(kp[1])/height, float(kp[2])
-                            pet_info["keypoints"].append([nx, ny, c])
-                            
-                            if c > 0.30: # [Tuning] Raised to 0.30 as requested
-                                if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
-                                if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
+             # 2. Keypoint Logic (Select PRIMARY pet for interaction)
+             # Since we filtered to Top-1, this logic is simplified
+             
+             # [NEW] Temporal Smoothing
+             if vision_state:
+                  smoothed_box, smoothed_cls = apply_temporal_smoothing(current_pet_box, mapped_cls, vision_state)
+                  pet_info["box"] = smoothed_box
+                  mapped_cls = smoothed_cls # Update class for logic
+             
+             found_pet = True
+             if "box" not in pet_info or len(pet_info["box"]) == 0: pet_info["box"] = current_pet_box # Fallback
+
+             # [Dynamic Config Update] Auto-detect mode (-1)
+             if target_class_id == -1:
+                  real_cls_id = int(mapped_cls)
+                  if real_cls_id in PET_BEHAVIORS:
+                      pet_config = PET_BEHAVIORS[real_cls_id]
+                      # Re-load mode settings
+                      mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+                      target_props = mode_config["targets"]
+
+             # Keypoints
+             pet_info["keypoints"] = []
+             pet_info["paws"] = []
+             
+             if results_pet[0].keypoints is not None and len(results_pet[0].keypoints.data) > i:
+                 kps = results_pet[0].keypoints.data[i].cpu().numpy()
+                 for k_idx, kp in enumerate(kps):
+                     nx, ny, c = float(kp[0])/width, float(kp[1])/height, float(kp[2])
+                     pet_info["keypoints"].append([nx, ny, c])
+                     
+                     if c > 0.30: 
+                         if k_idx == 0: pet_info["nose"] = [nx, ny] # COCO 0: Nose
+                         if k_idx in [9, 10]: pet_info["paws"].append([nx, ny]) # COCO 9,10: Wrists (Front Paws)
+
         
         # [Anti-Flickering] Persistence Logic (단기 기억)
         if found_pet:
@@ -350,7 +381,12 @@ def process_frame(
 
         if found_pet:
             # Note: pet_info["box"] is already added to detected_objects inside the loop or recovery block
-            base_response["pet_keypoints"] = pet_info["keypoints"]
+            # Note: pet_info["box"] is already added to detected_objects inside the loop or recovery block
+            
+            # [Fix] Only update if we have new keypoints (don't overwrite with empty if Edge AI sent them)
+            if pet_info["keypoints"]:
+                base_response["pet_keypoints"] = pet_info["keypoints"]
+            
             base_response["conf_score"] = best_conf
 
     # ---------------------------------------------------------
@@ -431,8 +467,204 @@ def process_frame(
     base_response["detections"] = rich_detections
 
     # ---------------------------------------------------------
-    # 로직 판단 (Logic Decision)
+    # 로직 판단 (Logic Decision) - [Refactored]
     # ---------------------------------------------------------
+    return process_logic_only(
+        detected_objects=detected_objects,
+        mode=mode,
+        target_class_id=target_class_id,
+        difficulty=difficulty,
+        vision_state=vision_state,
+        base_response=base_response, # Passes keypoints, width/height etc
+        pet_info_override=pet_info # Pass the pet_info found during inference (smoothing applied)
+    )
+
+def process_logic_only(
+    detected_objects: list,
+    mode: str,
+    target_class_id: int,
+    difficulty: str,
+    vision_state: dict,
+    base_response: dict = None,
+    pet_info_override: dict = None
+) -> dict:
+    """
+    Edge AI 또는 Server AI의 감지 결과(BBox)를 바탕으로 게임 로직을 수행합니다.
+    """
+    if base_response is None:
+        base_response = { 
+            "success": False, "message": "", "feedback_message": "", 
+            "is_specific_feedback": False, "base_reward": {}, "bonus_points": 0,
+            "bbox": detected_objects 
+        }
+
+    # Config 로드
+    pet_config = PET_BEHAVIORS.get(target_class_id, DEFAULT_BEHAVIOR)
+    mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+    target_props = mode_config["targets"]
+    
+    # [Optimization] Scale Factors (Approximation if width/height missing)
+    width = base_response.get("width", 640)
+    height = base_response.get("height", 640)
+    aspect_ratio = width / height if height > 0 else 1.0
+    
+    if aspect_ratio > 1.0: x_scale, y_scale = aspect_ratio, 1.0
+    else: x_scale, y_scale = 1.0, 1.0 / aspect_ratio
+
+    # 1. Parse Detections
+    prop_boxes = {}
+    found_pet = False
+    pet_info = {"box": [], "keypoints": [], "nose": None, "paws": [], "conf": 0.0}
+    
+    # [Fix] Preserve Keypoints from Edge AI if provided
+    # [Fix] Preserve & Parse Keypoints from Edge AI if provided
+    if base_response.get("pet_keypoints"):
+        # Edge AI sends List of Keypoint Lists: [[x,y,c, x,y,c... (17 points)], ...]
+        # We assume the first keypoint list corresponds to the primary pet (since usually 1 pet)
+        # Or proper matching logic: Find keypoints inside the Pet Box.
+        
+        edge_kpts_list = base_response["pet_keypoints"]
+        if edge_kpts_list:
+            # Simple heuristic: Use the first one for now (optimize later for multi-pet)
+            # Edge format: [x,y,c, x,y,c ...] flat per pet? 
+            # Check edge_detector_native.dart:
+            # normalizedKpts.add(kx/W)... so it's [x, y, c, x, y, c ...]
+            
+            raw_kpts = edge_kpts_list[0] # List[float]
+            
+            # Map to Logical Logic (Nose=Index 2 ? No, COCO Keypoints)
+            # COCO: 0:Nose, 1:LEye, 2:REye, 3:LEar, 4:REar, ...
+            # Wait, our model is trained on Animal Pose? 
+            # If standard AP-10k or similar:
+            # Let's assume standard index 0 is Nose.
+            
+            if len(raw_kpts) >= 3:
+                # Nose (Index 0)
+                nx, ny, nc = raw_kpts[0], raw_kpts[1], raw_kpts[2]
+                if nc > 0.5:
+                   pet_info["nose"] = [nx, ny]
+                   
+            # Paws (Front Left, Front Right...)
+            # We need exact indices. For now, Nose is critical for "Kiss/Touch".
+            # If we want Paws: Indices 9, 10, 11, 12?
+            # Let's populate 'keypoints' field for generic usage
+            
+            # Convert flat list to list of [x,y,c]
+            structured_kpts = []
+            for k in range(0, len(raw_kpts), 3):
+                structured_kpts.append(raw_kpts[k:k+3])
+            
+            pet_info["keypoints"] = structured_kpts
+
+    # If passed from process_frame, use the already smoothed info
+    if pet_info_override and pet_info_override.get("box"):
+        pet_info = pet_info_override
+        found_pet = True
+        # prop_boxes still need to be filled from detected_objects for non-pet items
+    
+    # Re-scan detected_objects to fill prop_boxes and find pet if missing
+    best_pet_conf = 0.0
+    
+    for obj in detected_objects:
+        # obj: [x1, y1, x2, y2, conf, cls_id]
+        if len(obj) < 6: continue
+        
+        box = obj[:4]
+        conf = float(obj[4])
+        cls_id = int(obj[5])
+        
+        # Pet Check (Dog 16, Cat 15, Bird 14)
+        if cls_id in [14, 15, 16]:
+            if not found_pet: # If not already provided by override
+                is_target = False
+                if target_class_id == -1: 
+                    if conf > best_pet_conf: is_target = True
+                elif cls_id == target_class_id:
+                    if conf > best_pet_conf: is_target = True
+                
+                if is_target:
+                    best_pet_conf = conf
+                    
+                    # [NEW] Temporal Smoothing Logic Reuse
+                    if vision_state:
+                         smoothed_box, smoothed_cls = apply_temporal_smoothing(obj, cls_id, vision_state)
+                         pet_info["box"] = smoothed_box
+                         # If consensus class changes, we should technically update logic, 
+                         # but for simplicity we rely on current box geometry primarily.
+                         # If smooth_cls changes Pet Type (Dog->Cat), that's rare.
+                    else:
+                         pet_info["box"] = obj
+
+                    pet_info["conf"] = conf
+                    found_pet = True
+
+                    # [Dynamic Config Update] Auto-detect mode (-1)
+                    if target_class_id == -1:
+                         real_cls_id = int(cls_id)
+                         if real_cls_id in PET_BEHAVIORS:
+                             pet_config = PET_BEHAVIORS[real_cls_id]
+                             mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+                             target_props = mode_config["targets"]
+        
+        # Human Check (0) - Treat as Prop for interaction
+        elif cls_id == 0:
+            prop_boxes[0] = obj
+            
+        # Other Props
+        else:
+            if cls_id in target_props:
+                # Keep best confidence
+                if cls_id not in prop_boxes or conf > float(prop_boxes[cls_id][4]):
+                    prop_boxes[cls_id] = obj
+
+    # ---------------------------------------------------------
+    # [Anti-Flickering] Persistence Logic (Logic Sync with Server)
+    # ---------------------------------------------------------
+    if found_pet:
+        if vision_state:
+            vision_state["last_pet_box"] = pet_info.copy()
+            vision_state["missing_count"] = 0
+            vision_state["is_tracking"] = True
+    elif vision_state and vision_state.get("is_tracking", False):
+        MAX_MISSING = 5
+        if vision_state["missing_count"] < MAX_MISSING:
+            last_info = vision_state.get("last_pet_box")
+            if last_info:
+                pet_info = last_info
+                found_pet = True
+                
+                # Recover Target Props if in Auto Mode
+                if target_class_id == -1 and len(pet_info["box"]) > 5:
+                    recovered_cls = int(pet_info["box"][5])
+                    if recovered_cls in PET_BEHAVIORS:
+                         pet_config = PET_BEHAVIORS[recovered_cls]
+                         mode_config = pet_config.get(mode, DEFAULT_BEHAVIOR["playing"])
+                         target_props = mode_config["targets"]
+                
+                vision_state["missing_count"] += 1
+        else:
+            vision_state["is_tracking"] = False
+            vision_state["last_pet_box"] = None
+
+    # 2. Logic Decision (Copy of original Logic)
+    
+    # [Fix] Update base_response["bbox"] with the Smoothed/Tracked Pet Box
+    # This ensures the UI draws the stable box used by logic, not just the raw input.
+    # Also visualizes 'Ghost' tracking.
+    if found_pet and pet_info["box"]:
+        # Reconstruct the bbox list. 
+        # We keep props (non-pets) and replace the pet box with the smoothed version.
+        new_bbox_list = []
+        for box in base_response.get("bbox", []):
+            if len(box) > 5:
+                cls = int(box[5])
+                if cls not in [14, 15, 16]: # Keep non-pets
+                    new_bbox_list.append(box)
+        
+        # Add the Smoothed Pet Box
+        new_bbox_list.append(pet_info["box"])
+        base_response["bbox"] = new_bbox_list
+
     has_target = any(p in prop_boxes for p in target_props)
     
     # CASE 1: 펫 미발견
@@ -448,7 +680,6 @@ def process_frame(
         return base_response
 
     # CASE 2: 펫 발견 -> 상호작용 체크
-    # 타겟 부재 체크
     if not has_target:
         missing_msg = {
             "feeding": "강아지는 보이는데, 밥그릇은 어디 있나요?",
@@ -466,16 +697,16 @@ def process_frame(
     # 거리 계산
     min_dist_sq = 9999.0
     
-    # 거리 측정 기준점 (반려동물)
     src_points = []
-    if pet_info["nose"]: src_points.append(pet_info["nose"])
-    if mode == "playing" and pet_info["paws"]: src_points.extend(pet_info["paws"])
-    # 없을 경우 bbox 중심
+    # If Keypoints available (passed from server inference), use them
+    if pet_info.get("nose"): src_points.append(pet_info["nose"])
+    if mode == "playing" and pet_info.get("paws"): src_points.extend(pet_info["paws"])
+    
+    # Fallback to BBox Center if no keypoints (Edge AI usually)
     if not src_points and pet_info["box"]:
         bx = pet_info["box"]
         src_points.append([(bx[0]+bx[2])/2, (bx[1]+bx[3])/2])
 
-    # 타겟과의 거리 측정
     for pid in target_props:
         if pid in prop_boxes:
             target_box = prop_boxes[pid]
@@ -483,7 +714,6 @@ def process_frame(
             target_cy = (target_box[1] + target_box[3]) / 2
             
             for sp in src_points:
-                # [Optimization] Squared Distance (No sqrt)
                 dist_sq = calculate_squared_distance(sp, [target_cx, target_cy], x_scale, y_scale)
                 if dist_sq < min_dist_sq: min_dist_sq = dist_sq
 
@@ -491,7 +721,6 @@ def process_frame(
     MIN_DIST_SETTINGS = DETECTION_SETTINGS["min_distance"].get(mode, {"easy": 0.25, "hard": 0.15})
     MIN_DISTANCE = MIN_DIST_SETTINGS.get(difficulty, MIN_DIST_SETTINGS["easy"])
     
-    # 상호작용 판정 (Compare squares)
     is_interacting = (min_dist_sq < MIN_DISTANCE ** 2)
     
     if is_interacting:
@@ -520,7 +749,7 @@ def process_frame(
             "is_specific_feedback": True
         })
     else:
-        # 실패 (거리 부족)
+        # 실패
         fail_msgs = {
             "feeding": "그릇 가까이 가야 해요!",
             "playing": "장난감과 너무 멀어요",
@@ -530,11 +759,11 @@ def process_frame(
         base_response.update({
             "success": False,
             "message": msg,
-            "feedback_message": "distance_fail", # or "not_interacting"
+            "feedback_message": "distance_fail", 
             "is_specific_feedback": True
         })
 
-    # [Optimization] 결과 캐싱 (Zero-Order Hold)
+    # [Optimization] 결과 캐싱
     if vision_state is not None:
         vision_state["last_response"] = base_response
 
