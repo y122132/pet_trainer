@@ -66,7 +66,7 @@ async def authenticate_user(db: AsyncSession, user_in):
         "nickname": user.nickname,
         "character_id": user.character.id if user.character else None,
         "has_character": bool(user.character), 
-        "last_active_at": user.last_active_at.isoformat(),
+        "last_active_at": f"{user.last_active_at.isoformat()}Z" if user.last_active_at else None,
     }
 
 async def get_all_users(db: AsyncSession, query: str = None):

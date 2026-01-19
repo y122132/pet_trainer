@@ -85,7 +85,7 @@ class TrainingController extends ChangeNotifier {
   
   // [NEW] Local Timer State
   int _stayStartTime = 0;
-  static const int _stayDuration = 1000; // 1 seconds
+  static const int _stayDuration = 3000; // 3 seconds
   
   // [NEW] One Euro Filter State (Class ID -> [x1, y1, x2, y2])
   Map<int, List<OneEuroFilter>>? _boxFilters;
@@ -641,7 +641,7 @@ class TrainingController extends ChangeNotifier {
                         status = 'stay';
                         final remaining = (_stayDuration - elapsed) / 1000.0;
                         stayProgress = elapsed / _stayDuration.toDouble();
-                        progressText = "${remaining.toStringAsFixed(1)}초 유지 중...";
+                        progressText = "${remaining.toStringAsFixed(3)}초 유지 중...";
                     } else {
                         // Timer Done -> Real Success
                         status = 'success';

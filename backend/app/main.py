@@ -106,6 +106,48 @@ async def on_shutdown():
 
 @app.middleware("http")
 async def update_last_active(request: Request, call_next):
-    # 토큰이 있는 요청인 경우 current_user의 last_active_at을 갱신하는 로직 추가 가능
+    # Fire & Forget: 토큰이 있으면 last_active_at 갱신 (에러 무시)
+    try:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            
+            # 필요한 모듈 임포트 (순환 참조 방지 및 Scope 격리)
+            from jose import jwt
+            from app.core.security import SECRET_KEY, ALGORITHM
+            from app.db.models.user import User
+            from app.db.database import AsyncSessionLocal
+            from app.db.database_redis import RedisManager
+            from sqlalchemy.future import select
+            from datetime import datetime, timezone
+
+            # 토큰 디코딩
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_id = payload.get("sub")
+
+            if user_id:
+                # [Redis Throttling] 5분에 1번만 DB 업데이트
+                redis = RedisManager.get_client()
+                cooldown_key = f"user:{user_id}:active_cooldown"
+                
+                # 키가 존재하면(쿨타임 중이면) DB 업데이트 건너뜀
+                if not await redis.get(cooldown_key):
+                    async with AsyncSessionLocal() as db:
+                        # 유저 조회
+                        result = await db.execute(select(User).where(User.id == int(user_id)))
+                        user = result.scalars().first()
+                        
+                        if user:
+                            # 현재 시간(UTC)으로 갱신
+                            user.last_active_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                            await db.commit()
+                            
+                            # 쿨타임 설정 (300초 = 5분)
+                            await redis.set(cooldown_key, "1", ex=300)
+
+    except Exception:
+        # 미들웨어 로직 실패가 API 응답을 막지 않도록 예외 무시
+        pass
+
     response = await call_next(request)
     return response
