@@ -2,55 +2,55 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppColors {
-  // --- Core Palette (Warm Brown & Cream) ---
-  // Primary: Deep, rich brown for buttons and strong accents
-  static const Color primary = Color(0xFF5D4037);    // Deep Warm Brown
+  // --- 3D Choco Toy Palette ---
   
-  // Secondary: Soft salmon/clay for highlights and softer actions
-  static const Color secondary = Color(0xFFFFAB91);  // Soft Salmon
+  // Background: Warm Cream (The Canvas)
+  static const Color background = Color(0xFFFFF9E6); 
   
-  // Background: Warm, cozy cream
-  static const Color background = Color(0xFFFFF9E6); // Warm Cream
+  // Primary: deep warm brown (The Choco)
+  static const Color primary = Color(0xFF5D4037); 
+  static const Color primaryDark = Color(0xFF3E2723); // For 3D Shadows
   
-  // Surface: Clean white for cards
-  static const Color surface = Color(0xFFFFFFFF);    // White
+  // Secondary: Soft Salmon (The Highlight)
+  static const Color secondary = Color(0xFFFFAB91); 
+  static const Color secondaryDark = Color(0xFFD84315);
   
-  // Accents
-  static const Color accent = Color(0xFFFFCC80);     // Soft Orange/Peach
+  // Accent: Soft Yellow/Orange (The Garnish)
+  static const Color accent = Color(0xFFFFCC80);
 
-  // --- Semantic Colors (Softened) ---
-  static const Color success = Color(0xFFA5D6A7);    // Soft Green
-  static const Color warning = Color(0xFFFFE082);    // Soft Amber
-  static const Color danger = Color(0xFFEF9A9A);     // Soft Red
-  static const Color info = Color(0xFF90CAF9);       // Soft Blue
+  // Surface: Clean White
+  static const Color surface = Colors.white; 
+  
+  // Text
+  static const Color textMain = Color(0xFF3E2723); // Almost black brown
+  static const Color textSub = Color(0xFF8D6E63);  // Muted brown
+  
+  // Outline
+  static const Color stroke = Color(0xFF3E2723); // Deep Brown Stroke
 
-  // --- Neutrals ---
-  static const Color textMain = Color(0xFF4E342E);   // Dark Brown (almost black)
-  static const Color textSub = Color(0xFF8D6E63);    // Medium Brown
-  static const Color border = Color(0xFFD7CCC8);     // Light Brown Border
+  // Stats Colors (Pastel Choco)
+  static const Color statRed = Color(0xFFFF8A80);
+  static const Color statBlue = Color(0xFF80DEEA);
+  static const Color statYellow = Color(0xFFFFE082);
+  static const Color statGreen = Color(0xFFA5D6A7);
+  static const Color statGrey = Color(0xFFB0BEC5);
+
+  // Legacy mappings for compatibility
   static const Color white = Colors.white;
+  static const Color textWhite = Colors.white;
+  static const Color primaryMint = secondary; // Map old mint to secondary
+  static const Color secondaryPink = statRed;
+  static const Color danger = statRed;
+  static const Color info = statBlue;
+  static const Color success = statGreen;
+  static const Color warning = statYellow;
+  static const Color border = stroke;
   
-  // --- Legacy Compatibility (Mapped to New Warm Palette) ---
-  static const Color primaryMint = Color(0xFF88E3E0); // Kept for legacy reference but discouraged
-  static const Color secondaryPink = secondary;
-  static const Color accentYellow = accent;
-  static const Color softBlue = info;
-  
+  // Restored Legacy Aliases
+  static const Color primaryBrown = primary;
+  static const Color secondaryBrown = textSub;
   static const Color softCharcoal = textMain;
-  static const Color creamWhite = background; // Direct mapping
-  
-  // Mapping old aliases
-  static const Color primaryBrown = primary;   
-  static const Color secondaryBrown = textSub;     
-  static const Color neutral = textSub;            
-  static const Color navy = textMain;              
-  static const Color cyberYellow = accent;   
-  
-  // Legacy Stat Colors
-  static const Color statStr = danger;   
-  static const Color statInt = info;     
-  static const Color statDex = success;  
-  static const Color statDef = warning;  
+  static const Color neutral = textSub;
 }
 
 class AppTheme {
@@ -58,92 +58,54 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       scaffoldBackgroundColor: AppColors.background,
-      fontFamily: GoogleFonts.jua().fontFamily, // Cute Font
-
-      // Color Scheme
+      fontFamily: GoogleFonts.jua().fontFamily,
+      
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
+        background: AppColors.background,
+        surface: AppColors.surface,
         primary: AppColors.primary,
         secondary: AppColors.secondary,
-        tertiary: AppColors.accent,
-        surface: AppColors.surface,
-        background: AppColors.background,
-        error: AppColors.danger,
-        onPrimary: AppColors.white,
-        onSecondary: AppColors.white,
-        onSurface: AppColors.textMain,
+        outline: AppColors.stroke, 
       ),
 
-      // AppBar Theme
-      appBarTheme: AppBarTheme(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
-        titleTextStyle: GoogleFonts.jua(
-          color: AppColors.textMain,
-          fontSize: 22,
-          fontWeight: FontWeight.bold,
-        ),
-        iconTheme: const IconThemeData(color: AppColors.textMain),
-      ),
-
-      // ElevatedButton Theme (Warm & Round)
+      // --- Button Theme (Choco 3D) ---
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: AppColors.white,
-          elevation: 4,
-          shadowColor: AppColors.primary.withOpacity(0.3),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          elevation: 0, // Handled by custom widget usually
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: AppColors.stroke, width: 3),
           ),
-          textStyle: GoogleFonts.jua(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+          textStyle: GoogleFonts.jua(fontSize: 20, fontWeight: FontWeight.bold),
         ),
       ),
 
-      // Card Theme (Soft & Clean)
+      // --- Card Theme (Chunky) ---
       cardTheme: CardThemeData(
         color: AppColors.surface,
-        elevation: 4,
-        shadowColor: AppColors.primary.withOpacity(0.1),
-        surfaceTintColor: AppColors.surface,
+        elevation: 0,
+        margin: const EdgeInsets.all(8),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(30),
+          side: const BorderSide(color: AppColors.stroke, width: 3),
         ),
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      ),
-
-      // Input Decoration
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: AppColors.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(20),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(20),
-          borderSide: const BorderSide(color: AppColors.border, width: 1.5),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(20),
-          borderSide: const BorderSide(color: AppColors.primary, width: 2),
-        ),
-        labelStyle: const TextStyle(color: AppColors.textSub),
-        hintStyle: const TextStyle(color: AppColors.textSub),
       ),
       
-      // Text Theme
+      // --- Text Theme ---
       textTheme: TextTheme(
         displayLarge: GoogleFonts.jua(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.textMain),
-        titleLarge: GoogleFonts.jua(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textMain),
-        bodyLarge: GoogleFonts.jua(fontSize: 16, color: AppColors.textMain),
-        bodyMedium: GoogleFonts.jua(fontSize: 14, color: AppColors.textSub),
+        titleLarge: GoogleFonts.jua(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textMain),
+        bodyLarge: GoogleFonts.jua(fontSize: 18, color: AppColors.textMain),
+        bodyMedium: GoogleFonts.jua(fontSize: 16, color: AppColors.textSub),
+      ),
+
+      iconTheme: const IconThemeData(
+        color: AppColors.textMain,
+        size: 28,
       ),
     );
   }

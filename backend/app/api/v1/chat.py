@@ -2,7 +2,7 @@
 import json
 import asyncio
 from typing import Dict
-from app.db.database import get_db
+from app.db.database import get_db, AsyncSessionLocal
 from app.services import user_service
 from app.db.models.chat_data import ChatMessage
 from app.db.database_redis import RedisManager
@@ -24,17 +24,17 @@ async def get_chat_status():
         "active_connections": len(manager.active_connections)
     }
     
+
+# 로깅 설정
+import logging
+from app.services.chat_service import ChatService
+
+logger = logging.getLogger(__name__)
+
 class ChatManager:
     def __init__(self):
         self.active_connections: Dict[int, dict] = {}
         self.notification_tasks: Dict[int, asyncio.Task] = {}
-
-    async def send_personal_message(self, payload: dict, user_id: int):
-        """특정 유저에게 알림을 전송, 전송 성공 여부 반환"""
-        # RedisManager.publish_chat_notification이 리스너 수를 반환한다고 가정
-        receiver_count = await RedisManager.publish_chat_notification(user_id, payload)
-        print(f"[SIGNAL] 유저 {user_id}에게 {payload['type']} 전송됨. (수신자 수: {receiver_count})")
-        return receiver_count > 0
 
     async def connect(self, user_id: int, nickname: str, websocket: WebSocket):
         await websocket.accept()
@@ -42,7 +42,7 @@ class ChatManager:
             "socket": websocket,
             "nickname": nickname
         }
-        print(f"[CHAT] {nickname}({user_id}) 연결됨.")
+        logger.info(f"[CHAT] {nickname}({user_id}) 연결됨.")
 
     async def disconnect(self, user_id: int):
         if user_id in self.active_connections:
@@ -54,7 +54,7 @@ class ChatManager:
                 "user_id": user_id,
                 "online": False
             })
-            print(f"[CHAT] 유저 {user_id} 연결 끊김.")
+            logger.info(f"[CHAT] 유저 {user_id} 연결 끊김.")
             
         # [Fix] 연결 끊김 시 리스너 태스크도 확실하게 정리
         await self.cancel_notification_task(user_id)
@@ -63,7 +63,7 @@ class ChatManager:
         # 기존에 돌고 있는 태스크가 있다면 취소 (좀비 방지)
         await self.cancel_notification_task(user_id)
         self.notification_tasks[user_id] = task
-        print(f"[CHAT] 유저 {user_id}의 새 알림 리스너 등록됨.")
+        logger.debug(f"[CHAT] 유저 {user_id}의 새 알림 리스너 등록됨.")
 
     async def cancel_notification_task(self, user_id: int):
         task = self.notification_tasks.pop(user_id, None) 
@@ -74,15 +74,16 @@ class ChatManager:
                     await task
                 except asyncio.CancelledError:
                     pass
-            print(f"[CHAT] 유저 {user_id}의 알림 리스너가 안전하게 제거되었습니다.")
+            logger.debug(f"[CHAT] 유저 {user_id}의 알림 리스너가 안전하게 제거되었습니다.")
 
     async def broadcast(self, payload: dict):
         message = json.dumps(payload, ensure_ascii=False)
         for uid in list(self.active_connections.keys()):
             try:
-                await self.active_connections[uid]["socket"].send_text(message)
-            except Exception:
-                pass
+                if uid in self.active_connections:
+                    await self.active_connections[uid]["socket"].send_text(message)
+            except Exception as e:
+                logger.warning(f"[CHAT] Broadcast error to {uid}: {e}")
 
     def get_nickname(self, user_id: int) -> str:
         user_info = self.active_connections.get(user_id)
@@ -91,10 +92,18 @@ class ChatManager:
 manager = ChatManager()
 
 @router.websocket("/ws/chat/{user_id}")
-async def chat_endpoint(websocket: WebSocket, user_id: int, db: AsyncSession = Depends(get_db)):
+async def chat_endpoint(websocket: WebSocket, user_id: int):
+    # 주의: 여기서 get_db를 Depends로 받지 않음. 
+    # 초기 유저 확인을 위해서만 일회성으로 세션을 열거나, 
+    # 혹은 닉네임만 필요하다면 간단히 처리할 수도 있습니다.
+    # 여기서는 닉네임 조회를 위해 일회성 세션을 사용합니다.
     
-    user = await user_service.get_user(db, user_id) 
-    nickname = user.nickname if user else f"User_{user_id}"
+    nickname = f"User_{user_id}"
+    async with AsyncSessionLocal() as db:
+        user = await user_service.get_user(db, user_id)
+        if user:
+            nickname = user.nickname
+
     await manager.connect(user_id, nickname, websocket)
     await RedisManager.set_user_online(user_id)
 
@@ -113,47 +122,24 @@ async def chat_endpoint(websocket: WebSocket, user_id: int, db: AsyncSession = D
         "online": True
     })
 
-    # [Fix] 리스너 태스크를 매니저에 등록하여 관리 (중복 실행 방지)
-    # 기존: 그냥 create_task 하고 끝 -> 좀비 발생 가능
-    # 변경: Register -> 기존꺼 취소 -> 새로 등록
+    # [Fix] 리스너 태스크를 매니저에 등록하여 관리
     notification_task = asyncio.create_task(listen_to_notifications(websocket, user_id))
     await manager.register_notification_task(user_id, notification_task)
 
     try:
         while True:
             data = await websocket.receive_text()
-            message_json = json.loads(data)
-            receiver_id = int(message_json.get("to_user_id"))
-            content = message_json.get("message")
-
-            new_msg = ChatMessage(
-                sender_id=user_id,
-                receiver_id=receiver_id,
-                message=content
-            )
-            db.add(new_msg)
-            await db.commit()
-            await db.refresh(new_msg)
-
-            notification_payload = {
-                "type": "CHAT_NOTIFICATION",
-                "from_user_id": user_id,
-                "sender_nickname": manager.get_nickname(user_id),
-                "message": content,
-                "created_at": new_msg.created_at.isoformat()
-            }
-
-            await RedisManager.publish_chat_notification(receiver_id, notification_payload)
+            # 서비스 계층 호출 (내부에서 DB 세션 관리)
+            await ChatService.process_message(user_id, nickname, data)
             
     except WebSocketDisconnect:
-        print(f"[CHAT] 유저 {user_id} 연결 종료")
+        logger.info(f"[CHAT] 유저 {user_id} 연결 종료 (WebSocketDisconnect)")
     except Exception as e:
-        print(f"[CHAT] 에러 발생: {e}")
+        logger.error(f"[CHAT] 유저 {user_id} 연결 중 치명적 에러: {e}")
     finally:
         await RedisManager.set_user_offline(user_id)
         await manager.disconnect(user_id)
-        # manager.disconnect 내부에서 task cancel을 호출하므로 여기선 생략 가능하지만 명시적으로 둠
-        # notification_task.cancel()        
+        
 
 async def listen_to_notifications(websocket: WebSocket, user_id: int):
     """Redis에서 나에게 온 알림이 있는지 계속 듣고 있다가 소켓으로 쏴주는 역할"""

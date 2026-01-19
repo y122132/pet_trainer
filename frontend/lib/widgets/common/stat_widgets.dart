@@ -7,37 +7,130 @@ import 'package:pet_trainer_frontend/config/theme.dart';
 class StatColorMapper {
   static Color getColor(String key) {
     switch (key.toUpperCase()) {
-      case 'STR':
-      case 'STRENGTH':
-      case '근력':
-        return AppColors.danger; // Red-ish
-      case 'INT':
-      case 'INTELLIGENCE':
-      case '지능':
-        return AppColors.info; // Blue-ish
-      case 'DEX':
-      case 'AGILITY':
-      case '민첩':
-        return AppColors.success; // Green-ish
-      case 'DEF':
-      case 'DEFENSE':
-      case '방어':
-        return AppColors.warning; // Yellow-ish
-      case 'LUK':
-      case 'LUCK':
-      case '운':
-        return AppColors.secondaryPink; // Pink-ish
-      case 'HAP':
-      case 'HAPPINESS':
-      case '행복':
-        return AppColors.secondaryPink;
-      default:
-        return AppColors.textSub;
+      case 'STR': case 'STRENGTH': case '근력': return AppColors.statRed;
+      case 'INT': case 'INTELLIGENCE': case '지능': return AppColors.statBlue;
+      case 'DEX': case 'AGILITY': case '민첩': return AppColors.statYellow;
+      case 'DEF': case 'DEFENSE': case '방어': return AppColors.statGrey;
+      case 'LUK': case 'LUCK': case '운': return AppColors.statGreen;
+      default: return AppColors.textSub;
+    }
+  }
+
+  static String getEmoji(String key) {
+     switch (key.toUpperCase()) {
+      case 'STR': case '근력': return "💪";
+      case 'INT': case '지능': return "🧠";
+      case 'DEX': case '민첩': return "⚡";
+      case 'DEF': case '방어': return "🛡️";
+      case 'LUK': case '운': return "🍀";
+      case 'LV': case 'LEVEL': return "⭐";
+      default: return "✨";
     }
   }
 }
 
-// --- 공용 레이더 차트 위젯 ---
+// --- 3D Floating Stat Bubble (HUD Style) ---
+class StatBubble extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color? color;
+  final IconData? icon;
+
+  const StatBubble({
+    super.key,
+    required this.label,
+    required this.value,
+    this.color,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = color ?? AppColors.secondary;
+    
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.stroke, width: 2.5),
+        boxShadow: const [
+           BoxShadow(color: AppColors.stroke, offset: Offset(0, 3), blurRadius: 0)
+        ]
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+             Icon(icon, size: 20, color: AppColors.textMain),
+             const SizedBox(width: 8),
+          ],
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(width: 8),
+          Text(value, style: TextStyle(fontWeight: FontWeight.w900, color: bgColor, fontSize: 16)),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Choco Circular Gauge (Thick Donut) ---
+class ChocoStatGauge extends StatelessWidget {
+  final String label;
+  final int value;
+  final int maxValue;
+  final Color? color;
+
+  const ChocoStatGauge({
+    super.key,
+    required this.label,
+    required this.value,
+    this.maxValue = 100,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = value / maxValue;
+    final gaugeColor = color ?? StatColorMapper.getColor(label);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+         SizedBox(
+           width: 60, 
+           height: 60,
+           child: Stack(
+             alignment: Alignment.center,
+             children: [
+               // Track
+               CircularProgressIndicator(
+                 value: 1.0,
+                 strokeWidth: 8,
+                 color: AppColors.stroke.withOpacity(0.1),
+               ),
+               // Progress
+               CircularProgressIndicator(
+                 value: progress,
+                 strokeWidth: 8,
+                 color: gaugeColor,
+                 strokeCap: StrokeCap.round,
+               ),
+               // Emoji Center
+               Text(StatColorMapper.getEmoji(label), style: const TextStyle(fontSize: 22)),
+             ],
+           ),
+         ),
+         const SizedBox(height: 6),
+         Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+         Text("$value", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+      ],
+    );
+  }
+}
+
+// --- 공용 레이더 차트 위젯 (Maintained with Choco Style) ---
 class StatRadarChart extends StatelessWidget {
   final Map<String, int> stats;
   final double maxValue;
@@ -56,27 +149,16 @@ class StatRadarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 5각형 스탯 순서 고정 (레이더 차트의 균형을 위해)
-    // Strength(상) -> Intelligence(우) -> Luck(우하) -> Defense(좌하) -> Agility(좌)
-    // 데이터가 맵으로 들어오면 이 순서대로 매핑
     final keys = ['strength', 'intelligence', 'luck', 'defense', 'agility'];
     final labels = ['STR', 'INT', 'LUK', 'DEF', 'DEX'];
-    
-    // 만약 stats 키가 한글이나 축약어라면 대응 필요하지만, 
-    // 현재 프로젝트에서는 'strength', 'intelligence' 등 풀네임 key 사용 중.
     
     List<RadarEntry> entries = keys.map((k) {
       final val = stats[k] ?? stats[k.toUpperCase()] ?? 0;
       return RadarEntry(value: val.toDouble());
     }).toList();
 
-    // Determine colors based on input or default
-    final fillColor = (graphColors != null && graphColors!.isNotEmpty)
-        ? graphColors![0]
-        : AppColors.info.withOpacity(0.2);
-    final borderColor = (graphColors != null && graphColors!.length > 1)
-        ? graphColors![1]
-        : AppColors.textSub;
+    final fillColor = AppColors.primary.withOpacity(0.2);
+    final borderColor = AppColors.stroke;
 
     return RadarChart(
       RadarChartData(
@@ -85,16 +167,16 @@ class StatRadarChart extends StatelessWidget {
           RadarDataSet(
             fillColor: fillColor,
             borderColor: borderColor,
-            entryRadius: 2,
+            entryRadius: 4, // Chunky dots
             dataEntries: entries,
-            borderWidth: 1.5, // Thinner line
+            borderWidth: 3, // Chunky lines
           ),
         ],
         radarBackgroundColor: Colors.transparent,
         borderData: FlBorderData(show: false),
         radarBorderData: const BorderSide(color: Colors.transparent),
-        titlePositionPercentageOffset: 0.2, // Adjust label position
-        titleTextStyle: labelStyle ?? AppTextStyles.body.copyWith(fontSize: 14),
+        titlePositionPercentageOffset: 0.15,
+        titleTextStyle: labelStyle ?? AppTextStyles.subBody.copyWith(fontWeight: FontWeight.bold),
         getTitle: (index, angle) {
             if (!showLabels) return const RadarChartTitle(text: "");
             if (index < labels.length) {
@@ -104,13 +186,14 @@ class StatRadarChart extends StatelessWidget {
         },
         tickCount: 1,
         ticksTextStyle: const TextStyle(color: Colors.transparent),
-        gridBorderData: const BorderSide(color: Colors.transparent),
+        gridBorderData: BorderSide(color: AppColors.stroke.withOpacity(0.1), width: 2),
       ),
     );
   }
 }
 
-// --- 공용 스탯 바 위젯 ---
+// Deprecated: StatProgressBar (Kept as empty or stub if needed for compilation, 
+// OR replaced by ChocoGauge. If old screens use it, we map it to ChocoGauge Row)
 class StatProgressBar extends StatelessWidget {
   final String label;
   final int value;
@@ -122,43 +205,32 @@ class StatProgressBar extends StatelessWidget {
     required this.label,
     required this.value,
     this.maxValue = 100,
-    this.height = 10, // Slightly thicker
+    this.height = 14, 
   });
 
   @override
   Widget build(BuildContext context) {
-    Color color = StatColorMapper.getColor(label);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 45,
-            child: Text(label, style: AppTextStyles.body.copyWith(color: color, fontSize: 14)),
-          ),
-          Expanded(
-            child: Container(
-              height: height,
-              decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(height),
-                  color: Colors.black.withOpacity(0.05),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(height),
-                child: LinearProgressIndicator(
-                  value: (value / maxValue).clamp(0.0, 1.0),
-                  backgroundColor: Colors.transparent,
-                  color: color,
-                  minHeight: height,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Text("$value", style: AppTextStyles.body.copyWith(fontSize: 14, color: AppColors.textSub)),
-        ],
-      ),
-    );
+     // Fallback to minimal text row for now to avoid breaking battle screen layout heavily
+     Color color = StatColorMapper.getColor(label);
+     return Padding(
+       padding: const EdgeInsets.symmetric(vertical: 4),
+       child: Row(
+         children: [
+           Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+           const SizedBox(width: 8),
+           Expanded(
+             child: ClipRRect(
+               borderRadius: BorderRadius.circular(4),
+               child: LinearProgressIndicator(
+                 value: value / maxValue,
+                 color: color,
+                 backgroundColor: AppColors.stroke.withOpacity(0.1),
+                 minHeight: 8,
+               ),
+             ),
+           )
+         ],
+       ),
+     );
   }
 }
