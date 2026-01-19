@@ -17,7 +17,7 @@ class CreationNameScreen extends StatefulWidget {
 
 class _CreationNameScreenState extends State<CreationNameScreen> {
   final _nameController = TextEditingController();
-  String _selectedPetType = "dog"; // [New] 기본선택: 강아지
+  String _selectedPetType = "danpat"; // [New] 기본선택: 단팥
 
   @override
   void dispose() {
@@ -37,36 +37,74 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
       return;
     }
 
-    // 2단계(사진 등록)로 이름과 펫 종류 전달
+    // 펫 종류 매핑 (danpat -> dog, etc)
+    String realPetType = "dog";
+    if (_selectedPetType == 'shushu') realPetType = 'cat';
+    if (_selectedPetType == 'anko') realPetType = 'bird';
+
+    // 2단계(사진 등록)로 이름, 펫 종류, 프리셋 ID 전달
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => CreationImageScreen(
           characterName: name, 
-          petType: _selectedPetType, // [Modified] Pass selected type
+          petType: realPetType, // 백엔드용 (dog, cat, bird)
+          presetId: _selectedPetType, // 프리셋 로딩용 (danpat, shushu, anko)
         ),
       ),
     );
   }
 
-  Widget _buildPetTypeButton(String petType, String label) {
-    final bool isSelected = _selectedPetType == petType;
-    return ElevatedButton(
-      onPressed: () {
+  Widget _buildCharacterCard(String type, String label, String imagePath) {
+    final bool isSelected = _selectedPetType == type;
+    return GestureDetector(
+      onTap: () {
         setState(() {
-          _selectedPetType = petType;
+          _selectedPetType = type;
         });
       },
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected ? kDarkBrown : Colors.white,
-        foregroundColor: isSelected ? Colors.white : kDarkBrown,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: kDarkBrown),
-        ),
-        elevation: isSelected ? 4 : 0,
+      child: Column(
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: isSelected ? kCreamColor : Colors.white,
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(
+                color: isSelected ? kDarkBrown : Colors.transparent,
+                width: 3,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 5,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.asset(
+                imagePath,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(Icons.pets, color: kLightBrown);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: GoogleFonts.jua(
+              fontSize: 16,
+              color: isSelected ? kDarkBrown : Colors.grey,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ],
       ),
-      child: Text(label, style: GoogleFonts.jua()),
     );
   }
 
@@ -117,15 +155,15 @@ class _CreationNameScreenState extends State<CreationNameScreen> {
                     textAlign: TextAlign.center,
                     style: GoogleFonts.jua(fontSize: 18, color: kDarkBrown.withOpacity(0.8)),
                   ),
-                  const SizedBox(height: 15),
+                  const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildPetTypeButton("dog", "🐶 강아지"),
-                      const SizedBox(width: 10),
-                      _buildPetTypeButton("cat", "🐱 고양이"),
-                      const SizedBox(width: 10),
-                      _buildPetTypeButton("bird", "🐦 새"),
+                      _buildCharacterCard("danpat", "단팥", "assets/images/단팥_정면.JPG"),
+                      const SizedBox(width: 15),
+                      _buildCharacterCard("shushu", "슈슈", "assets/images/슈슈_정면.JPG"),
+                      const SizedBox(width: 15),
+                      _buildCharacterCard("anko", "앙꼬", "assets/images/앙꼬_정면.JPG"),
                     ],
                   ),
                   

@@ -2,6 +2,22 @@
 import json
 import uuid
 import asyncio
+import random
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from typing import Dict, Optional
+from app.services import char_service
+from app.game.matchmaker import matchmaker
+from app.game.game_assets import MOVE_DATA
+from app.db.database import AsyncSessionLocal
+from app.db.models.character import Character, Stat
+from app.core.security import verify_websocket_token
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from app.game.battle_manager import BattleState
+
+# [Refactored Imports]
+from app.repositories.battle_repository import BattleRoomRepository
+from app.game.battle_event_handler import BattleEventHandler
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from typing import Dict, Optional
@@ -147,7 +163,9 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
 
             if "image_urls" not in room_data: room_data["image_urls"] = {}
             room_data["image_urls"][uid_str] = {
-                "front": char.front_url, "back": char.back_url, "side": char.side_url, "face": char.face_url
+                "front": char.front_url, "back": char.back_url, "side": char.side_url, "face": char.face_url,
+                "front_left": char.front_left_url, "front_right": char.front_right_url,
+                "back_left": char.back_left_url, "back_right": char.back_right_url,
             }
 
             if uid_str not in room_data["battle_states"]:
@@ -157,11 +175,15 @@ async def battle_endpoint(websocket: WebSocket, room_id: str, user_id: int, toke
             if room_data.get("is_ai_battle") and "0" not in room_data["battle_states"]:
                 if 0 not in room_data["players"]: room_data["players"].append(0)
                 room_data["character_stats"]["0"] = room_data["character_stats"][uid_str]
-                room_data["pet_types"]["0"] = "bear"
-                room_data["learned_skills"]["0"] = [5, 15, 30] # 곰 봇 스킬
+                
+                # [Refactor] Random AI Type
+                ai_type = random.choice(["dog", "cat", "parrot"])
+                room_data["pet_types"]["0"] = ai_type
+
+                room_data["learned_skills"]["0"] = [5, 15, 30] # 곰 봇 스킬 (그대로 유지)
                 room_data["battle_states"]["0"] = room_data["battle_states"][uid_str]
                 # Image URLs for bot (Empty or Default)
-                room_data["image_urls"]["0"] = {"front":"", "back":"", "side":"", "face":""}
+                room_data["image_urls"]["0"] = {"front":"", "back":"", "side":"", "face":"", "front_left":"", "front_right":"", "back_left":"", "back_right":""}
 
             # 플레이어 리스트 동기화
             actual_members = await BattleRoomRepository.get_players(room_id)
@@ -246,6 +268,8 @@ async def start_battle_check_refactored(room_id: str):
                 "skills": details,
                 "front_url": imgs.get("front") or "", "back_url": imgs.get("back") or "",
                 "side_url": imgs.get("side") or "", "face_url": imgs.get("face") or "",
+                "front_left_url": imgs.get("front_left") or "", "front_right_url": imgs.get("front_right") or "",
+                "back_left_url": imgs.get("back_left") or "", "back_right_url": imgs.get("back_right") or "",
             }
         
         await manager.broadcast(room_id, {

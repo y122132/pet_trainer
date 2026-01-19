@@ -469,6 +469,7 @@ class _MenuPageState extends State<MenuPage> with SingleTickerProviderStateMixin
       "nickname": charProvider.character?.name ?? "나의 펫",
       "pet_type": charProvider.character?.petType ?? "dog",
       "level": charProvider.character?.stat?.level ?? 1,
+      "profile_url": charProvider.character?.profileUrl, // [New]
     };
 
     return Container(

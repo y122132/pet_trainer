@@ -94,6 +94,8 @@ class BattleAvatarWidget extends StatelessWidget {
         remoteUrl = backUrl;
         break;
       case 'side':
+      case 'front_left':
+      case 'back_right':
         tempImage = tempSideImage;
         remoteUrl = sideUrl;
         break;
@@ -119,7 +121,7 @@ class BattleAvatarWidget extends StatelessWidget {
       }
       imageWidget = Image.network(finalUrl, height: size, fit: BoxFit.contain);
     } else {
-      imageWidget = Image.asset(_getAssetPath(petType), height: size, fit: BoxFit.contain);
+      imageWidget = Image.asset(_getAssetPath(petType, imageType), height: size, fit: BoxFit.contain);
     }
 
     return Stack(
@@ -134,14 +136,23 @@ class BattleAvatarWidget extends StatelessWidget {
     );
   }
   
-  String _getAssetPath(String petType) {
-    switch (petType.toLowerCase()) {
-      case 'dog': return "assets/images/characters/멜빵옷.png";
-      case 'cat': return "assets/images/characters/공주옷.png";
-      case 'banana': return "assets/images/characters/바나나옷.png";
-      case 'ninja': return "assets/images/characters/닌자옷.png";
-      default: return "assets/images/characters/닌자옷.png"; 
-    }
+  String _getAssetPath(String petType, String viewType) {
+    String prefix = "단팥"; // Default dog
+    if (petType.toLowerCase() == 'cat') prefix = "슈슈";
+    if (petType.toLowerCase() == 'bird' || petType.toLowerCase() == 'parrot') prefix = "앙꼬";
+
+    String suffix = "_정면.JPG";
+    if (viewType == 'back') suffix = "_후면.JPG";
+    if (viewType == 'side') suffix = "_정면_좌.JPG"; // Battle view usually uses side
+    if (viewType == 'face') suffix = "_정면.JPG";
+    
+    // Diagonal Directions
+    if (viewType == 'front_left') suffix = "_정면_좌.JPG";
+    if (viewType == 'front_right') suffix = "_정면_우.JPG";
+    if (viewType == 'back_left') suffix = "_후면_좌.JPG";
+    if (viewType == 'back_right') suffix = "_후면_우.JPG";
+
+    return "assets/images/${prefix}${suffix}";
   }
 }
 

@@ -1,6 +1,5 @@
 import 'dart:io';
-import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -8,22 +7,23 @@ import 'package:provider/provider.dart';
 
 import '../providers/char_provider.dart';
 import 'menu_page.dart';
-import '../widgets/camera_screen.dart';
 
-// --- 색상 상수 (통일감을 위해 유지) ---
+// --- 색상 상수 ---
 const Color kCreamColor = Color(0xFFFFF9E6);
 const Color kBrown = Color(0xFF4E342E);
 const Color kLightBrown = Color(0xFF8D6E63);
 const Color kDarkBrown = Color(0xFF5D4037);
 
 class CreationImageScreen extends StatefulWidget {
-  final String characterName; // 1단계에서 받은 이름
-  final String petType;      // [New] 선택된 펫 종류
+  final String characterName; 
+  final String petType;      
+  final String presetId;     
 
   const CreationImageScreen({
     super.key, 
     required this.characterName, 
-    required this.petType
+    required this.petType,
+    required this.presetId, 
   });
 
   @override
@@ -32,27 +32,14 @@ class CreationImageScreen extends StatefulWidget {
 
 class _CreationImageScreenState extends State<CreationImageScreen> {
   final ImagePicker _picker = ImagePicker();
-  
-  // 4면 사진 저장용 맵
-  final Map<String, XFile?> _images = {
-    'Front': null,
-    'Back': null,
-    'Side': null,
-    'Face': null,
-  };
-  final Map<String, String> _labels = {
-    'Front': '정면',
-    'Back': '후면',
-    'Side': '옆면',
-    'Face': '얼굴',
-  };
-
+  XFile? _profileImage; // [New] Single profile image
   bool _isLoading = false;
 
-  // 사진 선택 방식 (액션시트)
-  void _showImageSourceActionSheet(String key) {
+  // 이미지 선택 (갤러리/카메라)
+  Future<void> _pickImage() async {
     showModalBottomSheet(
       context: context,
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -62,19 +49,25 @@ class _CreationImageScreenState extends State<CreationImageScreen> {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               ListTile(
-                leading: const Icon(Icons.camera_alt),
-                title: const Text('카메라로 촬영'),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  _takePicture(key);
+                leading: const Icon(Icons.camera_alt, color: kBrown),
+                title: Text('카메라로 촬영', style: GoogleFonts.jua(fontSize: 16)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final XFile? image = await _picker.pickImage(source: ImageSource.camera);
+                  if (image != null) {
+                    setState(() => _profileImage = image);
+                  }
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('갤러리에서 선택'),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  _pickImageFromGallery(key);
+                leading: const Icon(Icons.photo_library, color: kBrown),
+                title: Text('갤러리에서 선택', style: GoogleFonts.jua(fontSize: 16)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+                  if (image != null) {
+                    setState(() => _profileImage = image);
+                  }
                 },
               ),
             ],
@@ -84,55 +77,29 @@ class _CreationImageScreenState extends State<CreationImageScreen> {
     );
   }
 
-  Future<void> _takePicture(String key) async {
-    final result = await Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const CameraScreen()),
-    );
-
-    if (result is XFile) {
-      setState(() {
-        _images[key] = result;
-      });
-    }
-  }
-
-  Future<void> _pickImageFromGallery(String key) async {
-    try {
-      final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-      if (pickedFile != null) {
-        setState(() {
-          _images[key] = pickedFile;
-        });
-      }
-    } catch (e) {
-      debugPrint("Gallery Error: $e");
-    }
-  }
-
-  bool _isAllPhotosTaken() {
-    return _images.values.every((image) => image != null);
-  }
-
-  // 최종 제출 (Atomic Submit)
   Future<void> _submit() async {
-    if (!_isAllPhotosTaken()) return;
+    if (_profileImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("프로필 사진을 등록해주세요!")),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
     try {
       final provider = Provider.of<CharProvider>(context, listen: false);
       
-      // 1단계 이름 + 펫 종류 + 2단계 사진을 합쳐서 한번에 전송
-      bool success = await provider.createCharacterWithImages(
+      bool success = await provider.createCharacterWithProfile(
         widget.characterName, 
-        widget.petType, // [Modified] Pass petType
-        _images,
+        widget.petType, 
+        widget.presetId,
+        _profileImage!,
       );
 
       if (!mounted) return;
 
       if (success) {
-        // 성공 시 메인 로비로 이동 (기존 스택 제거)
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => const MenuPage()),
@@ -146,7 +113,7 @@ class _CreationImageScreenState extends State<CreationImageScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("오류가 발생했습니다: $e")),
+          SnackBar(content: Text("오류: $e")),
         );
       }
     } finally {
@@ -159,148 +126,94 @@ class _CreationImageScreenState extends State<CreationImageScreen> {
     return Scaffold(
       backgroundColor: kCreamColor,
       appBar: AppBar(
-        title: Text("2단계: 사진 등록", style: GoogleFonts.jua(color: kBrown)),
+        title: Text("2단계: 프로필 등록", style: GoogleFonts.jua(color: kBrown)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        leading: IconButton( // 뒤로가기 허용 (이름 수정 가능하도록)
-          icon: const Icon(Icons.arrow_back, color: kBrown),
-          onPressed: () => Navigator.pop(context),
-        ),
+        iconTheme: const IconThemeData(color: kBrown),
       ),
-      body: Stack(
-        children: [
-           Align(
-            alignment: Alignment.bottomCenter,
-            child: Opacity(
-              opacity: 0.3, 
-              child: Image.asset(
-                'assets/images/동물이름.png', // 기존 에셋 재사용
-                fit: BoxFit.fitWidth,
-                width: MediaQuery.of(context).size.width,
-                errorBuilder: (c, o, s) => const SizedBox(), // 에셋 없을 경우 대비
-              ),
-            ),
-          ),
-
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    "${widget.characterName}(이)의 사진을\n4장 등록해주세요",
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.jua(fontSize: 22, color: kDarkBrown),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "(AI가 분석하여 캐릭터를 생성합니다)",
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.jua(fontSize: 14, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 30),
-
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 1.0,
-                    children: _images.keys.map((String key) {
-                      return _buildPhotoSlot(key);
-                    }).toList(),
-                  ),
-
-                  const SizedBox(height: 40),
-
-                  ElevatedButton(
-                    onPressed: (_isAllPhotosTaken() && !_isLoading) ? _submit : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kDarkBrown,
-                      disabledBackgroundColor: Colors.grey,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      elevation: 5,
-                    ),
-                    child: _isLoading 
-                      ? const SizedBox(
-                          height: 24, width: 24,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : Text(
-                          "캐릭터 생성 완료!",
-                          style: GoogleFonts.jua(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPhotoSlot(String key) {
-    XFile? image = _images[key];
-    String label = _labels[key]!;
-
-    return GestureDetector(
-      onTap: () => _showImageSourceActionSheet(key),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: image != null ? kDarkBrown : Colors.grey.shade300,
-            width: image != null ? 2 : 1,
-          ),
-          boxShadow: [
-             BoxShadow(
-               color: Colors.black.withOpacity(0.05),
-               blurRadius: 5,
-               offset: const Offset(0, 3)
-             )
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Stack(
-            fit: StackFit.expand,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (image != null)
-                kIsWeb
-                    ? Image.network(image.path, fit: BoxFit.cover)
-                    : Image.file(File(image.path), fit: BoxFit.cover)
-              else
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.add_a_photo_outlined, size: 30, color: Colors.grey[400]),
-                    const SizedBox(height: 8),
-                    Text(label, style: GoogleFonts.jua(color: Colors.grey[600], fontSize: 16)),
-                  ],
-                ),
-              
-              if (image != null)
-                Positioned(
-                  top: 8, right: 8,
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      color: kDarkBrown,
-                      shape: BoxShape.circle,
-                    ),
-                    padding: const EdgeInsets.all(4),
-                    child: const Icon(Icons.check, size: 16, color: Colors.white),
+              Text(
+                "${widget.characterName}(이)의\n대표 사진을 등록해주세요!",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.jua(fontSize: 22, color: kDarkBrown),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                "(이 사진은 홈 화면과 프로필에 사용됩니다)",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.jua(fontSize: 14, color: Colors.grey),
+              ),
+              const SizedBox(height: 40),
+
+              // --- 원형 프로필 이미지 업로더 ---
+              GestureDetector(
+                onTap: _pickImage,
+                child: Container(
+                  width: 200,
+                  height: 200,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: kBrown, width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, 5),
+                      )
+                    ],
+                  ),
+                  child: ClipOval(
+                    child: _profileImage != null
+                        ? (kIsWeb 
+                            ? Image.network(_profileImage!.path, fit: BoxFit.cover)
+                            : Image.file(File(_profileImage!.path), fit: BoxFit.cover))
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.add_a_photo, size: 50, color: Colors.grey),
+                              const SizedBox(height: 8),
+                              Text("터치하여 추가", style: GoogleFonts.jua(color: Colors.grey)),
+                            ],
+                          ),
                   ),
                 ),
+              ),
+              // -----------------------------
+
+              const SizedBox(height: 60),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: !_isLoading ? _submit : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kDarkBrown,
+                    disabledBackgroundColor: Colors.grey,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    elevation: 5,
+                  ),
+                  child: _isLoading 
+                    ? const SizedBox(
+                        height: 24, width: 24,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : Text(
+                        "캐릭터 생성 완료!",
+                        style: GoogleFonts.jua(fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                ),
+              ),
             ],
           ),
         ),

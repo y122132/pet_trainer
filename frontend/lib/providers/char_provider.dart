@@ -428,9 +428,9 @@ class CharProvider with ChangeNotifier {
     if (_character!.stat!.happiness > 100) _character!.stat!.happiness = 100;
   }
 
-  Future<bool> createCharacterWithImages(String name, String petType, Map<String, XFile?> images) async {
+  Future<bool> createCharacterWithProfile(String name, String petType, String presetId, XFile profileImage) async {
     _isLoading = true;
-    _statusMessage = "캐릭터 생성 중 (사진 전송)...";
+    _statusMessage = "캐릭터 생성 중 (프로필 업로드)...";
     notifyListeners();
 
     try {
@@ -444,31 +444,25 @@ class CharProvider with ChangeNotifier {
         "Authorization": "Bearer $token",
       });
       
+      // Fields
       request.fields['name'] = name;
-      request.fields['pet_type'] = petType; // [Modified] Pass selected type
+      request.fields['pet_type'] = petType;
+      request.fields['preset_id'] = presetId;
 
-      print("--- [DEBUG] CharProvider: Sending MultipartRequest ---");
-      print("--- [DEBUG] Fields: ${request.fields} ---");
+      // Profile Image File
+      var bytes = await profileImage.readAsBytes();
+      String filename = profileImage.name.isNotEmpty ? profileImage.name : "profile.jpg";
+      
+      var multipartFile = http.MultipartFile.fromBytes(
+          'profile_image', 
+          bytes,
+          filename: filename
+      );
+      request.files.add(multipartFile);
 
-      // 파일 추가
-      for (var entry in images.entries) {
-          if (entry.value != null) {
-              String fieldName = "${entry.key.toLowerCase()}_image";
-              var bytes = await entry.value!.readAsBytes();
-              String newFilename = '${entry.key.toLowerCase()}.png'; // 예: 'front.png'
+      print("--- [DEBUG] CharProvider: Sending Profile + Preset Request ---");
+      print("--- [DEBUG] Fields: ${request.fields}, File: $filename ---");
 
-              var pic = http.MultipartFile.fromBytes(
-                  fieldName, 
-                  bytes,
-                  filename: newFilename // 표준화된 영문 파일명 사용
-              );
-              request.files.add(pic);
-          } else {
-             throw Exception("${entry.key} 사진이 누락되었습니다.");
-          }
-      }
-
-      print("[Provider] Sending atomic creation request...");
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
@@ -479,8 +473,6 @@ class CharProvider with ChangeNotifier {
           print("[Provider] Creation Success: ID $newCharId");
           
           await const FlutterSecureStorage().write(key: 'character_id', value: newCharId.toString());
-          
-          setTemporaryImages(images);
           
           await fetchCharacter(newCharId);
           

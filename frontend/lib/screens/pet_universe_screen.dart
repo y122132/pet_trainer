@@ -1382,13 +1382,20 @@ class _PetUniverseScreenState extends State<PetUniverseScreen> with SingleTicker
 
               child: ClipOval(
 
-                child: CuteAvatar(
-
-                  petType: petType,
-
-                  size: 74,
-
-                ),
+                child: (widget.user['profile_url'] != null && widget.user['profile_url'].toString().isNotEmpty)
+                    ? Image.network(
+                        widget.user['profile_url'].toString().startsWith('http') 
+                          ? widget.user['profile_url'].toString() 
+                          : "${AppConfig.baseUrl.replaceFirst('/v1', '')}${widget.user['profile_url']}",
+                        width: 74,
+                        height: 74,
+                        fit: BoxFit.cover,
+                        errorBuilder: (ctx, err, stack) => CuteAvatar(petType: petType, size: 74),
+                      )
+                    : CuteAvatar(
+                        petType: petType,
+                        size: 74,
+                      ),
 
               ),
 

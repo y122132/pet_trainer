@@ -225,6 +225,10 @@ void _handleBattleStart(Map<String, dynamic> data) {
             oppFaceUrl: val['face_url'] ?? "",
             oppBackUrl: val['back_url'] ?? "",
             oppFrontUrl: val['front_url'] ?? "",
+            oppFrontLeftUrl: val['front_left_url'] ?? "",
+            oppFrontRightUrl: val['front_right_url'] ?? "",
+            oppBackLeftUrl: val['back_left_url'] ?? "",
+            oppBackRightUrl: val['back_right_url'] ?? "",
           );
         } else {
           debugPrint("👤 내 정보 동기화 중 (ID: $uid)");

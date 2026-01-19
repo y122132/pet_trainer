@@ -32,6 +32,7 @@ app = FastAPI(title="PetTrainer API")
 # Mount the 'uploads' directory to serve static files
 # This should be placed before the routers if there's any path conflict.
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 # CORS (Cross-Origin Resource Sharing) 미들웨어 설정

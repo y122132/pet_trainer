@@ -399,10 +399,18 @@ async def update_character_image_urls(db: AsyncSession, char_id: int, image_urls
         return None
         
     # 전달된 필드만 업데이트 (Partial Update)
+    if "profile_url" in image_urls_update: character.profile_url = image_urls_update["profile_url"]
+
     if "front_url" in image_urls_update: character.front_url = image_urls_update["front_url"]
     if "back_url" in image_urls_update: character.back_url = image_urls_update["back_url"]
     if "side_url" in image_urls_update: character.side_url = image_urls_update["side_url"]
     if "face_url" in image_urls_update: character.face_url = image_urls_update["face_url"]
+
+    # [New] Additional Directions
+    if "front_left_url" in image_urls_update: character.front_left_url = image_urls_update["front_left_url"]
+    if "front_right_url" in image_urls_update: character.front_right_url = image_urls_update["front_right_url"]
+    if "back_left_url" in image_urls_update: character.back_left_url = image_urls_update["back_left_url"]
+    if "back_right_url" in image_urls_update: character.back_right_url = image_urls_update["back_right_url"]
     
     await db.commit()
     await db.refresh(character)

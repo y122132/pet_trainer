@@ -287,7 +287,9 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
     final List<dynamic> statuses = isMe ? state.myStatuses : state.oppStatuses;
     final String? faceUrl = isMe ? charProvider.character?.faceUrl : state.oppFaceUrl;
     final String petType = isMe ? charProvider.currentPetType : state.oppPetType;
-    final String? sideUrl = isMe ? charProvider.character?.sideUrl : state.oppSideUrl;
+    final String? sideUrl = isMe 
+        ? (charProvider.character?.backRightUrl?.isNotEmpty == true ? charProvider.character?.backRightUrl : charProvider.character?.sideUrl) 
+        : (state.oppFrontLeftUrl?.isNotEmpty == true ? state.oppFrontLeftUrl : state.oppSideUrl);
     
     // Layout: Avatar on one side, HUD on the other to maximize space
     return Row(
@@ -296,7 +298,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       children: isMe 
         ? [
             // My Avatar
-            _buildAnimatedAvatar(petType, sideUrl, isMe, myId, state, 140),
+            _buildAnimatedAvatar(petType, sideUrl, isMe, myId, state, 140, 'back_right'),
             const SizedBox(width: 12),
             // My HUD
             Expanded(child: _buildGlassHud(name: name, hp: hp, maxHp: maxHp, statuses: statuses, faceUrl: faceUrl, isMe: true)),
@@ -306,12 +308,12 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
             Expanded(child: _buildGlassHud(name: name, hp: hp, maxHp: maxHp, statuses: statuses, faceUrl: faceUrl, isMe: false)),
             const SizedBox(width: 12),
             // Opponent Avatar
-            _buildAnimatedAvatar(petType, sideUrl, isMe, myId, state, 110),
+            _buildAnimatedAvatar(petType, sideUrl, isMe, myId, state, 110, 'front_left'),
           ],
     );
   }
 
-  Widget _buildAnimatedAvatar(String petType, String? url, bool isMe, int myId, dynamic state, double size) {
+  Widget _buildAnimatedAvatar(String petType, String? url, bool isMe, int myId, dynamic state, double size, String viewType) {
     final String fullUrl = (url != null && url.isNotEmpty)
       ? (url.startsWith('http') ? url : "${AppConfig.baseUrl.replaceFirst('/v1', '')}$url")
       : "";
@@ -328,7 +330,7 @@ class _BattleViewState extends State<BattleView> with TickerProviderStateMixin {
       child: BattleAvatarWidget(
         petType: petType, 
         idleAnimation: _idleAnimation, 
-        imageType: 'side', 
+        imageType: viewType, 
         sideUrl: fullUrl, 
         damageOpacity: 0.0,
         size: size, // [New] Passing the size

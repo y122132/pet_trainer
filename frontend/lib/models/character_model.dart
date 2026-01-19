@@ -55,10 +55,17 @@ class Character {
   final String? imagePath;
 
   // New image URLs
+  final String? profileUrl; // [New]
   final String? frontUrl;
   final String? backUrl;
   final String? sideUrl;
   final String? faceUrl;
+  
+  // Diagonal Directions
+  final String? frontLeftUrl;
+  final String? frontRightUrl;
+  final String? backLeftUrl;
+  final String? backRightUrl;
 
   Character({
     required this.id,
@@ -69,10 +76,15 @@ class Character {
     this.learnedSkills = const [],
     this.stat,
     this.imagePath,
+    this.profileUrl = "",
     this.frontUrl = "",
     this.backUrl = "",
     this.sideUrl = "",
     this.faceUrl = "",
+    this.frontLeftUrl = "",
+    this.frontRightUrl = "",
+    this.backLeftUrl = "",
+    this.backRightUrl = "",
   });
 
   Character copyWith({
@@ -84,10 +96,15 @@ class Character {
     List<int>? equippedSkills,
     Stat? stat,
     String? imagePath,
+    String? profileUrl,
     String? frontUrl,
     String? backUrl,
     String? sideUrl,
     String? faceUrl,
+    String? frontLeftUrl,
+    String? frontRightUrl,
+    String? backLeftUrl,
+    String? backRightUrl,
   }) {
     return Character(
       id: id ?? this.id,
@@ -98,10 +115,15 @@ class Character {
       equippedSkills: equippedSkills ?? this.equippedSkills,
       stat: stat ?? this.stat,
       imagePath: imagePath ?? this.imagePath,
+      profileUrl: profileUrl ?? this.profileUrl,
       frontUrl: frontUrl ?? this.frontUrl,
       backUrl: backUrl ?? this.backUrl,
       sideUrl: sideUrl ?? this.sideUrl,
       faceUrl: faceUrl ?? this.faceUrl,
+      frontLeftUrl: frontLeftUrl ?? this.frontLeftUrl,
+      frontRightUrl: frontRightUrl ?? this.frontRightUrl,
+      backLeftUrl: backLeftUrl ?? this.backLeftUrl,
+      backRightUrl: backRightUrl ?? this.backRightUrl,
     );
   }
 
@@ -116,10 +138,15 @@ class Character {
       equippedSkills: List<int>.from(json['equipped_skills'] ?? [5]),
       stat: (json['stats'] ?? json['stat']) != null ? Stat.fromJson(json['stats'] ?? json['stat']) : null,
       imagePath: json['image_path'],
+      profileUrl: json['profile_url'] ?? "", // [New]
       frontUrl: json['front_url'] ?? "",
       backUrl: json['back_url'] ?? "",
       sideUrl: json['side_url'] ?? "",
       faceUrl: json['face_url'] ?? "",
+      frontLeftUrl: json['front_left_url'] ?? "",
+      frontRightUrl: json['front_right_url'] ?? "",
+      backLeftUrl: json['back_left_url'] ?? "",
+      backRightUrl: json['back_right_url'] ?? "",
     );
   }
 }

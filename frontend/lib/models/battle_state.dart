@@ -46,6 +46,12 @@ class BattleUIState {
   final String? oppBackUrl;
   final String? oppSideUrl;
   final String? oppFaceUrl;
+  
+  // Diagonal
+  final String? oppFrontLeftUrl;
+  final String? oppFrontRightUrl;
+  final String? oppBackLeftUrl;
+  final String? oppBackRightUrl;
 
   BattleUIState({
     this.oppId = 0,
@@ -67,6 +73,10 @@ class BattleUIState {
     this.oppBackUrl,
     this.oppSideUrl,
     this.oppFaceUrl,
+    this.oppFrontLeftUrl,
+    this.oppFrontRightUrl,
+    this.oppBackLeftUrl,
+    this.oppBackRightUrl,
   });
 
   // CopyWith for immutable updates
@@ -81,6 +91,10 @@ class BattleUIState {
     String? oppBackUrl,
     String? oppSideUrl,
     String? oppFaceUrl,
+    String? oppFrontLeftUrl,
+    String? oppFrontRightUrl,
+    String? oppBackLeftUrl,
+    String? oppBackRightUrl,
   }) {
     return BattleUIState(
       oppId: oppId ?? this.oppId,
@@ -102,6 +116,10 @@ class BattleUIState {
       oppBackUrl: oppBackUrl ?? this.oppBackUrl,
       oppSideUrl: oppSideUrl ?? this.oppSideUrl,
       oppFaceUrl: oppFaceUrl ?? this.oppFaceUrl,
+      oppFrontLeftUrl: oppFrontLeftUrl ?? this.oppFrontLeftUrl,
+      oppFrontRightUrl: oppFrontRightUrl ?? this.oppFrontRightUrl,
+      oppBackLeftUrl: oppBackLeftUrl ?? this.oppBackLeftUrl,
+      oppBackRightUrl: oppBackRightUrl ?? this.oppBackRightUrl,
     );
   }
 }

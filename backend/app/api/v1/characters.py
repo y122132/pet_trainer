@@ -60,10 +60,15 @@ async def get_character(char_id: int, db: AsyncSession = Depends(get_db)):
         "pet_type": char.pet_type, 
         "learned_skills": char.learned_skills,
         "equipped_skills": char.equipped_skills,
+        "profile_url": char.profile_url,
         "front_url": char.front_url,
         "back_url": char.back_url,
         "side_url": char.side_url,
         "face_url": char.face_url,
+        "front_left_url": char.front_left_url,
+        "front_right_url": char.front_right_url,
+        "back_left_url": char.back_left_url,
+        "back_right_url": char.back_right_url,
         "stats": {
             "level": char.stat.level,
             "exp": char.stat.exp,
@@ -148,68 +153,93 @@ async def manual_level_up(char_id: int, db: AsyncSession = Depends(get_db)):
     }
 
 @router.post("/compose")
-async def create_character_with_images(
+async def create_character_with_preset(
     name: str = Form(...),
     pet_type: str = Form("dog"),
-    front_image: UploadFile = File(..., alias="front_image"),
-    back_image: UploadFile = File(..., alias="back_image"),
-    side_image: UploadFile = File(..., alias="side_image"),
-    face_image: UploadFile = File(..., alias="face_image"),
+    preset_id: str = Form(...), 
+    profile_image: UploadFile = File(..., alias="profile_image"), # [New]
     db: AsyncSession = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    print(f"--- [DEBUG] API /compose called: name={name}, pet_type={pet_type}, user_id={current_user_id} ---")
-    # 1. 파일 확장자 선검사 (빠른 실패)
-    image_files = [front_image, back_image, side_image, face_image]
-    for file in image_files:
-        if not file.filename:
-             raise HTTPException(status_code=400, detail="Filename cannot be empty")
-        
-        ext = Path(file.filename).suffix.lower()
-        if not ext or ext.replace('.', '') not in ALLOWED_EXTENSIONS:
-            raise HTTPException(status_code=400, detail=f"File type not allowed: {ext}")
-
-    # 2. 캐릭터 생성 (DB)
+    print(f"--- [DEBUG] API /compose called: name={name}, preset={preset_id}, profile={profile_image.filename} ---")
+    
+    # 1. 캐릭터 생성 (DB)
     try:
         char = await char_service.create_character(db, current_user_id, name, pet_type)
     except ValueError as e:
         status_code = 400
-        if "User not found" in str(e): # User check fail
+        if "User not found" in str(e): 
              status_code = 404
         raise HTTPException(status_code=status_code, detail=str(e))
 
-    # 3. 이미지 저장
-    image_file_map = {
-        "front_url": front_image,
-        "back_url": back_image,
-        "side_url": side_image,
-        "face_url": face_image,
-    }
-    image_urls = {}
-    
+    # 2. 프로필 이미지 저장 (Uploads)
+    profile_url = ""
     try:
-        for key, file in image_file_map.items():
+        if profile_image.filename:
             timestamp = int(time.time())
-            ext = Path(file.filename).suffix
-            new_filename = f"user{current_user_id}_{key}_{timestamp}{ext}"
-            
+            ext = Path(profile_image.filename).suffix
+            new_filename = f"user{current_user_id}_profile_{timestamp}{ext}"
             file_location = os.path.join(UPLOAD_DIR, new_filename)
             
             with open(file_location, "wb+") as file_object:
-                shutil.copyfileobj(file.file, file_object)
-                
-            image_urls[key] = f"/{UPLOAD_DIR}/{new_filename}"
+                shutil.copyfileobj(profile_image.file, file_object)
             
+            profile_url = f"/{UPLOAD_DIR}/{new_filename}"
+            print(f"[DEBUG] Profile Image Saved: {profile_url}")
+
+    except Exception as e:
+        print(f"[Save Error] {e}")
+        await char_service.delete_character(db, char.id)
+        raise HTTPException(status_code=500, detail=f"Profile upload failed: {str(e)}")
+
+
+    # 3. 프리셋 이미지 매핑 (Static URL)
+    prefix_map = {
+        "danpat": "단팥",
+        "shushu": "슈슈",
+        "anko": "앙꼬"
+    }
+    prefix = prefix_map.get(preset_id, "단팥")
+    base_url = "/static/characters"
+    ext = ".JPG" 
+    
+    # 6-Direction mapping
+    image_urls = {
+        "profile_url": profile_url, # [New] User's photo
+        "front_url": f"{base_url}/{prefix}_정면{ext}",
+        "back_url": f"{base_url}/{prefix}_후면{ext}",
+        
+        "front_left_url": f"{base_url}/{prefix}_정면_좌{ext}",
+        "front_right_url": f"{base_url}/{prefix}_정면_우{ext}",
+        
+        "back_left_url": f"{base_url}/{prefix}_후면_좌{ext}",
+        "back_right_url": f"{base_url}/{prefix}_후면_우{ext}",
+        
+        "face_url": f"{base_url}/{prefix}_정면{ext}", 
+        "side_url": f"{base_url}/{prefix}_정면_좌{ext}" 
+    }
+    
+    print(f"[DEBUG] Final Image URLs: {image_urls}")
+
+    try:
         # 4. URL 업데이트
         updated_char = await char_service.update_character_image_urls(db, char.id, image_urls)
         
-        return {"success": True, "message": "Character created successfully", "id": char.id, "character": updated_char}
+        return {
+            "success": True, 
+            "message": "Character created successfully", 
+            "id": char.id, 
+            "character": {
+                "id": updated_char.id,
+                "name": updated_char.name,
+                "profile_url": updated_char.profile_url
+            }
+        }
 
     except Exception as e:
-        # **롤백 실행**: 이미지가 하나라도 실패하면 캐릭터 삭제
-        print(f"[Create Error] Rolling back character {char.id}: {e}")
+        print(f"[Create Error] {e}")
         await char_service.delete_character(db, char.id)
-        raise HTTPException(status_code=500, detail=f"Image upload failed. Character creation rolled back. Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Creation failed: {str(e)}")
 
 
 @router.put("/{char_id}/images")

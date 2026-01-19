@@ -22,10 +22,18 @@ class Character(Base):
     equipped_skills: Mapped[list[int]] = mapped_column(JSONB, default=[5])
 
     # Image URLs
+    profile_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True) # [New] User uploaded profile image
     front_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
     back_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
-    side_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
+    
+    # [New] Additional Directions
+    front_left_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
+    front_right_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
+    back_left_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
+    back_right_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
+    
     face_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True)
+    side_url: Mapped[Optional[str]] = mapped_column(String, default="", nullable=True) # Deprecated but kept for compatibility
     
     # 관계 설정 (Relationships)
     user: Mapped["User"] = relationship("User", back_populates="character")
